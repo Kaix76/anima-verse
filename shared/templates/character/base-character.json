@@ -1,0 +1,748 @@
+{
+  "template_version": 2,
+  "label": "Character Base",
+  "template_type": "character",
+  "selectable": false,
+  "features": {},
+  "tabs": [
+    {
+      "id": "character",
+      "label": "Character",
+      "label_de": "Charakter",
+      "columns": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "id": "soul",
+      "label": "Soul",
+      "label_de": "Soul",
+      "special": "soul"
+    },
+    {
+      "id": "config",
+      "label": "Configuration",
+      "label_de": "Konfiguration",
+      "columns": [
+        7,
+        8,
+        9,
+        10
+      ]
+    },
+    {
+      "id": "image_settings",
+      "label": "Image",
+      "label_de": "Bild",
+      "columns": [
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "id": "activities",
+      "label": "Activities",
+      "label_de": "Aktivitäten",
+      "columns": [
+        12,
+        13
+      ]
+    },
+    {
+      "id": "skills",
+      "label": "Skills",
+      "label_de": "Skills",
+      "columns": [
+        11
+      ]
+    },
+    {
+      "id": "secrets",
+      "label": "Secrets",
+      "label_de": "Geheimnisse",
+      "columns": [
+        14,
+        15
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "identity",
+      "label": "Identity",
+      "label_de": "Identität",
+      "column": 1,
+      "row": 0,
+      "fields": [
+        {
+          "key": "character_name",
+          "label": "Name",
+          "label_de": "Name",
+          "type": "text",
+          "required": true,
+          "workflow_required": [
+            "chat",
+            "image_generation",
+            "instagram"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Name",
+          "llm_generable": true
+        },
+        {
+          "key": "language",
+          "label": "Language",
+          "label_de": "Sprache",
+          "type": "select",
+          "required": true,
+          "llm_generable": true,
+          "options": [
+            {
+              "value": "de",
+              "label": "Deutsch"
+            },
+            {
+              "value": "en",
+              "label": "English"
+            },
+            {
+              "value": "fr",
+              "label": "Français"
+            },
+            {
+              "value": "es",
+              "label": "Español"
+            },
+            {
+              "value": "it",
+              "label": "Italiano"
+            },
+            {
+              "value": "pt",
+              "label": "Português"
+            },
+            {
+              "value": "nl",
+              "label": "Nederlands"
+            },
+            {
+              "value": "pl",
+              "label": "Polski"
+            },
+            {
+              "value": "ru",
+              "label": "Русский"
+            },
+            {
+              "value": "ja",
+              "label": "日本語"
+            },
+            {
+              "value": "zh",
+              "label": "中文"
+            },
+            {
+              "value": "ko",
+              "label": "한국어"
+            }
+          ],
+          "in_prompt": false
+        }
+      ]
+    },
+    {
+      "id": "task_config",
+      "label": "Task",
+      "label_de": "Aufgabe",
+      "column": 2,
+      "row": 0,
+      "fields": [
+        {
+          "key": "character_task",
+          "label": "Tasks / Missions",
+          "label_de": "Aufgaben / Missionen",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/tasks.md",
+          "in_prompt": true,
+          "prompt_label": "Your tasks/missions",
+          "prompt_self_only": true,
+          "llm_generable": true,
+          "hint": "Describes what the character should do or what role they fulfill (in soul/tasks.md)",
+          "hint_de": "Beschreibt was der Character tun soll oder welche Rolle er erfüllt (soul/tasks.md)",
+          "editor_visible": false
+        },
+        {
+          "key": "character_soul",
+          "label": "Soul",
+          "label_de": "Seele",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/soul.md",
+          "in_prompt": true,
+          "prompt_label": "Soul",
+          "prompt_self_only": true,
+          "prompt_requires_feature": "soul_enabled",
+          "hint": "Innermost identity: what moves you, what is sacred, deeper values (in soul/soul.md). Locked by default — sections can be opened with <!-- EDITABLE --> marker.",
+          "hint_de": "Innerste Identität: was bewegt mich, was ist heilig, tiefere Werte (in soul/soul.md). Standardmäßig gesperrt — einzelne Sections per <!-- EDITABLE --> Marker freigeben.",
+          "editor_visible": false
+        }
+      ]
+    },
+    {
+      "id": "state",
+      "label": "Current state",
+      "label_de": "Aktueller Zustand",
+      "column": 2,
+      "row": 1,
+      "fields": [
+        {
+          "key": "current_location",
+          "label": "Current location",
+          "label_de": "Aktueller Ort",
+          "type": "text",
+          "readonly": true,
+          "workflow_required": [
+            "image_generation"
+          ],
+          "hint": "Set via header",
+          "hint_de": "Wird über den Header gesetzt",
+          "in_prompt": false
+        },
+        {
+          "key": "current_activity",
+          "label": "Current activity",
+          "label_de": "Aktuelle Aktivität",
+          "type": "text",
+          "readonly": true,
+          "workflow_required": [
+            "image_generation"
+          ],
+          "hint": "Set via header",
+          "hint_de": "Wird über den Header gesetzt",
+          "in_prompt": false
+        },
+        {
+          "key": "current_room",
+          "label": "Current room",
+          "label_de": "Aktueller Raum",
+          "type": "text",
+          "readonly": true,
+          "hint": "Automatically set based on activity",
+          "hint_de": "Wird automatisch basierend auf Aktivität gesetzt",
+          "in_prompt": false
+        },
+        {
+          "key": "current_feeling",
+          "label": "Current mood",
+          "label_de": "Aktuelle Stimmung",
+          "type": "text",
+          "readonly": true,
+          "workflow_required": [
+            "image_generation",
+            "chat"
+          ],
+          "hint": "Set via chat (SetMood)",
+          "hint_de": "Wird über den Chat gesetzt (SetMood)",
+          "in_prompt": true,
+          "prompt_label": "Current feeling",
+          "prompt_requires_feature": "mood_tracking_enabled",
+          "prompt_self_only": true
+        }
+      ]
+    },
+    {
+      "id": "skills_panel",
+      "label": "Skills",
+      "label_de": "Skills",
+      "column": 11,
+      "row": 0,
+      "special": "skills",
+      "labels": {
+        "loading": {
+          "label": "Loading skills...",
+          "label_de": "Lade Skills..."
+        },
+        "select": {
+          "label": "Select a skill",
+          "label_de": "Skill auswählen"
+        }
+      }
+    },
+    {
+      "id": "activities_panel",
+      "label": "Activities",
+      "label_de": "Aktivitäten",
+      "column": 12,
+      "row": 0,
+      "special": "activities",
+      "labels": {
+        "allowed_locations": {
+          "label": "Allowed Locations",
+          "label_de": "Erlaubte Orte"
+        },
+        "new_activity": {
+          "label": "+ New Activity",
+          "label_de": "+ Neue Aktivität"
+        },
+        "no_activities": {
+          "label": "No activities",
+          "label_de": "Keine Aktivitäten vorhanden"
+        },
+        "no_locations": {
+          "label": "No locations available",
+          "label_de": "Keine Orte vorhanden"
+        }
+      }
+    },
+    {
+      "id": "secrets_panel",
+      "label": "Secrets",
+      "label_de": "Geheimnisse",
+      "column": 14,
+      "row": 0,
+      "special": "secrets",
+      "labels": {
+        "title": {
+          "label": "Secrets",
+          "label_de": "Geheimnisse"
+        },
+        "new_secret": {
+          "label": "+ New Secret",
+          "label_de": "+ Neues Geheimnis"
+        },
+        "no_secrets": {
+          "label": "No secrets yet",
+          "label_de": "Noch keine Geheimnisse vorhanden"
+        }
+      }
+    },
+    {
+      "id": "secrets_form",
+      "label": "Edit Secret",
+      "label_de": "Geheimnis bearbeiten",
+      "column": 15,
+      "row": 0,
+      "special": "secrets_form",
+      "labels": {
+        "new_title": {
+          "label": "New Secret",
+          "label_de": "Neues Geheimnis"
+        },
+        "content": {
+          "label": "Secret text",
+          "label_de": "Geheimnis-Text"
+        },
+        "category": {
+          "label": "Category",
+          "label_de": "Kategorie"
+        },
+        "severity": {
+          "label": "Severity (1-5)",
+          "label_de": "Schwere (1-5)"
+        },
+        "related_chars": {
+          "label": "Related characters (comma-sep.)",
+          "label_de": "Beteiligte Charaktere (kommagetrennt)"
+        },
+        "consequences": {
+          "label": "Consequences if revealed",
+          "label_de": "Konsequenzen bei Enthuellung"
+        },
+        "known_by": {
+          "label": "Known by (comma-separated)",
+          "label_de": "Bekannt bei (kommagetrennt)"
+        },
+        "save": {
+          "label": "Save",
+          "label_de": "Speichern"
+        },
+        "cancel": {
+          "label": "Cancel",
+          "label_de": "Abbrechen"
+        },
+        "placeholder": {
+          "label": "Click + or edit to manage secrets",
+          "label_de": "Klicke auf + oder Bearbeiten um Geheimnisse zu verwalten"
+        }
+      }
+    },
+    {
+      "id": "llm_config",
+      "label": "Chat Mode",
+      "label_de": "Chat-Modus",
+      "column": 7,
+      "row": 0,
+      "fields": [
+        {
+          "key": "chat_mode",
+          "label": "Chat mode",
+          "label_de": "Chat-Modus",
+          "type": "select",
+          "options": [
+            {
+              "value": "",
+              "label": "Single (Chat-LLM handles all)"
+            },
+            {
+              "value": "rp_first",
+              "label": "RP-First (Chat-LLM + Tool-LLM)"
+            }
+          ],
+          "store": "config",
+          "hint": "Single: Chat-LLM handles RP + tool decisions. RP-First: Chat-LLM writes clean RP, then Tool-LLM decides on tools. LLM-Wahl erfolgt zentral via LLM Routing.",
+          "hint_de": "Single: Chat-LLM macht RP + Tool-Entscheidungen. RP-First: Chat-LLM schreibt sauberes RP, dann entscheidet Tool-LLM ueber Tools. LLM-Wahl erfolgt zentral ueber LLM Routing."
+        }
+      ]
+    },
+    {
+      "id": "outfit_imagegen",
+      "label": "Outfit Image Generator (Override)",
+      "label_de": "Outfit-Bild Generator (Override)",
+      "column": 20,
+      "row": 0,
+      "special": "outfit_imagegen",
+      "fields": []
+    },
+    {
+      "id": "appearance_config",
+      "label": "Image Appearance",
+      "label_de": "Bild-Darstellung",
+      "column": 21,
+      "column_span": 2,
+      "row": 0,
+      "special": "slot_overrides",
+      "fields": []
+    },
+    {
+      "id": "behavior_config",
+      "label": "Behavior",
+      "label_de": "Verhalten",
+      "column": 8,
+      "row": 0,
+      "fields": [
+        {
+          "key": "relationships_enabled",
+          "label": "Relationships",
+          "label_de": "Beziehungen",
+          "type": "select",
+          "options": [
+            {
+              "value": "true",
+              "label": "On",
+              "label_de": "An"
+            },
+            {
+              "value": "false",
+              "label": "Off",
+              "label_de": "Aus"
+            }
+          ],
+          "store": "config",
+          "default": "true",
+          "hint": "Track relationships with other characters automatically",
+          "hint_de": "Beziehungen zu anderen Charakteren automatisch verfolgen"
+        },
+        {
+          "key": "mood_tracking",
+          "label": "Mood tracking",
+          "label_de": "Mood Tracking",
+          "type": "select",
+          "options": [
+            {
+              "value": "true",
+              "label": "Yes",
+              "label_de": "Ja"
+            },
+            {
+              "value": "false",
+              "label": "No",
+              "label_de": "Nein"
+            }
+          ],
+          "store": "config"
+        },
+        {
+          "key": "photographer_mode",
+          "label": "Photographer mode",
+          "label_de": "Fotograf-Modus",
+          "type": "select",
+          "options": [
+            {
+              "value": "false",
+              "label": "Off (appears in own photos)",
+              "label_de": "Aus (erscheint in eigenen Fotos)"
+            },
+            {
+              "value": "true",
+              "label": "On (takes photos of others)",
+              "label_de": "An (fotografiert andere)"
+            }
+          ],
+          "store": "config",
+          "default": "false",
+          "hint": "When active, this character does NOT appear in photos they generate. FaceSwap uses the subjects' faces. Ideal for paparazzi characters.",
+          "hint_de": "Wenn aktiv, erscheint dieser Character NICHT in selbst generierten Fotos. FaceSwap nutzt die Gesichter der Motive. Ideal fuer Paparazzi-Charaktere."
+        }
+      ]
+    },
+    {
+      "id": "telegram_config",
+      "label": "Telegram",
+      "label_de": "Telegram",
+      "column": 9,
+      "row": 0,
+      "fields": [
+        {
+          "key": "telegram_bot_token",
+          "label": "Bot Token",
+          "label_de": "Bot Token",
+          "type": "text",
+          "store": "config",
+          "hint": "Telegram Bot Token from @BotFather. Each character needs its own bot. After saving, use the Reload button to start polling.",
+          "hint_de": "Telegram Bot-Token von @BotFather. Jeder Character braucht einen eigenen Bot. Nach dem Speichern den Reload-Button drücken."
+        }
+      ]
+    },
+    {
+      "id": "thoughts_config",
+      "label": "Thoughts",
+      "label_de": "Gedanken",
+      "column": 9,
+      "row": 1,
+      "fields": [
+        {
+          "key": "thoughts_enabled",
+          "label": "Enabled",
+          "label_de": "Aktiviert",
+          "type": "select",
+          "options": [
+            {
+              "value": "false",
+              "label": "No",
+              "label_de": "Nein"
+            },
+            {
+              "value": "true",
+              "label": "Yes",
+              "label_de": "Ja"
+            }
+          ],
+          "store": "config",
+          "hint": "If active, the character periodically thinks and can autonomously act (talk, send messages, change activity, etc.)",
+          "hint_de": "Wenn aktiv, denkt der Character periodisch nach und kann autonom handeln (reden, Nachrichten senden, Aktivitaet aendern, etc.)"
+        },
+        {
+          "key": "thoughts_probability",
+          "label": "Probability",
+          "label_de": "Wahrscheinlichkeit",
+          "type": "text",
+          "store": "config",
+          "default": "0.3",
+          "hint": "Probability per check (0.0 - 1.0). Higher = more frequent thoughts",
+          "hint_de": "Wahrscheinlichkeit pro Pruefung (0.0 - 1.0). Hoeher = haeufigere Gedanken"
+        },
+        {
+          "key": "thoughts_max_daily",
+          "label": "Max per day",
+          "label_de": "Max pro Tag",
+          "type": "text",
+          "store": "config",
+          "default": "5",
+          "hint": "Maximum number of non-forced thoughts per day",
+          "hint_de": "Maximale Anzahl nicht-forcierter Gedanken pro Tag"
+        },
+        {
+          "key": "thoughts_cooldown_minutes",
+          "label": "Cooldown (min)",
+          "label_de": "Cooldown (Min)",
+          "type": "text",
+          "store": "config",
+          "default": "60",
+          "hint": "Minimum minutes between two non-forced thoughts",
+          "hint_de": "Mindestabstand in Minuten zwischen zwei nicht-forcierten Gedanken"
+        }
+      ]
+    },
+    {
+      "id": "tts_config",
+      "label": "Speech (TTS)",
+      "label_de": "Sprache (TTS)",
+      "column": 10,
+      "row": 0,
+      "fields": [
+        {
+          "key": "tts_enabled",
+          "label": "TTS enabled",
+          "label_de": "TTS aktiviert",
+          "type": "select",
+          "options": [
+            {
+              "value": "true",
+              "label": "Yes",
+              "label_de": "Ja"
+            },
+            {
+              "value": "false",
+              "label": "No",
+              "label_de": "Nein"
+            }
+          ],
+          "store": "config"
+        },
+        {
+          "key": "tts_auto",
+          "label": "Auto-play",
+          "label_de": "Auto-Play",
+          "type": "select",
+          "options": [
+            {
+              "value": "true",
+              "label": "Yes",
+              "label_de": "Ja"
+            },
+            {
+              "value": "false",
+              "label": "No",
+              "label_de": "Nein"
+            }
+          ],
+          "store": "config"
+        },
+        {
+          "key": "tts_voice",
+          "label": "TTS Voice",
+          "label_de": "TTS Voice",
+          "type": "select",
+          "source": "tts_voices",
+          "store": "config",
+          "hint": "Voice for Magpie",
+          "hint_de": "Voice für Magpie"
+        },
+        {
+          "key": "tts_speaker_wav",
+          "label": "Speaker WAV",
+          "label_de": "Speaker WAV",
+          "type": "select",
+          "source": "tts_speakers",
+          "store": "config",
+          "hint": "Reference voice for XTTS / F5-TTS / ComfyUI TTS (voiceclone)",
+          "hint_de": "Referenz-Stimme für XTTS / F5-TTS / ComfyUI TTS (voiceclone)"
+        },
+        {
+          "key": "tts_voice_description",
+          "label": "Voice Description",
+          "label_de": "Stimmbeschreibung",
+          "type": "text",
+          "multiline": true,
+          "store": "config",
+          "hint": "Voice description for ComfyUI TTS (voicedesc mode), e.g. 'Young woman, warm and slightly husky voice, calm and confident'",
+          "hint_de": "Stimmbeschreibung für ComfyUI TTS (voicedesc), z.B. 'Junge Frau, warme und leicht raue Stimme, ruhig und selbstbewusst'"
+        },
+        {
+          "key": "tts_comfyui_mode",
+          "label": "ComfyUI TTS Mode",
+          "label_de": "ComfyUI TTS Modus",
+          "type": "select",
+          "options": [
+            {
+              "value": "",
+              "label": "Default (from .env)",
+              "label_de": "Standard (aus .env)"
+            },
+            {
+              "value": "voiceclone",
+              "label": "Voice Clone (reference audio)",
+              "label_de": "Voice Clone (Referenz-Audio)"
+            },
+            {
+              "value": "auto",
+              "label": "Voice Name (from description)",
+              "label_de": "Voice Name (aus Beschreibung)"
+            }
+          ],
+          "store": "config",
+          "hint": "Voice Clone uses a WAV reference. Voice Name generates a voice from the description above and reuses it (regenerates only when description changes).",
+          "hint_de": "Voice Clone nutzt eine WAV-Referenz. Voice Name erzeugt eine Stimme aus der Beschreibung oben und verwendet sie wieder (nur bei Änderung neu generiert)."
+        }
+      ]
+    },
+    {
+      "id": "evolution_inner",
+      "label": "Inner Development",
+      "label_de": "Innere Entwicklung",
+      "column": 18,
+      "row": 0,
+      "fields": [
+        {
+          "key": "character_beliefs",
+          "label": "Beliefs & Values",
+          "label_de": "Überzeugungen & Werte",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/beliefs.md",
+          "in_prompt": true,
+          "prompt_label": "Meine Überzeugungen",
+          "prompt_self_only": true,
+          "prompt_requires_feature": "beliefs_enabled",
+          "hint": "Core beliefs shaped by experiences (auto-generated, in soul/beliefs.md)",
+          "hint_de": "Überzeugungen, geprägt durch Erfahrungen (automatisch, soul/beliefs.md)",
+          "editor_visible": false
+        },
+        {
+          "key": "character_lessons",
+          "label": "Lessons Learned",
+          "label_de": "Gelernte Lektionen",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/lessons.md",
+          "in_prompt": true,
+          "prompt_label": "Was ich gelernt habe",
+          "prompt_self_only": true,
+          "prompt_requires_feature": "lessons_enabled",
+          "hint": "Important lessons from past experiences (auto-generated, in soul/lessons.md)",
+          "hint_de": "Wichtige Lektionen aus vergangenen Erfahrungen (automatisch, soul/lessons.md)",
+          "editor_visible": false
+        }
+      ]
+    },
+    {
+      "id": "evolution_goals",
+      "label": "Personal Goals",
+      "label_de": "Persönliche Ziele",
+      "column": 19,
+      "row": 0,
+      "fields": [
+        {
+          "key": "character_goals",
+          "label": "Personal Goals",
+          "label_de": "Persönliche Ziele",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/goals.md",
+          "in_prompt": true,
+          "prompt_label": "Meine persönlichen Ziele",
+          "prompt_self_only": true,
+          "prompt_requires_feature": "goals_enabled",
+          "hint": "Short-term and long-term personal goals (auto-generated, in soul/goals.md)",
+          "hint_de": "Kurz- und langfristige persönliche Ziele (automatisch, soul/goals.md)",
+          "editor_visible": false
+        },
+        {
+          "key": "character_evolution_updated",
+          "label": "Last Evolution Update",
+          "label_de": "Letzte Aktualisierung",
+          "type": "text",
+          "editor_visible": false,
+          "hint": "Timestamp of last automatic evolution update",
+          "hint_de": "Zeitpunkt der letzten automatischen Aktualisierung"
+        }
+      ]
+    }
+  ]
+}

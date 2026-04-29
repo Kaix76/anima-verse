@@ -1,0 +1,69 @@
+Anima Verse — Source-Available, Non-Commercial, No-Derivatives License
+
+Copyright (c) 2026 Kai Köhler
+
+Permission is hereby granted, free of charge, to any individual obtaining a copy
+of this software and associated documentation files (the "Software"), to install,
+run and use the Software for personal, educational or research purposes only,
+subject to the conditions below.
+
+1. NON-COMMERCIAL USE ONLY
+   The Software, in original or modified form, may not be used for any
+   commercial purpose. "Commercial purpose" includes, without limitation:
+   - Selling, sublicensing or otherwise monetising the Software or any
+     derivative work.
+   - Operating the Software as part of a paid service, SaaS offering or any
+     revenue-generating product.
+   - Internal use within a for-profit organisation as part of its commercial
+     activity.
+   Written permission from the copyright holder is required for any commercial
+   use.
+
+2. NO PUBLIC DERIVATIVES / NO REDISTRIBUTION OF MODIFIED VERSIONS
+   You may modify the Software locally for your own personal use only.
+   You may NOT publish, distribute, host, sublicense or otherwise make available
+   to third parties any modified version of the Software, in source or binary
+   form, by any means (including forks marketed as separate projects, hosted
+   instances of modified copies, or repackaged distributions).
+
+   Exception: contributing changes back to the original Anima Verse project
+   (e.g. via a pull request to the upstream repository) is explicitly permitted.
+   By submitting such a contribution, you agree that the contribution becomes
+   part of the Software under this same license, and that the copyright holder
+   may use, modify and re-license the contribution.
+
+3. NO REDISTRIBUTION OF UNMODIFIED COPIES TO THIRD PARTIES
+   Redistribution of unmodified copies of the Software is permitted only if:
+   - this license file is included verbatim, AND
+   - the redistribution is itself non-commercial, AND
+   - the recipient is informed of these license terms before receiving the
+     Software.
+
+4. ATTRIBUTION
+   The above copyright notice and this permission notice must be included in
+   all copies or substantial portions of the Software.
+
+5. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+   THE SOFTWARE.
+
+6. USER-GENERATED CONTENT
+   The Software is a creative writing / character-simulation framework. Any
+   content (text, images, audio, video) produced by users while running the
+   Software is the sole responsibility of the user. The copyright holder makes
+   no representations about the legality, accuracy or appropriateness of such
+   user-generated content, and is not liable for any consequences arising from
+   it.
+
+This is NOT an OSI-approved Open Source license. The Software is provided as
+"source available" software under the terms above. If you require terms more
+permissive than these (e.g. for commercial deployment, hosted derivatives, or
+Open Source redistribution), contact the copyright holder for a separate
+license.
+
+For commercial use enquiries, contact: github.com.discern001@passfwd.com

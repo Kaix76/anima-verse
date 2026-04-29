@@ -1,0 +1,163 @@
+{
+  "locations": [
+    {
+      "id": "ec9b625c",
+      "name": "Bridgewater Café",
+      "description": "A small independent café on a busy corner, popular with locals — equal parts breakfast spot, freelancer office, and afternoon meet-up.",
+      "rooms": [
+        {
+          "id": "1e6e9aa9",
+          "name": "Main room",
+          "description": "The interior of the café — counter on the left with espresso machine and pastry case, a long shared table down the middle, window booths and a small back nook with armchairs.",
+          "image_prompt_day": "A cozy independent café interior, exposed brick wall on one side, polished concrete floor, a long communal oak table down the middle with mismatched chairs, a counter on the left with a chrome espresso machine and a glass pastry case, a chalkboard menu above, plants hanging from copper pipes, big window booths with worn leather benches, warm morning light streaming in, cinematic photo, no people, no text",
+          "image_prompt_night": "The same café interior at night, warm pendant lamps over the communal table, the espresso machine quiet and gleaming, the chalkboard menu lit by a single spotlight, soft jazz feel, cinematic photo, no people, no text",
+          "activities": [
+            "reading",
+            "chatting",
+            "coffee"
+          ],
+          "outfit_type": "",
+          "knowledge_item_id": ""
+        },
+        {
+          "id": "aadcaba2",
+          "name": "Terrace",
+          "description": "A small outdoor seating area on the corner, three round bistro tables with green chairs under the awning, a low planter of herbs along the curb.",
+          "image_prompt_day": "A small café terrace on a European street corner, three round bistro tables with mismatched green metal chairs, a green awning overhead, a low wooden planter of basil and mint along the edge, a chalkboard with the day's special leaning against the wall, late morning sun and dappled shade, cinematic photo, no people, no text",
+          "image_prompt_night": "The same terrace at night, the bistro tables lit by string lights woven through the awning, a single candle in a small jar on each table, the cobblestones wet from a recent rain reflecting the lights, cinematic photo, no people, no text",
+          "activities": [
+            "chatting",
+            "coffee"
+          ],
+          "outfit_type": "",
+          "knowledge_item_id": ""
+        }
+      ],
+      "image_prompt_day": "A small independent corner café in a European city, large windows facing the street, warm wood storefront with a hand-painted sign reading 'BRIDGEWATER', a few outdoor tables under a green awning, two bicycles leaning against the wall, late morning light, cinematic photo, no people, no text",
+      "image_prompt_night": "The same small corner café at night, warm amber light spilling from the windows onto the cobblestones, neon 'open' sign glowing above the door, a single street lamp casting soft pools of light, the awning rolled up, cinematic photo, no people, no text",
+      "image_prompt_map": "A small iso icon of a café with a steaming coffee cup over a green awning on a white circular background, simple flat illustration, no text",
+      "grid_x": 3,
+      "grid_y": 4,
+      "background_images": [
+        "1777486503.png",
+        "1777486510.png",
+        "1777486520.png",
+        "1777486529.png",
+        "1777486540.png",
+        "1777486548.png",
+        "1777486601.png"
+      ],
+      "danger_level": 0,
+      "event_settings": {
+        "event_probability": 0.1,
+        "max_concurrent_events": 1,
+        "event_cooldown_hours": 2,
+        "allowed_categories": [
+          "ambient",
+          "social",
+          "disruption",
+          "danger"
+        ],
+        "event_blacklist": []
+      },
+      "outfit_type": "",
+      "knowledge_item_id": ""
+    },
+    {
+      "id": "871df9eb",
+      "name": "Hale Residence",
+      "description": "A modest two-story suburban home where Marcus lives. Quiet street, mature oak in the front yard, a covered motorcycle in the driveway.",
+      "rooms": [
+        {
+          "id": "d2a8ef9b",
+          "name": "Living room",
+          "description": "A lived-in living room with worn leather sofa, a guitar in the corner, an old coffee table covered in books and rings from coffee mugs.",
+          "image_prompt_day": "A lived-in middle-class suburban living room interior, warm wood floors, a worn brown leather sofa, an old wooden coffee table with a half-read book and a coffee mug, a dark wood bookshelf along one wall filled with nonfiction and a small motorcycle helmet on top, a vintage acoustic guitar leaned in the corner, soft afternoon light coming through linen curtains, cinematic photo, no people, no text",
+          "image_prompt_night": "A lived-in middle-class suburban living room at night, a single warm floor lamp by the sofa illuminating the room, the rest in soft shadow, a glass of whiskey on the side table, the kitchen visible in the background with a small under-cabinet light, cinematic photo, no people, no text",
+          "activities": [
+            "sleeping",
+            "studying",
+            "cleaning"
+          ],
+          "outfit_type": "",
+          "knowledge_item_id": ""
+        }
+      ],
+      "image_prompt_day": "A modest two-story detached suburban house, brick lower floor and beige siding upper floor, well-kept lawn, a single mature oak tree, gravel driveway with a covered car port and the silhouette of a motorcycle under a tarp, dark green front door with a small porch, late afternoon warm sunlight, cinematic photo, no people, no text",
+      "image_prompt_night": "A modest two-story detached suburban house at night, warm interior lights glowing through curtained windows, a porch lantern lit, the silhouette of a covered motorcycle in the driveway, cool moonlight on the lawn, cinematic photo, no people, no text",
+      "image_prompt_map": "A small icon of a friendly two-story suburban house with a green door on a white circular background, simple flat illustration, no text",
+      "grid_x": 2,
+      "grid_y": 5,
+      "background_images": [
+        "1777486348.png",
+        "1777486358.png",
+        "1777486394.png",
+        "1777486396.png",
+        "1777486405.png"
+      ]
+    },
+    {
+      "id": "e9ba96be",
+      "name": "High-rise building",
+      "description": "",
+      "rooms": [
+        {
+          "name": "Apartment 506",
+          "description": "",
+          "image_prompt_day": "one room apartment in a high-rise tower a the 5. level, room has a small kitchen, a bed and a door to the sperate bathroom.",
+          "image_prompt_night": "one room apartment in a high-rise tower a the 5. level, room has a small kitchen, a bed and a door to the sperate bathroom by night",
+          "activities": [
+            "working_on_computer",
+            "cooking",
+            "sleeping"
+          ],
+          "outfit_type": "intimate",
+          "knowledge_item_id": "",
+          "id": "974e6676"
+        },
+        {
+          "id": "e7ae681a",
+          "name": "Apartment 1207",
+          "description": "Amelia's minimalist high-rise apartment on the 12th floor with floor-to-ceiling windows facing the city skyline.",
+          "image_prompt_day": "A modern minimalist high-rise apartment interior, floor-to-ceiling windows with a sweeping view of the city skyline, polished concrete floor, a low slate-grey sectional sofa, a glass dining table with two designer chairs, an open kitchen with matte black cabinets and a single brushed-metal pendant lamp, a pair of running shoes set neatly by the door, a stack of nonfiction books on a side table, late afternoon sunlight cutting across the room, cinematic photo, no people, no text",
+          "image_prompt_night": "A modern minimalist high-rise apartment interior at night, the city skyline glittering through floor-to-ceiling windows, a single low warm lamp on a side table, the rest of the room in cool blue shadow, a glass of red wine on the coffee table, soft city light reflecting on the polished concrete floor, cinematic photo, no people, no text",
+          "activities": [
+            "cooking",
+            "sleeping"
+          ],
+          "outfit_type": "",
+          "knowledge_item_id": ""
+        }
+      ],
+      "image_prompt_day": "a typical high-rise building at the city by day",
+      "image_prompt_night": "a typical high-rise building at the city by night",
+      "image_prompt_map": "a typical high-rise building at the city in iso view",
+      "danger_level": 0,
+      "outfit_type": "home",
+      "event_settings": {
+        "event_probability": 0.1,
+        "max_concurrent_events": 1,
+        "event_cooldown_hours": 2,
+        "allowed_categories": [
+          "ambient",
+          "social",
+          "disruption",
+          "danger"
+        ],
+        "event_blacklist": []
+      },
+      "knowledge_item_id": "",
+      "background_images": [
+        "1777484451.png",
+        "1777484512.png",
+        "1777484528.png",
+        "1777484771.png",
+        "1777486285.png",
+        "1777486302.png",
+        "1777486325.png"
+      ],
+      "grid_x": 4,
+      "grid_y": 4
+    }
+  ]
+}

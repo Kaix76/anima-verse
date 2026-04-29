@@ -1,0 +1,16 @@
+{
+  "languages": [
+    {"value": "de", "label": "German",    "label_de": "Deutsch"},
+    {"value": "en", "label": "English",   "label_de": "Englisch"},
+    {"value": "fr", "label": "French",    "label_de": "Französisch"},
+    {"value": "es", "label": "Spanish",   "label_de": "Spanisch"},
+    {"value": "it", "label": "Italian",   "label_de": "Italienisch"},
+    {"value": "pt", "label": "Portuguese", "label_de": "Portugiesisch"},
+    {"value": "nl", "label": "Dutch",     "label_de": "Niederländisch"},
+    {"value": "pl", "label": "Polish",    "label_de": "Polnisch"},
+    {"value": "ru", "label": "Russian",   "label_de": "Russisch"},
+    {"value": "ja", "label": "Japanese",  "label_de": "Japanisch"},
+    {"value": "zh", "label": "Chinese",   "label_de": "Chinesisch"},
+    {"value": "ko", "label": "Korean",    "label_de": "Koreanisch"}
+  ]
+}

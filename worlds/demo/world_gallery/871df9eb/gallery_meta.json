@@ -1,0 +1,40 @@
+{
+  "rooms": {
+    "1777486348.png": "d2a8ef9b",
+    "1777486358.png": "d2a8ef9b"
+  },
+  "image_metas": {
+    "1777486348.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486358.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486394.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486396.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486405.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    }
+  },
+  "image_types": {
+    "1777486348.png": "day",
+    "1777486358.png": "night",
+    "1777486394.png": "day",
+    "1777486396.png": "night",
+    "1777486405.png": "map"
+  }
+}

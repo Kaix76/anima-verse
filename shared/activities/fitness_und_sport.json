@@ -1,0 +1,157 @@
+{
+  "group": "Fitness und Sport",
+  "activities": [
+    {
+      "id": "showering",
+      "name": "Showering",
+      "description": "Take a shower",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "outfit_type": "intimate",
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "erfrischt"
+      },
+      "interruptible": true,
+      "name_de": "Duschen",
+      "description_de": "Duschen"
+    },
+    {
+      "id": "sauna",
+      "name": "Sauna",
+      "description": "Relax in the sauna",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 15,
+      "outfit_type": "pool",
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "entspannt",
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "name_de": "Sauna",
+      "description_de": "In der Sauna entspannen und schwitzen"
+    },
+    {
+      "id": "lifting_weights",
+      "name": "Lifting weights",
+      "description": "Lift weights at the gym",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "outfit_type": "sport",
+      "effects": {
+        "stamina_change": -15,
+        "courage_change": 5
+      },
+      "interruptible": true,
+      "name_de": "Gewichte heben",
+      "description_de": "Krafttraining mit Gewichten",
+      "follow_up_activities": [
+        {
+          "activity_id": "showering",
+          "probability": 20
+        }
+      ],
+      "cumulative_effect": {
+        "threshold": 4,
+        "condition_name": "exhausted",
+        "mood_influence": "erschoepft",
+        "duration_hours": 3,
+        "effects": {
+          "stamina_change": -25
+        },
+        "follow_up_activities": [
+          {
+            "activity_id": "showering",
+            "probability": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "cardio_training",
+      "name": "Cardio training",
+      "description": "Do cardio exercise",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "effects": {
+        "stamina_change": -12,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "follow_up_activities": [
+        {
+          "activity_id": "showering",
+          "probability": 20
+        }
+      ],
+      "cumulative_effect": {
+        "threshold": 4,
+        "condition_name": "exhausted",
+        "prompt_modifier": "",
+        "mood_influence": "erschoepft",
+        "duration_hours": 2,
+        "effects": {
+          "stamina_change": -25
+        },
+        "follow_up_activities": [
+          {
+            "activity_id": "showering",
+            "probability": 100
+          }
+        ]
+      },
+      "name_de": "Ausdauertraining",
+      "description_de": "Ausdauertraining auf dem Laufband",
+      "outfit_type": "sport"
+    },
+    {
+      "id": "swimming",
+      "name": "Swimming",
+      "description": "swimming in the pool",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -5,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "name_de": "Schwimmen",
+      "description_de": "Schwimmen im Pool",
+      "outfit_type": "pool"
+    },
+    {
+      "id": "sunbathing",
+      "name": "Sunbathing",
+      "description": "Laying at the sun",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": 2,
+        "mood_influence": "schwitzen"
+      },
+      "interruptible": true,
+      "name_de": "Sonnen",
+      "description_de": "In der Sonne liegen",
+      "outfit_type": "pool"
+    }
+  ]
+}

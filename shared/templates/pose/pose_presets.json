@@ -1,0 +1,448 @@
+{
+  "_comment": "Pose presets: maps activity keywords to body pose prompts. Multiple keys (synonyms/translations) can map to the same prompt.",
+  "selectable": false,
+  "presets": {
+    "standing": {
+      "prompt": "standing with one hand on hip, weight shifted to one leg, shoulder slightly raised, chin up",
+      "synonyms": [
+        "stehen",
+        "stehend"
+      ],
+      "_default": true
+    },
+    "sitting": {
+      "prompt": "sitting comfortably in a chair, legs crossed, hands resting on lap, relaxed shoulders",
+      "synonyms": [
+        "sitzen",
+        "sitzend",
+        "sauna"
+      ]
+    },
+    "reading": {
+      "prompt": "sitting with book in hands, head tilted slightly down, focused posture, legs tucked",
+      "synonyms": [
+        "lesen",
+        "lesend"
+      ]
+    },
+    "cooking": {
+      "prompt": "standing at kitchen counter, one hand stirring, slightly leaned forward, apron on",
+      "synonyms": [
+        "kochen",
+        "kochend",
+        "kaffee kochen",
+        "kaffee machen"
+      ]
+    },
+    "sleeping": {
+      "prompt": "lying on side, head on pillow, eyes closed, relaxed curled body",
+      "synonyms": [
+        "schlafen",
+        "schlafend",
+        "pennen"
+      ]
+    },
+    "walking": {
+      "prompt": "mid-stride walking pose, arms naturally swinging, upright posture, looking ahead",
+      "synonyms": [
+        "gehen",
+        "gehend",
+        "spazieren",
+        "spaziergang"
+      ]
+    },
+    "running": {
+      "prompt": "dynamic running pose, one foot forward, arms pumping, leaning forward",
+      "synonyms": [
+        "laufen",
+        "laufend",
+        "rennen",
+        "joggen",
+        "laufband"
+      ]
+    },
+    "dancing": {
+      "prompt": "graceful dance pose, one arm raised, body turned, weight on one foot",
+      "synonyms": [
+        "tanzen",
+        "tanzend"
+      ]
+    },
+    "eating": {
+      "prompt": "sitting at table, fork in hand, leaning slightly toward plate, napkin on lap",
+      "synonyms": [
+        "essen",
+        "essend"
+      ]
+    },
+    "drinking": {
+      "prompt": "holding glass near lips, elbow raised, other hand resting on table",
+      "synonyms": [
+        "trinken",
+        "trinkend",
+        "eiweißshake",
+        "protein_shake",
+        "sipping a cocktail",
+        "nipping at a drink",
+        "nipping at her beer",
+        "staring at his beer",
+        "swirling the beer label",
+        "spielt mit dem bieretikett",
+        "opening a bottle of beer",
+        "have a cup of coffee",
+        "ordering drinks"
+      ]
+    },
+    "working": {
+      "prompt": "sitting at desk, hands on keyboard, slightly hunched forward, focused posture",
+      "synonyms": [
+        "arbeiten",
+        "arbeitend",
+        "papiere sortieren",
+        "sorting papers",
+        "inhaltserstellung"
+      ]
+    },
+    "exercising": {
+      "prompt": "athletic stance, arms flexed, feet shoulder-width apart, dynamic energy",
+      "synonyms": [
+        "trainieren",
+        "trainierend",
+        "sport",
+        "sport machen",
+        "gewichte heben",
+        "rowing on a rowing machine",
+        "handtraining"
+      ]
+    },
+    "meditating": {
+      "prompt": "cross-legged on floor, hands on knees palms up, straight back, eyes closed",
+      "synonyms": [
+        "meditieren",
+        "meditierend"
+      ]
+    },
+    "painting": {
+      "prompt": "standing at easel, brush in one hand, palette in other, stepping back to look",
+      "synonyms": [
+        "malen",
+        "malend",
+        "zeichnen"
+      ]
+    },
+    "gaming": {
+      "prompt": "sitting forward on chair, controller in hands, elbows on knees, intense focus",
+      "synonyms": [
+        "spielen",
+        "spielend",
+        "zocken",
+        "gamen"
+      ]
+    },
+    "cleaning": {
+      "prompt": "on all fours cleaning, hands and knees on floor, focused cleaning task",
+      "synonyms": [
+        "putzen",
+        "putzend",
+        "aufraeumen",
+        "saubermachen"
+      ]
+    },
+    "gardening": {
+      "prompt": "kneeling on ground, hands in soil, sun hat on, looking down at plants",
+      "synonyms": [
+        "gaertnern",
+        "im garten"
+      ]
+    },
+    "shopping": {
+      "prompt": "walking with bags in hand, browsing posture, one hand reaching toward shelf",
+      "synonyms": [
+        "einkaufen",
+        "einkaufend",
+        "shoppen"
+      ]
+    },
+    "relaxing": {
+      "prompt": "reclined on couch, legs stretched out, hands behind head, laid-back posture",
+      "synonyms": [
+        "entspannen",
+        "entspannend",
+        "entspannt",
+        "entpannen",
+        "chillen",
+        "relaxen"
+      ]
+    },
+    "studying": {
+      "prompt": "hunched over books at desk, pen in hand, chin resting on other hand",
+      "synonyms": [
+        "lernen",
+        "lernend",
+        "studieren"
+      ]
+    },
+    "singing": {
+      "prompt": "standing upright, mouth open, one hand near chest, other hand gesturing",
+      "synonyms": [
+        "singen",
+        "singend",
+        "performing"
+      ]
+    },
+    "playing": {
+      "prompt": "playful dynamic pose, arms outstretched, light bouncy stance",
+      "synonyms": [
+        "herumtoben",
+        "herumalbern"
+      ]
+    },
+    "talking": {
+      "prompt": "standing relaxed, one hand gesturing while speaking, open expressive posture",
+      "synonyms": [
+        "reden",
+        "redend",
+        "sprechen",
+        "unterhalten",
+        "telefonieren",
+        "chatting",
+        "speaking",
+        "kleine gespräche",
+        "discussing concept",
+        "private conversations",
+        "mit_jemandem_fluestern"
+      ]
+    },
+    "showering": {
+      "prompt": "standing under water, head tilted back, eyes closed, arms raised to hair",
+      "synonyms": [
+        "duschen",
+        "duschend"
+      ]
+    },
+    "bathing": {
+      "prompt": "reclining in bathtub, arms resting on edges, head tilted back, relaxed",
+      "synonyms": [
+        "baden",
+        "badend"
+      ]
+    },
+    "yoga": {
+      "prompt": "standing in tree pose, one foot on inner thigh, arms raised above head, balanced",
+      "synonyms": [
+        "yoga machen"
+      ]
+    },
+    "meeting": {
+      "prompt": "sitting at conference table, hands folded, upright posture, attentive engaged pose",
+      "synonyms": [
+        "besprechung",
+        "konferenz",
+        "meeting"
+      ]
+    },
+    "presenting": {
+      "prompt": "standing in front of audience, one hand gesturing, other holding notes, confident posture",
+      "synonyms": [
+        "praesentieren",
+        "vortragen",
+        "vortrag"
+      ]
+    },
+    "driving": {
+      "prompt": "sitting with hands on steering wheel, upright posture, eyes forward, seatbelt on",
+      "synonyms": [
+        "fahren",
+        "autofahren"
+      ]
+    },
+    "photography": {
+      "prompt": "standing with camera raised to eye, one knee slightly bent, focused stance",
+      "synonyms": [
+        "fotografieren",
+        "fotos machen",
+        "instagram posts erstellen",
+        "posen für fotos",
+        "posing for a photo on a desk",
+        "preparing for photoshoot",
+        "getting ready for a photoshoot",
+        "model",
+        "fotos begutachten",
+        "adjusting the aperture of the canon r5 and testing the autofocus",
+        "künstlerische aufnahme machen"
+      ]
+    },
+    "watching_tv": {
+      "prompt": "slumped comfortably on a sofa, legs extended or crossed, arms resting loosely on cushions or holding a remote, head tilted toward the screen",
+      "synonyms": [
+        "fernsehen",
+        "netflix schauen",
+        "watching tv",
+        "watching a movie",
+        "choosing_a_movie",
+        "preparing movie"
+      ]
+    },
+    "thinking": {
+      "prompt": "leaning forward slightly, one elbow propped on a knee while the other hand supports the chin, contemplative gaze",
+      "synonyms": [
+        "denken",
+        "gedanken machen",
+        "grübeln",
+        "nachdenken"
+      ]
+    },
+    "waiting": {
+      "prompt": "standing with weight shifted to one leg, arms loosely crossed over the chest, head tilted slightly as if scanning",
+      "synonyms": [
+        "warten",
+        "waiting for guests"
+      ]
+    },
+    "kneeling": {
+      "prompt": "kneeling upright, legs folded beneath the torso, arms resting gently on the thighs, back held straight",
+      "synonyms": [
+        "knien",
+        "kniend",
+        "kneeling on the kitchen floor",
+        "kneeling on the black carpet"
+      ]
+    },
+    "celebrating": {
+      "prompt": "standing with legs slightly apart, arms raised high in a celebratory gesture, energetic stance",
+      "synonyms": [
+        "feiern",
+        "partying"
+      ]
+    },
+    "making_coffee": {
+      "prompt": "standing upright, leaning slightly forward at a counter, hands operating the coffee machine or pitcher, focused posture",
+      "synonyms": [
+        "kaffee zubereiten",
+        "brewing fresh coffee",
+        "preparing coffee",
+        "making coffee",
+        "foaming milk for a latte",
+        "practicing latte art",
+        "polishing the coffee machine",
+        "going to the coffee machine"
+      ]
+    },
+    "serving": {
+      "prompt": "standing upright behind a counter, leaning slightly forward with hands resting on the surface, ready stance",
+      "synonyms": [
+        "bedienen",
+        "serving customers",
+        "preparing for customers"
+      ]
+    },
+    "monitoring": {
+      "prompt": "sitting upright with focused gaze, hands resting lightly on desk or device, legs firmly on the floor",
+      "synonyms": [
+        "überwachen",
+        "beobachten"
+      ]
+    },
+    "flirting": {
+      "prompt": "leaning slightly forward with an open posture, one hand gently touching the hair, relaxed crossed legs",
+      "synonyms": [
+        "flirten",
+        "flirtend"
+      ]
+    },
+    "filming": {
+      "prompt": "standing upright with slight forward lean, holding a camera steady with both hands at eye level, legs shoulder-width apart for balance",
+      "synonyms": [
+        "filmen",
+        "videoaufnahme",
+        "mach das video",
+        "wird gefilmt",
+        "taking photos",
+        "preparing for the next shot"
+      ]
+    },
+    "chopping": {
+      "prompt": "standing with knees bent and feet wide apart, leaning forward with arms extended downward as if striking or chopping",
+      "synonyms": [
+        "hacken",
+        "hackend"
+      ]
+    },
+    "applying_makeup": {
+      "prompt": "sitting upright with legs crossed, arms raised holding a makeup brush or sponge near the face",
+      "synonyms": [
+        "make-up auftragen",
+        "schminken"
+      ]
+    },
+    "changing_clothes": {
+      "prompt": "standing with one leg slightly bent, arms reaching behind the head or holding a garment, torso slightly twisted",
+      "synonyms": [
+        "umkleiden",
+        "sich umkleiden",
+        "sich_umkleiden"
+      ]
+    },
+    "freshening_up": {
+      "prompt": "standing upright, leaning slightly toward a mirror, hands engaged in grooming or washing",
+      "synonyms": [
+        "sich frisch machen",
+        "freshening up"
+      ]
+    },
+    "lying": {
+      "prompt": "lying flat with limbs sprawled loosely, arms resting at the sides, head tilted back",
+      "synonyms": [
+        "liegen",
+        "liegend",
+        "lying on the sofa",
+        "lying on a blue velvet sofa",
+        "lying exhausted on the sofa",
+        "lying on the training mat"
+      ]
+    },
+    "bending_to_fridge": {
+      "prompt": "standing upright with legs slightly apart, bending forward at the waist while extending both arms forward to handle the refrigerator door",
+      "synonyms": [
+        "opening the refrigerator",
+        "closing the refrigerator",
+        "kühlschrank öffnen",
+        "kühlschrank schließen"
+      ]
+    },
+    "washing_dishes": {
+      "prompt": "standing at sink, legs slightly apart, arms extended forward with elbows bent, hands scrubbing under running water",
+      "synonyms": [
+        "abwaschen",
+        "washing knives in the kitchen sink",
+        "geschirr spülen"
+      ]
+    },
+    "holding_knife": {
+      "prompt": "standing upright with a relaxed posture, holding a knife firmly in one hand while the other arm rests naturally at the side",
+      "synonyms": [
+        "holding a knife in the kitchen",
+        "messer halten"
+      ]
+    },
+    "recovering": {
+      "prompt": "slumped in a chair with a relaxed posture, arms resting loosely on the knees, legs gently crossed",
+      "synonyms": [
+        "erholen",
+        "ausruhen"
+      ]
+    },
+    "shooting": {
+      "prompt": "standing with knees slightly bent and feet shoulder-width apart, firearm held with both hands extended forward at shoulder height, elbows tucked in",
+      "synonyms": [
+        "schießen"
+      ]
+    },
+    "commanding_attention": {
+      "prompt": "standing tall with shoulders back, feet planted firmly in a wide stance, arms held open and deliberate at the sides",
+      "synonyms": [
+        "autoritaet"
+      ]
+    }
+  }
+}

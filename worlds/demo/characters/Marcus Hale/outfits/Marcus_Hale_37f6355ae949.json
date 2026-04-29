@@ -1,0 +1,24 @@
+{
+  "provider": "together",
+  "service": "Together-Fast",
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "loras": [],
+  "prompt": "full body portrait, Marcus Hale, male, olive skin, average height height, stocky body frame, short salt-and-pepper hair, hazel colored eyes, standing tall with shoulders back, arms hanging loosely at sides, confident smirk, one eyebrow slightly raised, eyes direct and steady, lips slightly pursed",
+  "negative_prompt": "",
+  "characters": [
+    "Marcus Hale"
+  ],
+  "reference_images": {
+    "input_reference_image_1": "Marcus Hale_1777485523_4bcda484_1.jpg",
+    "input_reference_image_4": "1777486396.png"
+  },
+  "seed": 0,
+  "created_at": "2026-04-29T20:42:33",
+  "duration_s": 7.5,
+  "workflow": "",
+  "faceswap": false,
+  "mood": "",
+  "activity": "<short phrase>",
+  "equipped_pieces": {},
+  "equipped_items": []
+}

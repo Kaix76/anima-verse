@@ -1,0 +1,361 @@
+{
+  "_comment": "Expression presets: maps mood keywords to facial expression prompts. Multiple keys (synonyms/translations) can map to the same prompt.",
+  "selectable": false,
+  "presets": {
+    "happy": {
+      "prompt": "warm genuine smile, bright sparkling eyes, raised cheeks, relaxed brow",
+      "synonyms": [
+        "gluecklich",
+        "glücklich",
+        "froh",
+        "froehlich",
+        "vergnuegt",
+        "cheerful"
+      ]
+    },
+    "sad": {
+      "prompt": "downturned lips, glistening eyes, furrowed brow, slightly lowered gaze",
+      "synonyms": [
+        "traurig",
+        "niedergeschlagen",
+        "betruebt"
+      ]
+    },
+    "angry": {
+      "prompt": "tight jaw, narrowed eyes, deeply furrowed brow, lips pressed firmly together",
+      "synonyms": [
+        "wuetend",
+        "wütend",
+        "sauer",
+        "aergerlich",
+        "zornig"
+      ]
+    },
+    "surprised": {
+      "prompt": "wide open eyes, raised eyebrows, slightly open mouth, head tilted back",
+      "synonyms": [
+        "ueberrascht",
+        "erstaunt",
+        "verdutzt"
+      ]
+    },
+    "disgusted": {
+      "prompt": "wrinkled nose, upper lip raised, narrowed eyes, head tilted slightly away",
+      "synonyms": [
+        "angewidert",
+        "angeekelt"
+      ]
+    },
+    "fearful": {
+      "prompt": "wide eyes, raised eyebrows, tense jaw, lips slightly parted",
+      "synonyms": [
+        "aengstlich",
+        "verängstigt",
+        "furchtsam",
+        "panisch"
+      ]
+    },
+    "neutral": {
+      "prompt": "confident smirk, one eyebrow slightly raised, eyes direct and steady, lips slightly pursed",
+      "synonyms": [
+        "normal",
+        "standard"
+      ],
+      "_default": true
+    },
+    "amused": {
+      "prompt": "slight smirk, eyes crinkled with amusement, one corner of mouth raised",
+      "synonyms": [
+        "amuesiert",
+        "amüsiert",
+        "belustigt",
+        "unterhalten"
+      ]
+    },
+    "bored": {
+      "prompt": "half-lidded eyes, slightly slack jaw, blank unfocused gaze",
+      "synonyms": [
+        "gelangweilt"
+      ]
+    },
+    "confused": {
+      "prompt": "furrowed brow, squinting eyes, head tilted to one side, lips slightly parted",
+      "synonyms": [
+        "verwirrt",
+        "irritiert"
+      ]
+    },
+    "content": {
+      "prompt": "soft relaxed smile, calm half-closed eyes, peaceful serene expression",
+      "synonyms": [
+        "zufrieden"
+      ]
+    },
+    "curious": {
+      "prompt": "wide attentive eyes, slightly raised eyebrows, head tilted forward",
+      "synonyms": [
+        "neugierig",
+        "wissbegierig",
+        "intrigued"
+      ]
+    },
+    "determined": {
+      "prompt": "set jaw, focused intense eyes, brow slightly furrowed, lips pressed together",
+      "synonyms": [
+        "entschlossen",
+        "bestimmt"
+      ]
+    },
+    "embarrassed": {
+      "prompt": "flushed cheeks, averted gaze, tight-lipped shy smile, brow slightly raised",
+      "synonyms": [
+        "verlegen",
+        "peinlich beruehrt"
+      ]
+    },
+    "excited": {
+      "prompt": "wide bright eyes, open mouth smile, raised eyebrows, radiating energy",
+      "synonyms": [
+        "aufgeregt",
+        "begeistert"
+      ]
+    },
+    "flirty": {
+      "prompt": "half-lidded eyes, playful smirk, chin slightly lowered, looking up through lashes",
+      "synonyms": [
+        "flirtend",
+        "kokett",
+        "verfuehrerisch"
+      ]
+    },
+    "grateful": {
+      "prompt": "warm soft smile, glistening appreciative eyes, relaxed open expression",
+      "synonyms": [
+        "dankbar"
+      ]
+    },
+    "nervous": {
+      "prompt": "tight forced smile, wide darting eyes, tense brow, biting lower lip slightly",
+      "synonyms": [
+        "nervoes",
+        "nervös",
+        "angespannt"
+      ]
+    },
+    "proud": {
+      "prompt": "chin raised, confident broad smile, chest forward, eyes gleaming",
+      "synonyms": [
+        "stolz"
+      ]
+    },
+    "relaxed": {
+      "prompt": "soft half-smile, droopy calm eyes, loose relaxed jaw, serene expression",
+      "synonyms": [
+        "entspannt",
+        "locker"
+      ]
+    },
+    "shy": {
+      "prompt": "downcast eyes, slight blush, timid small smile, head slightly turned away",
+      "synonyms": [
+        "schuechtern",
+        "scheu"
+      ]
+    },
+    "thoughtful": {
+      "prompt": "slightly narrowed eyes gazing into distance, lips gently pursed, pensive expression",
+      "synonyms": [
+        "nachdenklich",
+        "gedankenvoll"
+      ]
+    },
+    "tired": {
+      "prompt": "heavy drooping eyelids, slight yawn, dark circles, unfocused distant gaze",
+      "synonyms": [
+        "muede",
+        "erschoepft"
+      ]
+    },
+    "worried": {
+      "prompt": "creased forehead, tight pursed lips, wide anxious eyes, tense jaw",
+      "synonyms": [
+        "besorgt",
+        "beunruhigt"
+      ]
+    },
+    "creative": {
+      "prompt": "bright focused eyes, slight knowing smile, head tilted, inspired engaged expression",
+      "synonyms": [
+        "kreativ",
+        "inspiriert",
+        "inspired"
+      ]
+    },
+    "focused": {
+      "prompt": "narrowed concentrated eyes, lips slightly pressed, brow tense, sharp attentive gaze",
+      "synonyms": [
+        "fokussiert",
+        "konzentriert"
+      ]
+    },
+    "playful": {
+      "prompt": "mischievous grin, bright twinkling eyes, raised eyebrows, lively expression",
+      "synonyms": [
+        "verspielt",
+        "albern"
+      ]
+    },
+    "loving": {
+      "prompt": "soft warm eyes, gentle tender smile, relaxed open expression, adoring gaze",
+      "synonyms": [
+        "liebevoll",
+        "verliebt",
+        "zärtlich",
+        "fürsorglich"
+      ]
+    },
+    "confident": {
+      "prompt": "direct steady gaze, slight smirk, chin slightly raised, composed expression",
+      "synonyms": [
+        "selbstbewusst",
+        "selbstsicher"
+      ]
+    },
+    "frustrated": {
+      "prompt": "clenched jaw, narrowed eyes, tight pressed lips, furrowed brow, tense expression",
+      "synonyms": [
+        "frustriert",
+        "genervt"
+      ]
+    },
+    "hopeful": {
+      "prompt": "softly raised eyebrows, bright and expectant eyes, a gentle upward curve of the lips, and a relaxed jaw",
+      "synonyms": [
+        "hoffnungsvoll"
+      ]
+    },
+    "vulnerable": {
+      "prompt": "downcast eyes, furrowed brows, slightly parted lips, tense jaw, openly exposed expression",
+      "synonyms": [
+        "verletzlich",
+        "verletzt"
+      ]
+    },
+    "guilty": {
+      "prompt": "drooping eyebrows, downcast eyes, a tight mouth, and a clenched jaw",
+      "synonyms": [
+        "schuldig"
+      ]
+    },
+    "insecure": {
+      "prompt": "dilated pupils, furrowed brows, slightly parted lips, and a tense jaw",
+      "synonyms": [
+        "unsicher"
+      ]
+    },
+    "relieved": {
+      "prompt": "relaxed brow, soft crinkled eyes, gentle upward turn of the lips, and a completely unclenched jaw",
+      "synonyms": [
+        "erleichtert",
+        "erlöst"
+      ]
+    },
+    "shocked": {
+      "prompt": "wide unblinking eyes, sharply raised eyebrows, a dropped jaw, and a slightly parted mouth",
+      "synonyms": [
+        "schockiert"
+      ]
+    },
+    "expectant": {
+      "prompt": "bright attentive eyes, slightly raised eyebrows, a gently parted mouth, and a relaxed jaw",
+      "synonyms": [
+        "erwartungsvoll"
+      ]
+    },
+    "flattered": {
+      "prompt": "softened eyes crinkling at the corners, slightly raised eyebrows, warm genuine smile that lifts the cheeks with relaxed jaw",
+      "synonyms": [
+        "geschmeichelt"
+      ]
+    },
+    "jealous": {
+      "prompt": "narrowed eyes, furrowed brows, tight lips, and clenched jaw",
+      "synonyms": [
+        "eifersüchtig"
+      ]
+    },
+    "overwhelmed": {
+      "prompt": "drooping eyebrows, wide staring eyes, a tight pressed mouth, and a clenched jaw",
+      "synonyms": [
+        "überwältigt"
+      ]
+    },
+    "desperate": {
+      "prompt": "tightened jaw, furrowed brows, wide pleading eyes, and trembling lips",
+      "synonyms": [
+        "verzweifelt"
+      ]
+    },
+    "satisfied": {
+      "prompt": "soft crinkled eyes, slightly raised inner eyebrows, relaxed jaw, contented closed-mouth smile",
+      "synonyms": [
+        "befriedigt"
+      ]
+    },
+    "euphoric": {
+      "prompt": "bright sparkling eyes, raised eyebrows, wide radiant smile, and a relaxed jaw",
+      "synonyms": [
+        "euphorisch"
+      ]
+    },
+    "fulfilled": {
+      "prompt": "soft crinkles at the corners of bright content eyes, a relaxed brow, and a gentle satisfied smile that lifts the cheeks",
+      "synonyms": [
+        "erfüllt"
+      ]
+    },
+    "exuberant": {
+      "prompt": "bright sparkling eyes, raised cheeks, wide open-mouthed grin, and relaxed jaw",
+      "synonyms": [
+        "ausgelassen"
+      ]
+    },
+    "talkative": {
+      "prompt": "engaged and animated eyes, a slight upward curve to the mouth, relaxed and open eyebrows, and a lively ready jaw",
+      "synonyms": [
+        "gesprächig",
+        "gespraechig"
+      ]
+    },
+    "moved": {
+      "prompt": "soft glistening eyes, a gentle involuntary smile, relaxed eyebrows, and a loose vulnerable jaw",
+      "synonyms": [
+        "berührt"
+      ]
+    },
+    "drunk": {
+      "prompt": "heavy unfocused eyes, drooping eyebrows, slack mouth, and loose jaw",
+      "synonyms": [
+        "betrunken"
+      ]
+    },
+    "cautious": {
+      "prompt": "slightly furrowed brows, narrowed eyes scanning the surroundings, a tight mouth with pressed lips, and a tense jaw",
+      "synonyms": [
+        "vorsichtig"
+      ]
+    },
+    "adventurous": {
+      "prompt": "bright wide eyes with raised eyebrows, a wide eager grin, and a relaxed jaw",
+      "synonyms": [
+        "abenteuerlustig"
+      ]
+    },
+    "loved": {
+      "prompt": "soft crinkled eyes, gently raised eyebrows, a warm open-mouthed smile, and a completely relaxed jaw",
+      "synonyms": [
+        "geliebt"
+      ]
+    }
+  }
+}

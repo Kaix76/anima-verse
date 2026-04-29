@@ -1,0 +1,53 @@
+{
+  "group": "Grundaktivitaeten",
+  "activities": [
+    {
+      "id": "eating",
+      "name": "Eating",
+      "description": "Have a meal",
+      "category": "normal",
+      "effects": {
+        "stamina_change": 8
+      },
+      "name_de": "Essen",
+      "description_de": "Eine Mahlzeit zu sich nehmen"
+    },
+    {
+      "id": "cooking",
+      "name": "Cooking",
+      "description": "Prepare a meal",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -5,
+        "mood_influence": "zufrieden"
+      },
+      "name_de": "Kochen",
+      "description_de": "In der Kueche etwas zubereiten"
+    },
+    {
+      "id": "watching_tv",
+      "name": "Watching TV",
+      "description": "Watch television",
+      "category": "normal",
+      "effects": {
+        "stamina_change": 5,
+        "mood_influence": "chatting",
+        "attention_change": -5
+      },
+      "name_de": "Fernsehen",
+      "description_de": "Einen Film oder eine Serie schauen"
+    },
+    {
+      "id": "reading",
+      "name": "Reading",
+      "description": "Read a book or magazine",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -2,
+        "attention_change": 3
+      },
+      "name_de": "Lesen",
+      "description_de": "Ein Buch oder Zeitschrift lesen"
+    }
+  ]
+}

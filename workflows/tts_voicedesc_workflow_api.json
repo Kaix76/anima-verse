@@ -1,0 +1,93 @@
+{
+  "2": {
+    "inputs": {
+      "value": "Hallo, ich bin dein persönlicher Assistent. Wie kann ich dir heute helfen?"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_text"
+    }
+  },
+  "3": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_voice_description"
+    }
+  },
+  "5": {
+    "inputs": {
+      "audioUI": "/api/view?filename=ComfyUI_temp_yerdi_00001_.flac&type=temp&subfolder=&rand=0.4556319759617281",
+      "audio": [
+        "6",
+        1
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "output_audio"
+    }
+  },
+  "6": {
+    "inputs": {
+      "voice_description": [
+        "3",
+        0
+      ],
+      "reference_text": [
+        "2",
+        0
+      ],
+      "language": "Auto",
+      "character_name": [
+        "8",
+        0
+      ],
+      "overwrite_character": true,
+      "TTS_engine": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceDesignerNode",
+    "_meta": {
+      "title": "🎨 Qwen3-TTS Voice Designer"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_size": "1.7B",
+      "device": "auto",
+      "voice_preset": "None (Zero-shot / Custom)",
+      "language": "Auto",
+      "instruct": "",
+      "top_k": 50,
+      "top_p": 1,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 2048,
+      "dtype": "auto",
+      "attn_implementation": "auto",
+      "x_vector_only_mode": false,
+      "use_torch_compile": false,
+      "use_cuda_graphs": false,
+      "compile_mode": "default",
+      "asr_use_forced_aligner": true
+    },
+    "class_type": "Qwen3TTSEngineNode",
+    "_meta": {
+      "title": "⚙️ Qwen3-TTS Engine"
+    }
+  },
+  "8": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveString",
+    "_meta": {
+      "title": "input_voice_name"
+    }
+  }
+}

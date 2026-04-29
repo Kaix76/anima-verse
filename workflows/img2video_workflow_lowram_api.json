@@ -1,0 +1,382 @@
+{
+  "108": {
+    "inputs": {
+      "filename_prefix": "video/Wan2.2_i2v",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "135",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "output_final"
+    }
+  },
+  "132": {
+    "inputs": {
+      "text": ""
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "input_prompt"
+    }
+  },
+  "133": {
+    "inputs": {
+      "image": "",
+      "resize": true,
+      "width": 640,
+      "height": 640,
+      "repeat": 1,
+      "keep_proportion": true,
+      "divisible_by": 32,
+      "mask_channel": "alpha",
+      "background_color": ""
+    },
+    "class_type": "LoadAndResizeImage",
+    "_meta": {
+      "title": "input_image"
+    }
+  },
+  "134": {
+    "inputs": {
+      "width": [
+        "133",
+        2
+      ],
+      "height": [
+        "133",
+        3
+      ],
+      "length": 81,
+      "batch_size": 1,
+      "positive": [
+        "145",
+        0
+      ],
+      "negative": [
+        "142",
+        0
+      ],
+      "vae": [
+        "147",
+        0
+      ],
+      "start_image": [
+        "133",
+        0
+      ]
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {
+      "title": "WanImageToVideo"
+    }
+  },
+  "135": {
+    "inputs": {
+      "fps": 16,
+      "images": [
+        "144",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "136": {
+    "inputs": {
+      "shift": 5.000000000000001,
+      "model": [
+        "163",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "138": {
+    "inputs": {
+      "value": 2
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "split_step"
+    }
+  },
+  "139": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": [
+        "140",
+        0
+      ],
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": [
+        "138",
+        0
+      ],
+      "end_at_step": [
+        "140",
+        0
+      ],
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "151",
+        0
+      ],
+      "positive": [
+        "134",
+        0
+      ],
+      "negative": [
+        "134",
+        1
+      ],
+      "latent_image": [
+        "141",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "140": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "141": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 591810324096402,
+      "steps": [
+        "140",
+        0
+      ],
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": [
+        "138",
+        0
+      ],
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "136",
+        0
+      ],
+      "positive": [
+        "134",
+        0
+      ],
+      "negative": [
+        "134",
+        1
+      ],
+      "latent_image": [
+        "134",
+        2
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced)"
+    }
+  },
+  "142": {
+    "inputs": {
+      "text": [
+        "165",
+        0
+      ],
+      "clip": [
+        "148",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "144": {
+    "inputs": {
+      "samples": [
+        "139",
+        0
+      ],
+      "vae": [
+        "147",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "145": {
+    "inputs": {
+      "text": [
+        "132",
+        0
+      ],
+      "clip": [
+        "148",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "147": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "148": {
+    "inputs": {
+      "clip_name": "",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "151": {
+    "inputs": {
+      "shift": 5.000000000000001,
+      "model": [
+        "164",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "161": {
+    "inputs": {
+      "unet_name": ""
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Load GGUF (High Noise Model)"
+    }
+  },
+  "162": {
+    "inputs": {
+      "unet_name": ""
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Load GGUF (Low Noise Model)"
+    }
+  },
+  "163": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "161",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "input_lora_high"
+    }
+  },
+  "164": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "162",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "input_lora_low"
+    }
+  },
+  "165": {
+    "inputs": {
+      "text": ""
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "input_prompt_negativ"
+    }
+  }
+}

@@ -1,0 +1,1815 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anima Verse</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/themes/base.css?v={{ range(1, 99999) | random }}">
+    <link rel="stylesheet" href="/static/themes/light.css?v={{ range(1, 99999) | random }}" id="theme-stylesheet">
+    <!-- Marked.js für Markdown-Rendering (lokal, kein CDN nötig) -->
+    <script src="/static/marked.min.js"></script>
+    <script src="/static/vis-network.min.js"></script>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Settings bar above header (language + theme) -->
+        <div class="settings-bar">
+            <div class="settings-bar-right">
+                <label for="language-select">Sprache:</label>
+                <select id="language-select"></select>
+                <label for="theme-select">Theme:</label>
+                <select id="theme-select">
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+        </div>
+        <div class="chat-header">
+            <!-- Linke Spalte: Character-Bild (ragt ins Chat) -->
+            <div class="header-character-float">
+                <div class="agent-wrapper">
+                    <span id="agent-name" class="agent-name-label">—</span>
+                </div>
+                <div class="header-image-row">
+                    <div class="profile-image-wrapper" id="profile-image-wrapper-single">
+                        <img id="agent-profile-image" class="agent-profile-image" src="" alt="Agent Avatar" style="display: none;">
+                        <video id="agent-profile-video" class="agent-profile-image" src="" autoplay loop muted playsinline style="display: none;"></video>
+                        <span id="header-mood-display" class="mood-overlay" title="Aktuelle Stimmung" style="display:none;">—</span>
+                        <div id="agent-condition-badges" class="condition-badges"></div>
+                        <button id="btn-generate-profile-image" class="profile-gen-btn" title="Neues Profilbild generieren" style="display:none;">📷</button>
+                        <div id="status-effects-bars" class="status-effects-bars" style="display:none;"></div>
+                    </div>
+                    <!-- Group Chat: Kachel-Grid aller Teilnehmer -->
+                    <div id="group-portraits" class="group-portraits" style="display:none;"></div>
+                    <div class="header-image-buttons">
+                        <div class="header-btn-row">
+                            <button id="btn-edit-agent" class="reset-btn" title="Edit current character profile">⚙️</button>
+                            <button id="btn-new-character" class="reset-btn" title="Create a new character">➕ New</button>
+                        </div>
+                        <button id="btn-scheduler" class="reset-btn" title="Zeitplan">⏱️</button>
+
+                        <button id="btn-knowledge" class="reset-btn" title="Wissen des Characters">🧠</button>
+                        <div id="header-activity-display" title="Aktuelle Aktivitaet">
+                            <div id="header-room-line"></div>
+                            <div id="header-activity-line"></div>
+                            <div id="header-mood-line"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Rechte Spalte: Spieler-Character -->
+            <div class="header-controls-col">
+                <div class="header-player">
+                    <div class="player-info-col">
+                        <div class="player-btn-col">
+                            <button id="btn-player-edit" class="reset-btn" title="Character Profil">⚙️</button>
+                            <button id="btn-scheduler-player" class="reset-btn" title="Zeitplan">⏱️</button>
+                            <button id="btn-knowledge-player" class="reset-btn" title="Wissen">🧠</button>
+                        </div>
+                        <div class="player-activity-display" id="player-activity-display">
+                            <div id="player-room-line"></div>
+                            <div id="player-activity-line"></div>
+                            <div id="player-mood-line"></div>
+                        </div>
+                    </div>
+                    <div class="player-avatar-col">
+                        <div class="player-avatar-wrapper" id="player-avatar-wrapper">
+                            <img id="player-profile-image" class="player-profile-image" src="" alt="Player Avatar" style="display: none;">
+                            <div id="player-condition-badges" class="condition-badges"></div>
+                            <div id="player-status-bars" class="player-status-bars" style="display:none;"></div>
+                            <button id="btn-player-gen-image" class="player-gen-btn" title="Profilbild generieren" style="display:none;">📷</button>
+                        </div>
+                        <select id="active-character-select" class="active-character-select" title="Charakter wechseln" style="display:none;"></select>
+                    </div>
+                    <div class="player-btn-col player-btn-col-secondary">
+                        <button id="btn-logout" class="header-action-btn" title="Abmelden">🚪</button>
+                        <button id="btn-reload-config" class="header-action-btn" title="Config neu laden" onclick="reloadConfig()" data-admin-only="1">↻</button>
+                        <button id="btn-game-admin" class="header-action-btn" title="Game Admin" onclick="openGameAdminModal()" data-admin-only="1">🎮</button>
+                        <a id="btn-admin-settings" class="header-action-btn" href="/admin/settings" target="_blank" title="Admin-Webseite" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">⚙</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+            <button class="tab-btn tab-active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+            <button class="tab-btn" data-tab="relations" onclick="switchTab('relations')">Relations</button>
+            <button class="tab-btn" data-tab="story" onclick="switchTab('story')" style="display:none">Story</button>
+            <button class="tab-btn" data-tab="storydev" onclick="switchTab('storydev')" style="display:none">Story Dev</button>
+            <span class="tab-spacer"></span>
+            <button class="tab-btn tab-btn-worlddev" data-tab="worlddev" onclick="switchTab('worlddev')" style="display:none" data-admin-only="1">World Dev</button>
+        </div>
+        <!-- Tab: Chat -->
+        <div class="tab-content tab-content-active" id="tab-chat">
+            <div class="chat-messages" id="chat-messages">
+                <!-- Nachrichten werden hier dynamisch eingefügt -->
+            </div>
+            <div id="sleep-warning" class="sleep-warning" style="display:none;">
+                Dieser Character schlaeft gerade. Eine Nachricht weckt ihn auf.
+            </div>
+            <!-- Group Chat Settings Bar (nur im Gruppenmodus sichtbar) -->
+            <div id="group-chat-bar" class="group-chat-bar" style="display:none;">
+                <span class="gcb-label">Antworten:</span>
+                <input type="range" id="gcb-min" class="gcb-range" min="1" max="6" step="1" value="1" title="Min Antworten">
+                <span class="gcb-value" id="gcb-min-val">1</span>
+                <span class="gcb-sep">–</span>
+                <input type="range" id="gcb-max" class="gcb-range" min="1" max="6" step="1" value="3" title="Max Antworten">
+                <span class="gcb-value" id="gcb-max-val">3</span>
+                <span class="gcb-divider"></span>
+                <span class="gcb-label">🤫</span>
+                <select id="gcb-whisper-to" class="gcb-whisper-select" title="Fluestern an (leer = alle hoeren)">
+                    <option value="">-- an alle --</option>
+                </select>
+                <span class="gcb-divider"></span>
+                <button id="gcb-reset" class="gcb-reset-btn" title="Neuer Gruppenchat (History loeschen)">&#x21bb; Neu</button>
+            </div>
+            <!-- Image attachment preview -->
+            <div id="chat-image-preview" class="chat-image-preview" style="display:none;">
+                <img id="chat-image-preview-img" src="" alt="Vorschau">
+                <span id="chat-image-preview-name" class="chat-image-preview-name"></span>
+                <button id="chat-image-preview-remove" class="chat-image-preview-remove" title="Bild entfernen">&times;</button>
+            </div>
+            <div class="chat-input">
+                <textarea
+                    id="user-input"
+                    rows="3"
+                    placeholder="Nachricht eingeben … Enter senden, Shift+Enter Zeilenumbruch"
+                    autocomplete="off"
+                ></textarea>
+                <div class="chat-input-buttons">
+                    <input type="file" id="chat-image-upload" accept="image/*" style="display:none;">
+                    <button id="btn-attach-image" class="btn-attach-image" title="Bild hochladen">📎</button>
+                    <button id="btn-link-image" class="btn-attach-image" title="Bild aus Bibliothek">🖼️</button>
+                </div>
+                <button id="send-button">Senden</button>
+            </div>
+            <!-- Image Library Picker Modal -->
+            <div id="image-library-modal" class="image-library-modal" style="display:none;">
+                <div class="image-library-content">
+                    <div class="image-library-header">
+                        <h3>Bild aus Bibliothek wählen</h3>
+                        <button id="image-library-close" class="image-library-close">&times;</button>
+                    </div>
+                    <div id="image-library-grid" class="image-library-grid"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Tab: Story -->
+        <div class="tab-content" id="tab-story" style="display: none;">
+            <div class="story-container">
+                <!-- Story List View -->
+                <div id="story-list-view">
+                    <div class="story-list-header">
+                        <h2>Geschichten</h2>
+                        <span id="story-character-name" class="story-char-badge"></span>
+                    </div>
+                    <div id="story-cards" class="story-cards"></div>
+                </div>
+                <!-- Story Play View -->
+                <div id="story-play-view" style="display:none;">
+                    <div class="story-play-header">
+                        <button class="story-back-btn" onclick="exitStory()">&#8592; Zurueck</button>
+                        <h3 id="story-play-title"></h3>
+                        <button class="reset-btn" onclick="restartStory()">Neustart</button>
+                    </div>
+                    <div id="story-scene-content" class="story-scene"></div>
+                    <div id="story-scene-image" class="story-scene-image"></div>
+                    <div id="story-options" class="story-options"></div>
+                </div>
+            </div>
+        </div>
+        <!-- Tab: Story Dev -->
+        <div class="tab-content" id="tab-storydev" style="display: none;">
+            <div class="storydev-container">
+                <!-- Config Panel -->
+                <div class="storydev-config" id="storydev-config">
+                    <h3>Story Entwicklung</h3>
+                    <div class="form-group">
+                        <label for="storydev-model-select">LLM Modell</label>
+                        <select id="storydev-model-select" class="auth-input">
+                            <option value="">-- Modell waehlen --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="storydev-thema">Thema</label>
+                        <input type="text" id="storydev-thema" class="auth-input" placeholder="z.B. Ein Tag am Strand, Abenteuer im Wald">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="storydev-laenge">Groesse</label>
+                            <select id="storydev-laenge" class="auth-input">
+                                <option value="small">Klein (5-8 Szenen)</option>
+                                <option value="medium" selected>Mittel (8-15 Szenen)</option>
+                                <option value="large">Gross (15-25 Szenen)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="storydev-verzweigungen">Verzweigungen</label>
+                            <input type="number" id="storydev-verzweigungen" class="auth-input" value="3" min="2" max="10">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="storydev-ton">Ton</label>
+                            <select id="storydev-ton" class="auth-input">
+                                <option value="lustig">Lustig</option>
+                                <option value="ernst">Ernst</option>
+                                <option value="romantisch">Romantisch</option>
+                                <option value="spannend" selected>Spannend</option>
+                                <option value="alltaeglich">Alltaeglich</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="storydev-max-antwort">Max. Antwortlaenge</label>
+                            <input type="number" id="storydev-max-antwort" class="auth-input" value="800" min="200" max="2000" step="100">
+                        </div>
+                    </div>
+                    <div class="storydev-actions">
+                        <button id="storydev-generate-btn" class="save-btn" onclick="storyDevGenerate()">Story generieren</button>
+                    </div>
+                </div>
+                <!-- Result Panel -->
+                <div class="storydev-result" id="storydev-result" style="display: none;">
+                    <div class="storydev-result-header">
+                        <h3 id="storydev-result-title">Generierte Story</h3>
+                        <div class="storydev-result-btns">
+                            <button id="storydev-overwrite-btn" class="save-btn" onclick="storyDevSave(true)" style="display:none">Ueberschreiben</button>
+                            <button class="save-btn" onclick="storyDevSave(false)">Als neu speichern</button>
+                            <button class="reset-btn" onclick="storyDevReset()">Neue Story</button>
+                        </div>
+                    </div>
+                    <div id="storydev-result-content" class="storydev-result-content"></div>
+                    <div class="storydev-refine">
+                        <input type="text" id="storydev-refine-text" class="auth-input" placeholder="Verbesserungsanweisung eingeben..." autocomplete="off">
+                        <button id="storydev-refine-btn" class="save-btn" onclick="storyDevRefine()">Verbessern</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Tab: World Dev -->
+        <!-- Tab: Relations (Social Graph) -->
+        <div class="tab-content" id="tab-relations" style="display: none;">
+            <div class="relations-container">
+                <div class="relations-toolbar">
+                    <button class="reset-btn" onclick="relationsRefresh()" title="Graph neu laden">&#x21bb; Aktualisieren</button>
+                </div>
+                <div id="relations-graph" class="relations-graph"></div>
+                <div id="relations-detail" class="relations-detail" style="display:none;">
+                    <div class="relations-detail-header">
+                        <span id="rel-detail-title"></span>
+                        <button class="modal-close" onclick="relationsCloseDetail()">&times;</button>
+                    </div>
+                    <div class="relations-detail-body">
+                        <div class="rel-detail-row">
+                            <label>Typ:</label>
+                            <select id="rel-detail-type" onchange="relationsTypeChanged()">
+                                <option value="neutral">Neutral</option>
+                                <option value="acquaintance">Bekannt</option>
+                                <option value="friend">Freund</option>
+                                <option value="romantic">Romantisch</option>
+                                <option value="rival">Rivale</option>
+                                <option value="enemy">Feind</option>
+                            </select>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label>Staerke:</label>
+                            <div class="rel-strength-bar-wrap">
+                                <div id="rel-strength-bar" class="rel-strength-bar"></div>
+                            </div>
+                            <span id="rel-strength-val"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label>Romantik:</label>
+                            <div class="rel-strength-bar-wrap">
+                                <div id="rel-romantic-bar" class="rel-strength-bar romantic"></div>
+                            </div>
+                            <span id="rel-romantic-val"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label>Potenzial:</label>
+                            <span id="rel-romantic-potential"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label id="rel-sent-a-label">A &rarr; B:</label>
+                            <span id="rel-sent-a-val"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label id="rel-sent-b-label">B &rarr; A:</label>
+                            <span id="rel-sent-b-val"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label>Interaktionen:</label>
+                            <span id="rel-interaction-count"></span>
+                        </div>
+                        <div class="rel-detail-row">
+                            <label>Letzte:</label>
+                            <span id="rel-last-interaction"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tab-content" id="tab-worlddev" style="display: none;">
+            <div class="worlddev-container">
+                <!-- Pause Bar -->
+                <div class="worlddev-pause-bar">
+                    <button id="worlddev-pause-btn" class="worlddev-pause-btn" onclick="worldDevTogglePause()" title="Alle Hintergrund-Aktivitaeten pausieren">&#9654; Aktiv</button>
+                    <span id="worlddev-pause-label" class="worlddev-pause-label">Scheduler, Gedanken-Loop und Task-Queue laufen</span>
+                </div>
+                <!-- Top Bar (3-column table) -->
+                <table class="worlddev-topbar-table">
+                    <tr>
+                        <td class="worlddev-col-llm">
+                            <label for="worlddev-model-select">LLM Modell</label>
+                            <select id="worlddev-model-select" class="auth-input">
+                                <option value="">-- Modell waehlen --</option>
+                            </select>
+                            <button class="reset-btn worlddev-new-btn" onclick="worldDevNewSession()">Neues Gespraech</button>
+                            <span id="worlddev-cost" class="worlddev-cost" style="display:none" title="Geschaetzte Kosten dieser Session"></span>
+                        </td>
+                        <td class="worlddev-col-mode">
+                            <label for="worlddev-mode-select">Modus</label>
+                            <select id="worlddev-mode-select" class="auth-input" onchange="worldDevModeChanged()">
+                                <option value="new">Neu erstellen</option>
+                                <option value="edit">Bearbeiten</option>
+                            </select>
+                        </td>
+                        <td class="worlddev-col-options">
+                            <!-- Neu: Typ -->
+                            <div id="worlddev-schema-group">
+                                <label for="worlddev-schema-select">Typ</label>
+                                <select id="worlddev-schema-select" class="auth-input" onchange="worldDevSchemaChanged()">
+                                    <option value="location">Ort / Location</option>
+                                </select>
+                            </div>
+                            <!-- Neu + Character: Template -->
+                            <div id="worlddev-template-group" style="display:none">
+                                <label for="worlddev-template-select">Template</label>
+                                <select id="worlddev-template-select" class="auth-input">
+                                    <option value="human-roleplay">Human (Roleplay)</option>
+                                    <option value="human-default">Human Standard</option>
+                                    <option value="animal-default">Animal</option>
+                                </select>
+                            </div>
+                            <!-- Bearbeiten: Ort -->
+                            <div id="worlddev-edit-location-group" style="display:none">
+                                <label for="worlddev-location-select">Ort</label>
+                                <select id="worlddev-location-select" class="auth-input" onchange="worldDevEditLocation()">
+                                    <option value="">-- waehlen --</option>
+                                </select>
+                            </div>
+                            <!-- Bearbeiten: Character -->
+                            <div id="worlddev-edit-character-group" style="display:none">
+                                <label for="worlddev-character-select">Character</label>
+                                <select id="worlddev-character-select" class="auth-input" onchange="worldDevEditCharacter()">
+                                    <option value="">-- waehlen --</option>
+                                </select>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                <!-- Context Selection -->
+                <div class="worlddev-context-bar">
+                    <span class="worlddev-context-label">Kontext:</span>
+                    <div class="worlddev-context-group">
+                        <span class="worlddev-context-grouplabel">Orte</span>
+                        <div id="worlddev-context-locations" class="worlddev-context-checks"></div>
+                    </div>
+                    <div class="worlddev-context-group">
+                        <span class="worlddev-context-grouplabel">Characters</span>
+                        <div id="worlddev-context-characters" class="worlddev-context-checks"></div>
+                    </div>
+                </div>
+                <!-- Chat Area -->
+                <div class="worlddev-chat" id="worlddev-chat-messages">
+                    <div class="worlddev-welcome">
+                        <p>Waehle ein Modell und beschreibe, welchen Ort du erstellen moechtest.</p>
+                    </div>
+                </div>
+                <!-- Input Area -->
+                <div class="worlddev-input">
+                    <textarea
+                        id="worlddev-user-input"
+                        rows="3"
+                        placeholder="Beschreibe den Ort, den du erstellen moechtest... Enter senden, Shift+Enter Zeilenumbruch"
+                        autocomplete="off"
+                    ></textarea>
+                    <button id="worlddev-send-btn" class="save-btn" onclick="worldDevSend()">Senden</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Login/Register Modal -->
+    <div id="auth-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-narrow">
+            <div class="modal-header">
+                <h2 id="auth-modal-title">Anmelden</h2>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <input type="text" id="login-username" class="auth-input" placeholder="Benutzername" autocomplete="username">
+                    <input type="password" id="login-password" class="auth-input" placeholder="Passwort" style="margin-top: 10px;" autocomplete="current-password">
+                    <button id="btn-login" class="auth-button">Anmelden</button>
+                    <div id="login-error" class="auth-error" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Character Selection Modal (shown after login) -->
+    <div id="character-select-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-narrow">
+            <div class="modal-header">
+                <h2>Charakter wählen</h2>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <p style="margin-bottom: 12px; opacity: 0.8;">Welchen Charakter möchtest du steuern?</p>
+                    <div id="character-select-list" class="character-select-grid">
+                        <!-- Filled dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Character Editor Modal -->
+    <div id="agent-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>Character Editor: <span id="modal-agent-name">—</span></h2>
+                <div class="editor-header-actions">
+                    <div id="editor-readiness-badges" class="readiness-badges"></div>
+                    <button id="btn-save-editor" class="save-btn" onclick="saveCharacterEditor()">Alle Felder speichern</button>
+                    <button class="export-btn" onclick="exportCharacter()">Export</button>
+                    <label class="import-btn">Import<input type="file" accept=".zip" onchange="importCharacter(event)" hidden></label>
+                    <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="editor-sections">
+                    <!-- Sections are rendered dynamically from template -->
+                    <p class="scheduler-empty">Lade Template...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduler-Modal -->
+    <div id="scheduler-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>Zeitplan: <span id="scheduler-agent-name">—</span></h2>
+                <div class="editor-header-actions">
+                    <button class="modal-close" onclick="closeSchedulerModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Tab-Leiste -->
+                <div class="scheduler-tabs">
+                    <button class="tab-btn scheduler-tab-btn tab-active" data-scheduler-tab="jobs" onclick="switchSchedulerTab('jobs')">Geplante Aufgaben</button>
+                    <button class="tab-btn scheduler-tab-btn" data-scheduler-tab="tagesablauf" onclick="switchSchedulerTab('tagesablauf')">Tagesablauf</button>
+                </div>
+
+                <!-- Tab 1: Geplante Aufgaben -->
+                <div id="scheduler-tab-jobs" class="scheduler-tab-content">
+                <div class="scheduler-grid">
+                    <!-- Linke Spalte: Job-Liste -->
+                    <div class="scheduler-grid-col">
+                        <div class="modal-section">
+                            <div class="scheduler-header">
+                                <h3>Geplante Aufgaben</h3>
+                                <button id="btn-toggle-job-form" class="save-btn" onclick="toggleJobForm()">+ Neuer Job</button>
+                            </div>
+                            <div id="scheduler-jobs-list" class="scheduler-jobs-list">
+                                <p class="scheduler-empty">Keine Jobs vorhanden</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Rechte Spalte: Job-Editor -->
+                    <div class="scheduler-grid-col">
+                        <div id="scheduler-job-form" class="modal-section scheduler-job-form" style="display: none;">
+                            <h3 id="job-form-title">Neuer Job</h3>
+
+                            <!-- Trigger-Typ -->
+                            <div class="form-group">
+                                <label for="job-trigger-type">Trigger-Typ:</label>
+                                <select id="job-trigger-type" class="auth-input" onchange="updateTriggerFields()">
+                                    <option value="interval">Intervall (wiederkehrend)</option>
+                                    <option value="cron">Cron (Zeitplan)</option>
+                                    <option value="date">Einmalig (Datum)</option>
+                                </select>
+                            </div>
+
+                            <!-- Trigger-Felder: Intervall -->
+                            <div id="trigger-interval-fields" class="trigger-fields">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="job-interval-hours">Stunden:</label>
+                                        <input type="number" id="job-interval-hours" class="auth-input" value="0" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="job-interval-minutes">Minuten:</label>
+                                        <input type="number" id="job-interval-minutes" class="auth-input" value="30" min="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="job-interval-seconds">Sekunden:</label>
+                                        <input type="number" id="job-interval-seconds" class="auth-input" value="0" min="0">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Trigger-Felder: Cron -->
+                            <div id="trigger-cron-fields" class="trigger-fields" style="display: none;">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="job-cron-hour">Stunde (0-23):</label>
+                                        <input type="number" id="job-cron-hour" class="auth-input" value="8" min="0" max="23">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="job-cron-minute">Minute (0-59):</label>
+                                        <input type="number" id="job-cron-minute" class="auth-input" value="0" min="0" max="59">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-cron-dow">Wochentage:</label>
+                                    <select id="job-cron-dow" class="auth-input">
+                                        <option value="*">Jeden Tag</option>
+                                        <option value="mon-fri">Mo-Fr (Werktage)</option>
+                                        <option value="sat,sun">Sa-So (Wochenende)</option>
+                                        <option value="mon">Montag</option>
+                                        <option value="tue">Dienstag</option>
+                                        <option value="wed">Mittwoch</option>
+                                        <option value="thu">Donnerstag</option>
+                                        <option value="fri">Freitag</option>
+                                        <option value="sat">Samstag</option>
+                                        <option value="sun">Sonntag</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Random Offset (fuer Intervall und Cron) -->
+                            <div id="trigger-offset-fields" class="trigger-fields">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="job-random-offset">Zufaelliger Offset (Minuten):</label>
+                                        <input type="number" id="job-random-offset" class="auth-input" value="0" min="0" max="120" placeholder="0">
+                                        <small class="field-hint">Versetzt die Ausfuehrung zufaellig um 0 bis X Minuten</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Trigger-Felder: Einmalig -->
+                            <div id="trigger-date-fields" class="trigger-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label for="job-date-datetime">Datum und Uhrzeit:</label>
+                                    <input type="datetime-local" id="job-date-datetime" class="auth-input">
+                                </div>
+                            </div>
+
+                            <!-- Aktions-Typ -->
+                            <div class="form-group">
+                                <label for="job-action-type">Aktion:</label>
+                                <select id="job-action-type" class="auth-input" onchange="updateActionFields()">
+                                    <option value="send_message">Nachricht senden</option>
+                                    <option value="execute_tool">Tool ausfuehren</option>
+                                    <option value="set_status">Status setzen (Ort/Aktivitaet)</option>
+                                    <option value="extract_files">Dateien lesen</option>
+                                </select>
+                            </div>
+
+                            <!-- Aktions-Felder: Nachricht -->
+                            <div id="action-message-fields" class="action-fields">
+                                <div class="form-group">
+                                    <label for="job-message">Nachricht / Prompt:</label>
+                                    <textarea id="job-message" class="agent-textarea" rows="3" placeholder="z.B. 'Erinnere mich an meine Aufgaben'"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Aktions-Felder: Tool ausfuehren -->
+                            <div id="action-tool-fields" class="action-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label for="job-tool-name">Tool / Skill:</label>
+                                    <select id="job-tool-name" class="auth-input">
+                                        <option value="Instagram">Instagram</option>
+                                        <option value="ImageGenerator">ImageGenerator</option>
+                                        <option value="WebSearch">WebSearch</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-tool-input">Tool-Input:</label>
+                                    <textarea id="job-tool-input" class="agent-textarea" rows="3" placeholder="z.B. 'Ein kreatives Foto passend zur Stimmung'"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Aktions-Felder: Status setzen -->
+                            <div id="action-status-fields" class="action-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label for="job-status-location">Ort:</label>
+                                    <select id="job-status-location" class="auth-input" onchange="onSchedulerLocationChange()">
+                                        <option value="">-- Ort waehlen --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-status-activity">Aktivitaet:</label>
+                                    <select id="job-status-activity" class="auth-input">
+                                        <option value="">-- Aktivitaet waehlen --</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-status-mood">Stimmung:</label>
+                                    <input type="text" id="job-status-mood" class="auth-input" placeholder="z.B. gluecklich, nachdenklich">
+                                </div>
+                            </div>
+
+                            <!-- Aktions-Felder: Dateien lesen -->
+                            <div id="action-extract-fields" class="action-fields" style="display: none;">
+                                <div class="field-hint" style="margin-bottom:8px;">
+                                    Ordner, Pattern, Filter, Modell etc. werden aus der <strong>Skill-Konfiguration</strong> des Characters gelesen (Character-Editor &rarr; Skills &rarr; KnowledgeExtract).
+                                </div>
+                                <div class="form-group">
+                                    <label for="job-extract-prompt">Extraktions-Anweisung (optional):</label>
+                                    <textarea id="job-extract-prompt" class="agent-textarea" rows="2" placeholder="z.B. Extrahiere Namen, Orte und Ereignisse"></textarea>
+                                    <div class="field-hint">
+                                        Beispiele:<br>
+                                        &bull; <em>Extrahiere alle Personen, Orte und wichtige Ereignisse</em><br>
+                                        &bull; <em>Finde Termine, Deadlines und Aufgaben</em><br>
+                                        &bull; <em>Sammle Rezepte: Zutaten und Zubereitungsschritte</em><br>
+                                        &bull; <em>Extrahiere Beziehungen zwischen Personen</em><br>
+                                        Ohne Anweisung werden allgemeine Fakten extrahiert.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+                                <button id="btn-job-submit" class="save-btn" onclick="submitSchedulerJob()">Job erstellen</button>
+                                <button class="reset-btn" onclick="cancelJobForm()">Abbrechen</button>
+                            </div>
+                        </div>
+                        <div id="scheduler-editor-placeholder" class="scheduler-empty">
+                            Klicke auf + oder ✏️ um einen Job zu bearbeiten
+                        </div>
+                    </div>
+                </div>
+                </div><!-- /scheduler-tab-jobs -->
+
+                <!-- Tab 2: Tagesablauf -->
+                <div id="scheduler-tab-tagesablauf" class="scheduler-tab-content" style="display: none;">
+                    <div class="tagesablauf-header">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <h3 style="margin: 0;">Tagesablauf</h3>
+                            <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="checkbox" id="tagesablauf-enabled" checked>
+                                Aktiv
+                            </label>
+                        </div>
+                        <button class="save-btn" onclick="saveDailySchedule()">Speichern</button>
+                    </div>
+                    <div id="tagesablauf-grid" class="tagesablauf-grid">
+                        <p class="scheduler-empty">Lade Tagesablauf...</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- World-Modal (Orte & Aktivitaeten — User-Level) -->
+    <div id="world-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>🌍 Welt: Orte & Aktivitaeten</h2>
+                <div class="editor-header-actions">
+                    <button class="modal-close" onclick="closeWorldModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="world-grid">
+                    <!-- Spalte 1: Ort-Liste (schmal) -->
+                    <div class="world-grid-col">
+                        <div class="modal-section">
+                            <div class="scheduler-header">
+                                <h3>Orte</h3>
+                                <button class="save-btn" onclick="toggleLocationForm()">+ Neuer Ort</button>
+                            </div>
+                            <div id="locations-list" class="world-list">
+                                <p class="scheduler-empty">Keine Orte vorhanden</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spalte 2: Ort/Raum-Editor -->
+                    <div class="world-grid-col">
+                        <div id="location-form" class="world-inline-form" style="display: none;">
+                            <h3 id="location-form-title">Neuer Ort</h3>
+                            <div id="location-form-content">
+                                <!-- Dynamisch befuellt je nach Ort/Raum -->
+                            </div>
+                        </div>
+                        <div id="location-form-actions" class="location-form-actions-bar" style="display:none;">
+                            <button class="save-btn" id="location-form-save" onclick="saveLocation()">Speichern</button>
+                            <button class="reset-btn" onclick="cancelEditing()">Abbrechen</button>
+                        </div>
+                        <div id="world-editor-placeholder" class="scheduler-empty" style="display: block;">
+                            Klicke auf + oder &#9998; um einen Eintrag zu bearbeiten
+                        </div>
+                    </div>
+                    <!-- Spalte 3: Galerie (oben) + Aktivitaeten/Items (Raum) ODER Danger+Events (Ort) -->
+                    <div class="world-grid-col">
+                        <div id="location-gallery" class="world-gallery" style="margin-bottom:12px;">
+                            <div class="scheduler-header">
+                                <h3 id="location-gallery-title">Galerie</h3>
+                                <button id="btn-gallery-generate-all" class="save-btn" onclick="generateAllGalleryImages()" style="display:none;">Alle erzeugen</button>
+                                <button id="btn-gallery-generate" class="save-btn" onclick="generateGalleryImage()" style="display:none;">+ Bild erzeugen</button>
+                            </div>
+                            <div id="location-gallery-content">
+                                <p class="scheduler-empty">Ort auswaehlen um Galerie zu sehen</p>
+                            </div>
+                        </div>
+                        <div id="location-extras-panel" style="display:none;"></div>
+                        <div id="room-contents-panel" style="display:none;">
+                            <div class="modal-section">
+                                <div class="scheduler-header" style="margin-bottom:6px;">
+                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Aktivitaeten des Raums</label>
+                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_pickRoomActivity()">+ Aktivitaet</button>
+                                </div>
+                                <div id="room-edit-activities"></div>
+                            </div>
+                            <div class="modal-section" id="room-items-section" style="margin-top:12px;">
+                                <div class="scheduler-header" style="margin-bottom:6px;">
+                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Items im Raum</label>
+                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_toggleRoomItemAddForm()">+ Item</button>
+                                </div>
+                                <div id="room-edit-items-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
+                                <div id="room-edit-items-form" class="world-inline-form" style="display:none;margin-top:8px;">
+                                    <select id="room-item-add-select" class="agent-status-input"><option value="">-- Item auswaehlen --</option></select>
+                                    <div class="form-row-inline">
+                                        <label style="font-size:11px;">Anzahl</label>
+                                        <input type="number" id="room-item-add-quantity" class="agent-status-input" value="1" min="1" max="99" style="width:70px;">
+                                        <label style="font-size:11px;margin-left:8px;"><input type="checkbox" id="room-item-add-hidden"> versteckt</label>
+                                    </div>
+                                    <input type="text" id="room-item-add-note" class="agent-status-input" placeholder="Notiz (z.B. 'Liegt auf dem Regal')">
+                                    <div class="form-actions">
+                                        <button type="button" class="save-btn" onclick="_addItemToRoom()">Hinzufuegen</button>
+                                        <button type="button" class="reset-btn" onclick="_toggleRoomItemAddForm()">Abbrechen</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spalte 4: ehemals Aktivitaeten-Bibliothek (durch Picker ersetzt) -->
+                    <div class="world-grid-col" id="room-library-col" style="display:none;">
+                        <div id="room-library-browser" style="display:none;">
+                            <div id="room-library-activities" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Knowledge/Memory Modal -->
+    <div id="knowledge-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>🧠 Gedaechtnis: <span id="knowledge-char-name"></span></h2>
+                <div class="editor-header-actions">
+                    <button class="modal-close" onclick="closeKnowledgeModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Tab Navigation -->
+                <div class="memory-tabs">
+                    <button class="memory-tab active" data-tab="memories" onclick="switchMemoryTab('memories')">Erinnerungen</button>
+                    <button class="memory-tab" data-tab="mood" onclick="switchMemoryTab('mood')">Stimmung</button>
+                    <button class="memory-tab" data-tab="summaries" onclick="switchMemoryTab('summaries')">Zusammenfassungen</button>
+                </div>
+
+                <!-- Tab: Memories -->
+                <div id="tab-memories" class="memory-tab-content active">
+                    <div class="knowledge-toolbar">
+                        <span id="memory-count" class="knowledge-count-label"></span>
+                        <button class="reset-btn knowledge-clear-btn" onclick="clearAllKnowledge()">Alles loeschen</button>
+                    </div>
+                    <div id="memory-list" class="knowledge-list">
+                        <p class="scheduler-empty">Keine Erinnerungen vorhanden</p>
+                    </div>
+                </div>
+
+                <!-- Tab: Mood Graph -->
+                <div id="tab-mood" class="memory-tab-content" style="display:none;">
+                    <div class="mood-chart-container">
+                        <canvas id="mood-chart-canvas" width="700" height="300"></canvas>
+                    </div>
+                    <div id="mood-history-list" class="knowledge-list" style="max-height:30vh;">
+                    </div>
+                </div>
+
+                <!-- Tab: Summaries -->
+                <div id="tab-summaries" class="memory-tab-content" style="display:none;">
+                    <div id="summaries-list" class="knowledge-list">
+                        <p class="scheduler-empty">Keine Zusammenfassungen vorhanden</p>
+                    </div>
+                </div>
+
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Queue Button (schwebend links vom Chat-Container) -->
+    <button id="btn-queue" class="queue-toggle-btn" title="Aufgaben" onclick="toggleQueuePanel()">📋</button>
+
+    <!-- Queue Panel (Drawer von links) -->
+    <div id="queue-panel" class="queue-panel" style="display: none;">
+        <div class="panel-resize-handle handle-left" data-panel="queue-panel" data-side="right"></div>
+        <div class="queue-header">
+            <div class="queue-header-top">
+                <h2>📋 Aufgaben</h2>
+                <button class="queue-close" onclick="toggleQueuePanel()">&times;</button>
+            </div>
+        </div>
+        <div id="queue-content" class="queue-content">
+            <p class="queue-empty">Keine aktiven Tasks</p>
+        </div>
+    </div>
+
+    <!-- Story Arc Button -->
+    <button id="btn-storyarc" class="storyarc-toggle-btn" title="Story Arcs" onclick="toggleStoryArcPanel()">📖</button>
+
+    <!-- Story Arc Panel (Drawer von links) -->
+    <div id="storyarc-panel" class="storyarc-panel" style="display: none;">
+        <div class="panel-resize-handle handle-left" data-panel="storyarc-panel" data-side="right"></div>
+        <div class="storyarc-header">
+            <div class="storyarc-header-top">
+                <h2>📖 Story Arcs</h2>
+                <div class="storyarc-header-btns">
+                    <button class="storyarc-generate-btn" onclick="generateStoryArc()" title="Neuen Arc generieren">+</button>
+                    <button class="storyarc-close" onclick="toggleStoryArcPanel()">&times;</button>
+                </div>
+            </div>
+        </div>
+        <div id="storyarc-content" class="storyarc-content">
+            <p class="storyarc-empty">Keine Story Arcs</p>
+        </div>
+    </div>
+
+    <!-- Events Button -->
+    <button id="btn-events" class="events-toggle-btn" title="Ereignisse &amp; Aufgaben" onclick="toggleEventsPanel()">📌</button>
+
+    <!-- Events + Assignments Panel (Drawer von rechts) -->
+    <div id="events-panel" class="events-panel" style="display: none;">
+        <div class="panel-resize-handle handle-left" data-panel="events-panel" data-side="right"></div>
+        <div class="events-header">
+            <div class="events-header-top">
+                <h2 id="events-panel-title">📌 Ereignisse</h2>
+                <button class="events-close" onclick="toggleEventsPanel()">&times;</button>
+            </div>
+            <!-- Tab-Umschalter -->
+            <div class="events-tabs">
+                <button class="events-tab active" data-tab="events" onclick="switchEventsTab('events')">Ereignisse</button>
+                <button class="events-tab" data-tab="assignments" onclick="switchEventsTab('assignments')">Aufgaben</button>
+            </div>
+            <!-- Events-Formular -->
+            <div id="events-form-events" class="events-add-form">
+                <textarea id="events-text" class="events-input" placeholder="Was ist passiert?" rows="2"></textarea>
+                <div class="events-add-row">
+                    <select id="events-location" class="events-select">
+                        <option value="">Alle Orte (global)</option>
+                    </select>
+                    <select id="events-ttl" class="events-select" title="Ablaufzeit">
+                        <option value="1">1 Stunde</option>
+                        <option value="6">6 Stunden</option>
+                        <option value="24" selected>24 Stunden</option>
+                        <option value="48">2 Tage</option>
+                        <option value="168">7 Tage</option>
+                        <option value="0">Kein Ablauf</option>
+                    </select>
+                    <button class="events-add-btn" onclick="addEvent()">+</button>
+                </div>
+            </div>
+            <!-- Assignments-Formular -->
+            <div id="events-form-assignments" class="events-add-form" style="display:none;">
+                <input id="assignment-title" class="events-input" placeholder="Aufgabe (Titel)" />
+                <textarea id="assignment-desc" class="events-input" placeholder="Beschreibung (was genau soll passieren?)" rows="2"></textarea>
+                <input id="assignment-outfit" class="events-input" placeholder="Outfit / Kleidung (optional, z.B. 'rotes Abendkleid')" />
+                <div id="assignment-participants" class="assignment-participants"></div>
+                <div class="events-add-row">
+                    <select id="assignment-location" class="events-select" title="Ort (optional)">
+                        <option value="">Kein Ort</option>
+                    </select>
+                    <select id="assignment-priority" class="events-select" title="Prioritaet">
+                        <option value="1">Dringend</option>
+                        <option value="2">Hoch</option>
+                        <option value="3" selected>Normal</option>
+                        <option value="4">Niedrig</option>
+                        <option value="5">Hintergrund</option>
+                    </select>
+                </div>
+                <div class="events-add-row">
+                    <select id="assignment-duration" class="events-select" title="Dauer">
+                        <option value="60">1 Stunde</option>
+                        <option value="120" selected>2 Stunden</option>
+                        <option value="480">8 Stunden</option>
+                        <option value="1440">1 Tag</option>
+                        <option value="4320">3 Tage</option>
+                        <option value="10080">7 Tage</option>
+                        <option value="0">Kein Ablauf</option>
+                    </select>
+                    <button class="events-add-btn" onclick="addAssignment()">+</button>
+                </div>
+            </div>
+        </div>
+        <div id="events-content" class="events-content">
+            <p class="events-empty">Keine Ereignisse</p>
+        </div>
+    </div>
+
+    <!-- Inventar-Modal (Outfit-System + Character-Inventar) -->
+    <div id="wardrobe-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>🎒 Inventar: <span id="wardrobe-char-name">—</span></h2>
+                <div class="editor-header-actions">
+                    <button class="modal-close" onclick="closeWardrobeModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="memory-tabs">
+                    <button class="memory-tab active" data-wtab="studio" onclick="switchWardrobeTab('studio')">Outfit zusammenstellen</button>
+                    <button class="memory-tab" data-wtab="pieces" onclick="switchWardrobeTab('pieces')">Outfit-Teile</button>
+                    <button class="memory-tab" data-wtab="inventory" onclick="switchWardrobeTab('inventory')">Inventar</button>
+                    <button class="memory-tab" data-wtab="rules" onclick="switchWardrobeTab('rules')">Regeln</button>
+                </div>
+
+                <!-- Tab 1: Studio -->
+                <div id="wardrobe-tab-studio" class="memory-tab-content active">
+                    <div class="wardrobe-studio-grid">
+                        <div class="wardrobe-col wardrobe-col-preview">
+                            <h3 class="wardrobe-col-title">Vorschau</h3>
+                            <div id="wardrobe-preview" class="wardrobe-preview">
+                                <p class="scheduler-empty">Lade Vorschau...</p>
+                            </div>
+                            <div id="wardrobe-preview-label" class="wardrobe-preview-label"></div>
+                        </div>
+                        <div class="wardrobe-col wardrobe-col-equipped">
+                            <div class="wardrobe-set-row" style="margin-bottom:6px;gap:4px;">
+                                <select id="wardrobe-set-select" class="agent-status-input" title="Set auswaehlen" style="flex:1;">
+                                    <option value="">— Set auswaehlen —</option>
+                                </select>
+                                <button class="save-btn" id="wardrobe-set-save" title="Speichern unter..." style="padding:4px 8px;font-size:11px;">💾 Speichern unter</button>
+                                <button class="reset-btn" id="wardrobe-set-delete" title="Set loeschen" style="padding:4px 8px;font-size:11px;">🗑️</button>
+                            </div>
+                            <h3 class="wardrobe-col-title">Angelegt</h3>
+                            <div id="wardrobe-equipped" class="wardrobe-slot-list">
+                                <p class="scheduler-empty">Lade...</p>
+                            </div>
+                            <div class="wardrobe-equipped-actions">
+                                <button class="save-btn" id="wardrobe-equipped-apply" title="Spalte 2 aufs Profil uebertragen — uebernimmt Pieces und Remove-Markierungen">👕 Anziehen</button>
+                                <button class="reset-btn" id="wardrobe-set-preview" title="Vorschau-Bild fuer Spalte 2 erzwingen (neu generieren)">🖼️ Vorschau</button>
+                                <button class="reset-btn" id="wardrobe-preview-refresh" title="Vorschau-Bild aktualisieren (Cache pruefen)">🔄</button>
+                                <button class="reset-btn" id="wardrobe-variants-clear" title="Alle generierten Expression/Variant-Bilder dieses Characters loeschen — beim naechsten Aufruf werden sie neu generiert">🧹 Variants</button>
+                            </div>
+                        </div>
+                        <div class="wardrobe-col wardrobe-col-inventory">
+                            <h3 class="wardrobe-col-title">Im Inventar</h3>
+                            <div id="wardrobe-available-filter" class="wardrobe-available-filter"></div>
+                            <div id="wardrobe-available" class="wardrobe-piece-list">
+                                <p class="scheduler-empty">Lade...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Regeln (Outfit-Consistency) -->
+                <div id="wardrobe-tab-rules" class="memory-tab-content" style="display:none;padding:12px;">
+                    <div id="wardrobe-rules-compliance" style="margin-bottom:16px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-alt);">
+                        <p class="scheduler-empty">Lade aktuellen Status...</p>
+                    </div>
+                    <h3 style="margin:8px 0;font-size:14px;color:var(--text);">Ausnahmen — diese Slots werden bei den gewaehlten outfit_types NICHT verlangt</h3>
+                    <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">
+                        Setze Haken fuer Slots, die der Character bei einem bestimmten outfit_type nicht anziehen muss.
+                    </p>
+                    <div id="wardrobe-rules-exceptions" style="overflow-x:auto;">
+                        <p class="scheduler-empty">Lade Regeln...</p>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <button class="save-btn" onclick="saveWardrobeExceptions()">Speichern</button>
+                        <span id="wardrobe-rules-status" style="margin-left:10px;font-size:12px;color:var(--text-muted);"></span>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Outfit-Pieces (Inventar-Teilmenge) + Edit/Create + Image-Preview -->
+                <div id="wardrobe-tab-pieces" class="memory-tab-content" style="display:none;">
+                    <div class="wardrobe-inv-grid">
+                        <!-- Spalte 1: Liste -->
+                        <div class="wardrobe-col wardrobe-col-pieces-list">
+                            <div class="wardrobe-col-title-row">
+                                <h3 class="wardrobe-col-title" style="margin:0;">Outfit-Teile im Inventar</h3>
+                                <button class="reset-btn" id="wpc-new-btn" title="Neues Teil anlegen">+ Neu</button>
+                            </div>
+                            <div id="wardrobe-add-existing" style="margin-bottom:8px;">
+                                <div style="display:flex;gap:4px;">
+                                    <input type="text" id="wardrobe-add-search" class="agent-status-input"
+                                        placeholder="Item suchen + hinzufuegen..." style="flex:1;font-size:12px;padding:4px 8px;">
+                                    <button class="save-btn" id="wardrobe-add-btn" style="padding:4px 10px;font-size:11px;white-space:nowrap;" title="Ausgewaehltes Item zum Character-Inventar hinzufuegen">+ Inventar</button>
+                                </div>
+                                <div id="wardrobe-add-results" style="display:none;max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;margin-top:4px;background:var(--bg);"></div>
+                            </div>
+                            <div id="wardrobe-inv-list" class="wardrobe-piece-list">
+                                <p class="scheduler-empty">Lade...</p>
+                            </div>
+                        </div>
+                        <!-- Spalte 2: Bearbeiten / Anlegen -->
+                        <div class="wardrobe-col wardrobe-col-create">
+                            <h3 class="wardrobe-col-title" id="wpc-form-title">Outfit-Teil bearbeiten</h3>
+                            <div class="wardrobe-create-form">
+                                <input type="hidden" id="wpc-edit-id" value="">
+                                <label class="wardrobe-form-label">Name</label>
+                                <input type="text" id="wpc-name" class="agent-status-input" placeholder="z.B. Schwarze Lederjacke">
+                                <div style="display:flex;gap:10px;align-items:flex-start;">
+                                    <div style="flex:1;min-width:0;">
+                                        <label class="wardrobe-form-label">Slot</label>
+                                        <select id="wpc-slot" class="agent-status-input" style="width:100%;">
+                                            <option value="head">Kopf</option>
+                                            <option value="neck">Hals</option>
+                                            <option value="outer" selected>Mantel & Jacke</option>
+                                            <option value="top">Oberteil</option>
+                                            <option value="underwear_top">Unterwaesche oben</option>
+                                            <option value="bottom">Unterteil</option>
+                                            <option value="underwear_bottom">Unterwaesche unten</option>
+                                            <option value="legs">Beine</option>
+                                            <option value="feet">Fuesse</option>
+                                        </select>
+                                    </div>
+                                    <div style="flex:1;min-width:0;">
+                                        <label class="wardrobe-form-label">Outfit-Typen</label>
+                                        <div class="outfit-type-picker">
+                                            <select id="wpc-outfit-type-select" class="agent-status-input" style="width:100%;">
+                                                <option value="">— auswaehlen —</option>
+                                            </select>
+                                            <input type="text" id="wpc-outfit-type-new" class="agent-status-input"
+                                                placeholder="Neuer Typ (Enter zum Hinzufuegen)..." style="display:none;">
+                                        </div>
+                                        <div id="wpc-outfit-type-tags" class="outfit-type-tags"></div>
+                                    </div>
+                                </div>
+                                <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0;">
+                                    <span style="font-size:11px;color:var(--text-muted);min-width:100px;" title="Slots die das Teil zusaetzlich physisch belegt (z.B. Kleid belegt top + bottom). Blockiert weiteres Equip in diesen Slots.">Zusaetzl. belegt:</span>
+                                    <div id="wpc-additional-slots-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+                                    <select id="wpc-additional-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
+                                        <option value="">+ hinzufuegen</option>
+                                    </select>
+                                </div>
+                                <label class="wardrobe-form-label">Prompt-Fragment (Bild-Beschreibung im Outfit)</label>
+                                <textarea id="wpc-prompt-fragment" class="agent-status-input" rows="2"
+                                    placeholder="black leather jacket, slim fit, silver zippers"></textarea>
+                                <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
+                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots komplett verdeckt — fallen aus dem Prompt raus">Verdeckt:</span>
+                                    <div id="wpc-covers-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+                                    <select id="wpc-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
+                                        <option value="">+ hinzufuegen</option>
+                                    </select>
+                                </div>
+                                <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
+                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots teilweise sichtbar — '{Fragment} underneath {dieses Teil}'">Teilw.:</span>
+                                    <div id="wpc-partially-covers-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+                                    <select id="wpc-partially-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
+                                        <option value="">+ hinzufuegen</option>
+                                    </select>
+                                </div>
+                                <label class="wardrobe-form-label">
+                                    LoRA fuer dieses Teil
+                                    <span id="wpc-lora-filter-info" style="font-size:10px;color:var(--text-muted);font-weight:normal;"></span>
+                                </label>
+                                <div id="wpc-lora-row" style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
+                                    <select id="wpc-lora-name" class="agent-status-input" style="flex:1;font-size:12px;padding:4px 8px;" title="LoRA aus dem Cache, gefiltert nach Outfit-Image-Workflow des Characters">
+                                        <option value="None">— keins —</option>
+                                    </select>
+                                    <input type="number" id="wpc-lora-strength" step="0.05" min="-2" max="2" value="1.0" class="agent-status-input" style="width:70px;font-size:12px;padding:4px 6px;" title="Strength">
+                                </div>
+                                <label class="wardrobe-form-label">Beschreibung (optional)</label>
+                                <textarea id="wpc-description" class="agent-status-input" rows="2"
+                                    placeholder="Lederjacke aus den 80ern, Erbstueck"></textarea>
+                                <label class="wardrobe-form-label">Image-Prompt (fuer das Item-Bild)</label>
+                                <textarea id="wpc-image-prompt" class="agent-status-input" rows="2"
+                                    placeholder="black leather jacket on white background, product photo"></textarea>
+                                <div class="wardrobe-form-actions">
+                                    <button class="save-btn" id="wpc-save-btn" onclick="saveWardrobePiece()">Anlegen + ins Inventar</button>
+                                </div>
+                                <div id="wpc-status" class="wardrobe-form-status"></div>
+                            </div>
+                        </div>
+                        <!-- Spalte 3: Bild -->
+                        <div class="wardrobe-col wardrobe-col-piece-preview">
+                            <h3 class="wardrobe-col-title">Outfit-Teil Bild</h3>
+                            <div id="wardrobe-piece-preview" class="wardrobe-preview">
+                                <p class="scheduler-empty">Waehle links ein Teil oder lege ein neues an.</p>
+                            </div>
+                            <div class="wardrobe-preview-actions" id="wardrobe-piece-preview-actions" style="display:none;">
+                                <button class="save-btn" id="wardrobe-piece-gen-btn">📷 Bild erzeugen</button>
+                            </div>
+                            <div id="wardrobe-piece-preview-meta" class="wardrobe-form-status"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Inventar (vollstaendiges Character-Inventar inkl. aller Item-Kategorien) -->
+                <div id="wardrobe-tab-inventory" class="memory-tab-content" style="display:none;">
+                    <div class="editor-grid" style="grid-template-columns: 3fr 2fr;">
+                        <div class="modal-section editor-section">
+                            <div class="scheduler-header">
+                                <h3>Inventar</h3>
+                                <button class="save-btn" onclick="toggleEditorInventoryForm()">+ Item hinzufuegen</button>
+                            </div>
+                            <div id="editor-inventory-list" class="world-list">
+                                <p class="scheduler-empty">Inventar ist leer</p>
+                            </div>
+                        </div>
+                        <div class="modal-section editor-section">
+                            <div id="editor-inventory-form" class="world-inline-form" style="display:none;">
+                                <h3 id="editor-inventory-form-title">Item zum Inventar hinzufuegen</h3>
+                                <select id="editor-inventory-item-select" class="agent-status-input">
+                                    <option value="">-- Item auswaehlen --</option>
+                                </select>
+                                <div id="editor-inventory-item-preview" class="scheduler-empty" style="font-size:12px;"></div>
+                                <div class="form-row-inline">
+                                    <label>Anzahl</label>
+                                    <input type="number" id="editor-inventory-quantity" class="agent-status-input" value="1" min="1" max="99" style="width:80px;">
+                                </div>
+                                <div class="form-actions">
+                                    <button class="save-btn" onclick="saveEditorInventoryItem()">Hinzufuegen</button>
+                                    <button class="reset-btn" onclick="toggleEditorInventoryForm()">Abbrechen</button>
+                                </div>
+                            </div>
+                            <div id="editor-inventory-placeholder" class="scheduler-empty">Klicke auf + um Items aus der Bibliothek hinzuzufuegen</div>
+                            <div style="margin-top:16px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11px;color:var(--text-muted);">
+                                Item-Bibliothek verwalten: Game Admin (🎮) → Tab "Items"
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- World Map Button (schwebend rechts, unter Queue) -->
+    <button id="btn-worldmap" class="worldmap-toggle-btn" title="Weltkarte" onclick="toggleWorldPanel()">🗺️</button>
+
+    <!-- Character Scene (links vom Chat, zeigt NPC mit Outfit) -->
+    <div id="character-scene" class="character-scene">
+        <img id="character-scene-img" class="character-scene-img" src="" alt="" style="display:none;">
+        <div id="character-scene-outfit" class="character-scene-outfit" style="display:none;"></div>
+        <button id="character-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('agent')" title="Inventar oeffnen">🎒</button>
+        <button id="character-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('agent')" title="Outfit zusammenstellen">👗</button>
+        <button id="character-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('agent')" title="Outfit sperren">🔓</button>
+        <!-- Group Chat: Mehrere Character-Bilder nebeneinander -->
+        <div id="group-scene" class="group-scene" style="display:none;"></div>
+    </div>
+
+    <!-- Player Scene (rechts vom Chat, zeigt Avatar mit Outfit) -->
+    <div id="player-scene" class="player-scene">
+        <img id="player-scene-img" class="player-scene-img" src="" alt="" style="display:none;">
+        <div id="player-scene-outfit" class="player-scene-outfit" style="display:none;"></div>
+        <button id="player-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('avatar')" title="Inventar oeffnen">🎒</button>
+        <button id="player-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('avatar')" title="Outfit zusammenstellen">👗</button>
+        <button id="player-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('avatar')" title="Outfit sperren">🔓</button>
+    </div>
+
+    <!-- Character Sidebar (rechts, unter Weltkarte) -->
+    <div id="character-sidebar" class="character-sidebar">
+        <div id="character-sidebar-content" class="character-sidebar-content">
+            <!-- Dynamisch befuellt via JS -->
+        </div>
+    </div>
+
+    <!-- Room-Items Panel (rechts oben am Chat, waechst nach links) -->
+    <div id="room-items-panel" class="room-items-panel">
+        <div id="room-items-panel-content" class="room-items-panel-content">
+            <!-- Dynamisch befuellt via JS -->
+        </div>
+    </div>
+
+    <!-- World Map Modal (zentriert) -->
+    <div id="worldmap-panel" class="modal worldmap-modal" style="display: none;">
+        <div class="modal-content worldmap-modal-content">
+            <div class="worldmap-header">
+                <div class="worldmap-header-top">
+                    <h2>🗺️ Weltkarte</h2>
+                    <div class="worldmap-header-btns">
+                        <button class="worldmap-settings-btn" onclick="openWorldModal()" title="Orte verwalten">&#x2699;</button>
+                        <button class="modal-close" onclick="toggleWorldPanel()">&times;</button>
+                    </div>
+                </div>
+                <div id="worldmap-current-loc" class="worldmap-current-location">Kein Ort gewaehlt</div>
+            </div>
+            <div id="worldmap-content" class="worldmap-content">
+                <p class="queue-empty">Lade Weltkarte...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gallery Button (schwebend am Chat-Container rechts, ueber Instagram) -->
+    <button id="btn-gallery" class="gallery-toggle-btn" title="Bildergalerie" onclick="toggleGalleryPanel()">🖼️</button>
+
+    <!-- Gallery Panel (Drawer von links) -->
+    <div id="gallery-panel" class="gallery-panel" style="display: none;">
+        <div class="panel-resize-handle handle-right" data-panel="gallery-panel" data-side="left"></div>
+        <div class="gallery-header">
+            <div class="gallery-header-top">
+                <h2>Galerie</h2>
+                <div class="gallery-view-toggle">
+                    <button class="gallery-view-btn active" data-view="grid" onclick="setGalleryView('grid')" title="Grid">&#8862;</button>
+                    <button class="gallery-view-btn" data-view="list" onclick="setGalleryView('list')" title="Liste">&#9776;</button>
+                </div>
+                <button class="gallery-close" onclick="toggleGalleryPanel()">&times;</button>
+            </div>
+            <!-- Tab-Leiste: User + Characters -->
+            <div id="gallery-tabs" class="gallery-tabs"></div>
+        </div>
+        <div class="gallery-upload-bar">
+            <label for="gallery-image-upload" class="upload-label">Bild hochladen</label>
+            <input type="file" id="gallery-image-upload" accept="image/*" style="display: none;">
+        </div>
+        <div id="gallery-images" class="gallery-feed"></div>
+    </div>
+
+    <!-- Instagram Button (schwebend am Chat-Container rechts) -->
+    <button id="btn-instagram" class="instagram-toggle-btn" title="Instagram Feed" onclick="toggleInstagramPanel()">📷</button>
+    <!-- Phone Button (Phone-Chat mit beliebigem Character starten) -->
+    <button id="btn-phone-chat" class="phone-toggle-btn" title="Phone-Chat mit Character starten" onclick="openPhoneChatPicker()">📞</button>
+
+    <!-- Instagram Panel (Drawer von rechts) -->
+    <div id="instagram-panel" class="instagram-panel" style="display: none;">
+        <div class="panel-resize-handle handle-right" data-panel="instagram-panel" data-side="left"></div>
+        <div class="instagram-header">
+            <div class="instagram-header-top">
+                <h2>📷 Instagram</h2>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <button class="instagram-settings-btn" title="Instagram Einstellungen" onclick="toggleInstagramSettings()">⚙️</button>
+                    <button class="instagram-close" onclick="toggleInstagramPanel()">&times;</button>
+                </div>
+            </div>
+            <div id="instagram-settings" class="instagram-settings" style="display:none;">
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Bildgenerierung Workflow:</label>
+                <select id="instagram-workflow-select" class="instagram-workflow-select" onchange="saveInstagramWorkflow(this.value)">
+                    <option value="">Character-Default</option>
+                </select>
+            </div>
+        </div>
+        <div id="instagram-feed" class="instagram-feed">
+            <p class="instagram-empty">Noch keine Posts vorhanden.</p>
+        </div>
+    </div>
+
+    <!-- Diary Button (schwebend rechts, unter Events) -->
+    <button id="btn-diary" class="diary-toggle-btn" title="Tagebuch / Timeline" onclick="toggleDiaryPanel()">📔</button>
+
+    <!-- Diary Panel (Drawer von rechts) -->
+    <div id="diary-panel" class="diary-panel" style="display: none;">
+        <div class="panel-resize-handle handle-left" data-panel="diary-panel" data-side="right"></div>
+        <div class="diary-header">
+            <div class="diary-header-top">
+                <h2>📔 Tagebuch</h2>
+                <div class="diary-header-btns">
+                    <button class="diary-summary-btn" onclick="generateDiarySummary()" title="Tagesrueckblick generieren — fasst alle Ereignisse des Tages als persoenlichen Tagebucheintrag zusammen">✦</button>
+                    <button class="diary-close" onclick="toggleDiaryPanel()">&times;</button>
+                </div>
+            </div>
+            <div class="diary-controls">
+                <select id="diary-date" class="diary-select" onchange="loadDiary()"></select>
+                <select id="diary-filter" class="diary-select" onchange="loadDiary()">
+                    <option value="">Alle Typen</option>
+                </select>
+                <input type="text" id="diary-search" class="diary-select" placeholder="🔍 Suche im Inhalt..." oninput="_onDiarySearchInput()" style="flex:1;min-width:120px;">
+            </div>
+        </div>
+        <div id="diary-content" class="diary-content">
+            <p class="diary-empty">Keine Eintraege</p>
+        </div>
+    </div>
+
+    <!-- Notification Button (schwebend links, unter Instagram) -->
+    <button id="btn-notifications" class="notifications-toggle-btn" title="Nachrichten" onclick="toggleNotificationsPanel()">
+        💬
+        <span id="notifications-badge" class="notifications-badge" style="display:none;"></span>
+    </button>
+
+    <!-- Game Admin Modal -->
+    <div id="game-admin-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide" style="height: calc(100vh - 40px); display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h2>Game Admin</h2>
+                <button class="modal-close" onclick="closeGameAdminModal()">&times;</button>
+            </div>
+            <!-- Admin Tabs -->
+            <div class="tab-bar" style="padding:0 16px;width:fit-content;">
+                <button class="tab-btn tab-active" data-admin-tab="activities" onclick="switchGameAdminTab('activities')">Aktivitaeten</button>
+                <button class="tab-btn" data-admin-tab="rules" onclick="switchGameAdminTab('rules')">Regeln</button>
+                <button class="tab-btn" data-admin-tab="modifiers" onclick="switchGameAdminTab('modifiers')">Zustaende</button>
+                <button class="tab-btn" data-admin-tab="items" onclick="switchGameAdminTab('items')">Items</button>
+            </div>
+            <!-- Tab: Aktivitaeten (3-Spalten-Layout) -->
+            <div id="game-admin-tab-activities" class="modal-body" style="display:flex;gap:12px;">
+                <!-- Spalte 1: Aktivitaeten-Liste + Overrides -->
+                <div style="flex:0 0 35%;min-width:0;display:flex;flex-direction:column;max-height:70vh;">
+                    <div class="scheduler-header" style="margin-bottom:8px;flex-shrink:0;">
+                        <h3 style="font-size:13px;">Bibliothek</h3>
+                        <button class="save-btn" style="font-size:11px;" onclick="newLibraryActivity()">+ Neu</button>
+                    </div>
+                    <input type="text" id="lib-act-search" class="agent-status-input" placeholder="Suchen..." style="margin-bottom:6px;font-size:12px;padding:6px 10px;flex-shrink:0;" oninput="_filterActivityList('activity-library-list', this.value)">
+                    <div id="activity-library-list" class="world-list" style="overflow-y:auto;flex:1;">
+                        <p class="scheduler-empty">Lade...</p>
+                    </div>
+                    <!-- Overrides -->
+                    <div style="margin-top:12px;border-top:1px solid var(--border-light);padding-top:8px;">
+                        <div class="scheduler-header">
+                            <h3 style="font-size:13px;">Overrides</h3>
+                            <button class="save-btn" style="font-size:11px;" onclick="_newOverrideForm()">+ Override</button>
+                        </div>
+                        <div id="activity-override-list" class="world-list" style="max-height:200px;overflow-y:auto;">
+                            <p class="scheduler-empty">Keine Overrides</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Spalte 2: Basis-Felder -->
+                <div style="flex:1;min-width:0;">
+                    <div id="activity-library-form" style="display:none;" class="world-inline-form">
+                        <h3 id="activity-library-form-title" style="font-size:14px;margin:0;">Neue Aktivitaet</h3>
+                        <div class="form-row-inline" style="margin-top:4px;">
+                            <select id="lib-act-target" class="agent-status-input" title="Speicherort" style="flex:1;">
+                                <option value="world">Welt-spezifisch</option>
+                                <option value="shared">Allgemein (shared)</option>
+                            </select>
+                            <input type="text" id="lib-act-group" class="agent-status-input" placeholder="Gruppe" style="flex:1;">
+                        </div>
+                        <input type="text" id="lib-act-id" class="agent-status-input" placeholder="ID (z.B. cocktails_trinken)">
+                        <input type="text" id="lib-act-name" class="agent-status-input" placeholder="Name (English)">
+                        <input type="text" id="lib-act-name-de" class="agent-status-input" placeholder="Name (Deutsch)">
+                        <div class="form-row-inline">
+                            <input type="text" id="lib-act-description" class="agent-status-input" placeholder="Description (EN)" style="flex:1;">
+                            <input type="text" id="lib-act-description-de" class="agent-status-input" placeholder="Beschreibung (DE)" style="flex:1;">
+                        </div>
+                        <div class="form-row-inline">
+                            <select id="lib-act-category" class="agent-status-input">
+                                <option value="normal">Normal</option><option value="secret">Geheim</option>
+                                <option value="dangerous">Gefaehrlich</option><option value="social">Sozial</option>
+                                <option value="creative">Kreativ</option><option value="investigation">Ermittlung</option>
+                                <option value="training">Training</option><option value="rest">Erholung</option>
+                            </select>
+                            <select id="lib-act-visibility" class="agent-status-input">
+                                <option value="visible">Sichtbar</option><option value="hidden">Versteckt</option>
+                                <option value="disguised">Getarnt</option>
+                            </select>
+                        </div>
+                        <textarea id="lib-act-effects" class="agent-status-input" rows="3" placeholder="stamina_change: -10&#10;courage_change: 5&#10;mood_influence: entspannt" style="font-family:monospace;font-size:12px;"></textarea>
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                            Format: <code style="background:var(--border-light);padding:1px 3px;border-radius:3px;">stat_change: +/-wert</code> pro Zeile
+                        </div>
+                        <input type="text" id="lib-act-condition" class="agent-status-input" placeholder="Condition (z.B. NOT alone AND night)">
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                            alone, night, day, mood:&lt;wort&gt;, stamina&gt;&lt;N&gt;,
+                            relationship:&lt;Name|any&gt;&gt;&lt;N&gt;, romantic:&lt;Name|any&gt;&gt;&lt;N&gt;,
+                            has_item:&lt;item_id&gt;, current_activity:&lt;id|name&gt; &mdash; AND / OR / NOT
+                        </div>
+                        <div class="form-row-inline">
+                            <label>Cooldown (h)</label>
+                            <input type="number" id="lib-act-cooldown" class="agent-status-input" value="0" min="0" style="width:60px;">
+                            <label>Dauer (min)</label>
+                            <input type="number" id="lib-act-duration" class="agent-status-input" value="0" min="0" style="width:60px;">
+                        </div>
+                        <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
+                            <span style="font-size:11px;color:var(--text-muted);min-width:78px;" title="Ueberschreibt bei dieser Aktivitaet den Raum-/Location-Dresscode">Outfit-Type:</span>
+                            <div id="lib-act-outfit-type-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+                            <select id="lib-act-outfit-type-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
+                                <option value="">+ auswaehlen</option>
+                            </select>
+                        </div>
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                            Leer = Raum-/Location-Type greift. Beispiele: <code>sunbathing</code> → pool, <code>cardio</code> → sport, <code>sleeping</code> → bed.
+                        </div>
+                        <div class="form-row-inline">
+                            <label><input type="checkbox" id="lib-act-interruptible" checked> Unterbrechbar</label>
+                        </div>
+                        <input type="text" id="lib-act-required-roles" class="agent-status-input" placeholder="Required Roles (kommagetrennt, z.B. photographer,model)" title="Nur Charactere mit mindestens einer dieser Rollen sehen die Aktivitaet. Leer = jeder darf.">
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                            Beispiele: <code>photographer</code> fuer Fotografieren, <code>model</code> fuer Posen. Leer = alle.
+                        </div>
+                    </div>
+                    <!-- Override-Formular (Spalte 2) -->
+                    <div id="override-edit-form" style="display:none;" class="world-inline-form">
+                        <h3 id="override-form-title" style="font-size:14px;margin:0;">Neuer Override</h3>
+                        <label style="font-size:11px;color:var(--text-muted);">Aktivitaet</label>
+                        <select id="override-act-id" class="agent-status-input" onchange="_prefillOverrideFromActivity()">
+                            <option value="">-- Aktivitaet waehlen --</option>
+                        </select>
+                        <div class="form-row-inline">
+                            <label style="font-size:11px;color:var(--text-muted);min-width:auto;">Typ</label>
+                            <select id="override-type" class="agent-status-input" onchange="_updateOverrideTargetList()">
+                                <option value="character">Character</option>
+                                <option value="location">Location</option>
+                            </select>
+                        </div>
+                        <label style="font-size:11px;color:var(--text-muted);">Ziel</label>
+                        <select id="override-target" class="agent-status-input">
+                            <option value="">-- Ziel waehlen --</option>
+                        </select>
+                        <label style="font-size:11px;color:var(--text-muted);margin-top:4px;">Effects (Override)</label>
+                        <textarea id="override-effects" class="agent-status-input" rows="3" placeholder="stamina_change: -10&#10;courage_change: 5" style="font-family:monospace;font-size:12px;"></textarea>
+                        <label style="font-size:11px;color:var(--text-muted);">Condition (Override)</label>
+                        <input type="text" id="override-condition" class="agent-status-input" placeholder="z.B. night AND alone">
+                        <label style="font-size:11px;color:var(--text-muted);">Visibility (Override)</label>
+                        <select id="override-visibility" class="agent-status-input">
+                            <option value="">-- Nicht ueberschreiben --</option>
+                            <option value="visible">Sichtbar</option>
+                            <option value="hidden">Versteckt</option>
+                            <option value="disguised">Getarnt</option>
+                        </select>
+                    </div>
+                    <div id="activity-library-placeholder" class="scheduler-empty">
+                        Klicke auf eine Aktivitaet oder einen Override zum Bearbeiten.
+                    </div>
+                </div>
+                <!-- Spalte 3: Kumulativer Effekt + Cumulative Override -->
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+                    <div id="activity-cum-form" style="display:none;flex:1;overflow-y:auto;" class="world-inline-form">
+                        <!-- Partner -->
+                        <label style="font-size:12px;color:var(--text-muted);font-weight:600;">Partner</label>
+                        <div class="form-row-inline" style="margin-top:2px;">
+                            <label><input type="checkbox" id="lib-act-requires-partner" onchange="document.getElementById('lib-act-fallback-row').style.display=this.checked?'':'none'"> Braucht Partner</label>
+                        </div>
+                        <div class="form-row-inline" style="margin-top:2px;">
+                            <label style="font-size:11px;white-space:nowrap;">Partner-Aktivitaet:</label>
+                            <select id="lib-act-partner-activity" class="agent-status-input" style="flex:1;"></select>
+                        </div>
+                        <div id="lib-act-fallback-row" style="display:none;margin-top:2px;">
+                            <div class="form-row-inline">
+                                <label style="font-size:11px;white-space:nowrap;">Fallback:</label>
+                                <select id="lib-act-fallback-activity" class="agent-status-input" style="flex:1;"></select>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                                Wenn Partner ablehnt oder keiner am Ort. Leer = Aktivitaet wird abgelehnt.
+                            </div>
+                            <label style="font-size:11px;color:var(--text-muted);margin-top:4px;">Einladungs-Text</label>
+                            <input type="text" id="lib-act-invitation-text" class="agent-status-input"
+                                   placeholder='z.B. "Tanzen wir?" — leer = "Hast du Lust zu {name}?"'>
+                        </div>
+                        <!-- Folge-Aktivitaeten (fuer die Aktivitaet selbst) -->
+                        <label style="font-size:12px;color:var(--text-muted);font-weight:600;margin-top:8px;border-top:1px solid var(--border-light);padding-top:8px;">Folge-Aktivitaeten</label>
+                        <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;line-height:1.3;">
+                            Nach Ausfuehrung automatisch starten (Wahrscheinlichkeit %).
+                        </div>
+                        <div id="lib-act-followups" style="margin-top:2px;"></div>
+                        <button class="save-btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="_addFollowUpRow('act')">+ Folge</button>
+                        <!-- Kumulativer Effekt -->
+                        <label style="font-size:12px;color:var(--text-muted);font-weight:600;margin-top:8px;border-top:1px solid var(--border-light);padding-top:8px;">Kumulativer Effekt</label>
+                        <div class="form-row-inline" style="margin-top:4px;">
+                            <label>Ab</label>
+                            <input type="number" id="lib-act-cum-threshold" class="agent-status-input" value="" min="2" style="width:50px;" placeholder="X">
+                            <label>x &rarr; Condition:</label>
+                            <input type="text" id="lib-act-cum-name" class="agent-status-input" placeholder="z.B. drunk" style="width:90px;">
+                        </div>
+                        <div class="form-row-inline" style="margin-top:4px;">
+                            <label>Mood:</label>
+                            <input type="text" id="lib-act-cum-mood" class="agent-status-input" placeholder="z.B. betrunken" style="width:100px;">
+                            <label>Dauer (h):</label>
+                            <input type="number" id="lib-act-cum-duration" class="agent-status-input" value="" min="1" style="width:60px;" placeholder="2">
+                        </div>
+                        <label style="font-size:11px;color:var(--text-muted);margin-top:4px;">Cumulative Effects</label>
+                        <textarea id="lib-act-cum-effects" class="agent-status-input" rows="2" placeholder="attention_change: -20&#10;courage_change: 15" style="font-family:monospace;font-size:12px;"></textarea>
+                        <!-- Kumulative Folge-Aktivitaeten -->
+                        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Folge-Aktivitaeten bei Kumulation</label>
+                        <div id="lib-act-cum-followups" style="margin-top:2px;"></div>
+                        <button class="save-btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="_addFollowUpRow('cum')">+ Folge</button>
+                        <div class="form-actions" style="margin-top:auto;padding-top:10px;">
+                            <button class="save-btn" onclick="saveLibraryActivity()">Speichern</button>
+                            <button class="reset-btn" onclick="cancelLibraryEdit()">Abbrechen</button>
+                        </div>
+                    </div>
+                    <!-- Override Kumulativer Effekt (Spalte 3) -->
+                    <div id="override-cum-form" style="display:none;flex:1;" class="world-inline-form">
+                        <label style="font-size:12px;color:var(--text-muted);font-weight:600;">Kumulativer Effekt (Override)</label>
+                        <div class="form-row-inline" style="margin-top:4px;">
+                            <label>Ab</label>
+                            <input type="number" id="override-cum-threshold" class="agent-status-input" value="" min="2" style="width:50px;" placeholder="X">
+                            <label>x &rarr; Condition:</label>
+                            <input type="text" id="override-cum-name" class="agent-status-input" placeholder="z.B. drunk" style="width:90px;">
+                        </div>
+                        <input type="text" id="override-cum-modifier" class="agent-status-input" placeholder="Prompt-Modifier" style="margin-top:4px;">
+                        <div class="form-row-inline" style="margin-top:4px;">
+                            <label>Mood:</label>
+                            <input type="text" id="override-cum-mood" class="agent-status-input" placeholder="z.B. betrunken" style="width:100px;">
+                            <label>Dauer (h):</label>
+                            <input type="number" id="override-cum-duration" class="agent-status-input" value="" min="1" style="width:60px;" placeholder="2">
+                        </div>
+                        <div class="form-actions" style="margin-top:auto;padding-top:10px;">
+                            <button class="save-btn" onclick="_saveOverrideForm()">Speichern</button>
+                            <button class="reset-btn" onclick="_cancelOverrideEdit()">Abbrechen</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Tab: Regeln -->
+            <div id="game-admin-tab-rules" class="modal-body" style="display:none;gap:12px;">
+                <div style="flex:0 0 40%;overflow-y:auto;max-height:70vh;">
+                    <div class="scheduler-header" style="margin-bottom:8px;">
+                        <h3 style="font-size:13px;">Regeln</h3>
+                        <button class="save-btn" style="font-size:11px;" onclick="_newRule()">+ Neu</button>
+                    </div>
+                    <div id="rules-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div id="rule-edit-form" style="display:none;" class="world-inline-form">
+                        <input type="hidden" id="rule-edit-id">
+                        <input type="text" id="rule-edit-name" class="agent-status-input" placeholder="Name der Regel">
+                        <div class="form-row-inline">
+                            <select id="rule-edit-type" class="agent-status-input" onchange="_toggleRuleFields()">
+                                <option value="block">Blockade</option>
+                                <option value="force">Zwang</option>
+                            </select>
+                            <select id="rule-edit-character" class="agent-status-input" title="Regel gilt nur fuer diesen Character. Leer = alle Characters.">
+                                <option value="">— alle Characters —</option>
+                            </select>
+                        </div>
+                        <div id="rule-block-fields">
+                            <label style="font-size:11px;color:var(--text-muted);">Ziel</label>
+                            <div class="form-row-inline">
+                                <select id="rule-target-scope" class="agent-status-input" onchange="_toggleRuleTargetFields()">
+                                    <option value="location">Ort / Raum</option>
+                                    <option value="any_room">Jeder Raum (an jedem Ort)</option>
+                                    <option value="danger_level">Danger-Level</option>
+                                </select>
+                                <select id="rule-target-action" class="agent-status-input">
+                                    <option value="enter">Betreten</option>
+                                    <option value="leave">Verlassen</option>
+                                </select>
+                            </div>
+                            <div id="rule-target-loc-fields">
+                                <select id="rule-target-location" class="agent-status-input"><option value="">-- Ort waehlen --</option></select>
+                                <select id="rule-target-room" class="agent-status-input" style="display:none;"><option value="">-- Raum waehlen --</option></select>
+                            </div>
+                            <div id="rule-target-danger-fields" style="display:none;">
+                                <div class="form-row-inline">
+                                    <label style="font-size:11px;">Min Danger-Level:</label>
+                                    <input type="number" id="rule-target-min-danger" class="agent-status-input" min="1" max="5" value="3" style="width:50px;">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="rule-force-fields" style="display:none;">
+                            <label style="font-size:11px;color:var(--text-muted);">Erzwungene Aktion</label>
+                            <div class="form-row-inline">
+                                <select id="rule-force-goto" class="agent-status-input">
+                                    <option value="stay">Bleiben (am Ort)</option>
+                                    <option value="home">Nach Hause (Schlafplatz)</option>
+                                </select>
+                            </div>
+                            <label style="font-size:11px;color:var(--text-muted);">Aktivitaet</label>
+                            <select id="rule-force-activity" class="agent-status-input"></select>
+                        </div>
+                        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Bedingung</label>
+                        <input type="text" id="rule-edit-condition" class="agent-status-input" placeholder="z.B. has_item:item_a1b2c3d4 OR courage&gt;50">
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.5;">
+                            <strong>Status:</strong> stamina&gt;N, courage&lt;N, stress&gt;N, lust&gt;N, ...<br>
+                            <strong>Zeit/Anwesenheit:</strong> alone, night, day<br>
+                            <strong>Beziehung:</strong> relationship:Name&gt;N, romantic:Name&gt;N (Name oder "any")<br>
+                            <strong>Stimmung:</strong> mood:happy<br>
+                            <strong>Zustand:</strong> condition:drunk (aktive Condition im Profil)<br>
+                            <strong>Aktuelle Aktivitaet:</strong> current_activity:kochen<br>
+                            <strong>Item im Inventar:</strong> has_item:item_a1b2c3d4 (Character traegt Item)<br>
+                            <strong>Item im Raum:</strong> room_has_item:holoprojector (Ziel-Raum enthaelt Item — nur bei scope "Jeder Raum" oder konkretem Raum)<br>
+                            <strong>Geheimnis:</strong> has_secret<br>
+                            <strong>Verknuepfung:</strong> AND / OR / NOT
+                        </div>
+                        <label style="font-size:11px;color:var(--text-muted);">Meldung</label>
+                        <input type="text" id="rule-edit-message" class="agent-status-input" placeholder="z.B. Du brichst vor Erschoepfung zusammen">
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="save-btn" onclick="_saveRule()">Speichern</button>
+                        </div>
+                    </div>
+                    <div id="rule-placeholder" class="scheduler-empty">Klicke auf eine Regel oder erstelle eine neue.</div>
+                </div>
+            </div>
+            <!-- Tab: Zustaende (Prompt-Modifier) -->
+            <div id="game-admin-tab-modifiers" class="modal-body" style="display:none;gap:12px;">
+                <div style="flex:0 0 40%;overflow-y:auto;max-height:70vh;">
+                    <div class="scheduler-header" style="margin-bottom:8px;">
+                        <h3 style="font-size:13px;">Status-Zustaende</h3>
+                        <button class="save-btn" style="font-size:11px;" onclick="_newModifier()">+ Neu</button>
+                    </div>
+                    <div id="modifiers-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div id="modifier-edit-form" style="display:none;" class="world-inline-form">
+                        <input type="hidden" id="modifier-edit-idx" value="-1">
+                        <div class="form-row-inline">
+                            <input type="text" id="modifier-edit-label" class="agent-status-input" placeholder="Label (z.B. Muede)" style="flex:1;">
+                            <input type="text" id="modifier-edit-icon" class="agent-status-input" placeholder="Icon (🍺)" style="width:80px;">
+                        </div>
+                        <input type="text" id="modifier-edit-condition" class="agent-status-input" placeholder="Bedingung (z.B. stamina<30 oder condition:drunk)">
+                        <textarea id="modifier-edit-prompt" class="agent-status-input" rows="3" placeholder="Prompt-Modifier (z.B. You are tired and sluggish...)"></textarea>
+                        <textarea id="modifier-edit-image" class="agent-status-input" rows="2" placeholder="Image-Modifier (visuelle Hinweise fuer Bildgenerierung, z.B. 'flushed cheeks, glassy eyes')"></textarea>
+                        <div style="font-size:10px;color:var(--text-muted);line-height:1.3;">
+                            Prompt-Modifier: Verhaltensanweisung an das LLM.<br>
+                            Image-Modifier: Wird an den Expression-Prompt angehaengt.<br>
+                            Icon: Emoji/Kurztext fuer Header-Badge.<br>
+                            Reihenfolge wichtig: strengste Bedingung zuerst (nur der erste Match pro Stat greift).
+                        </div>
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="save-btn" onclick="_saveModifier()">Speichern</button>
+                            <button class="reset-btn" onclick="_deleteModifier()">Loeschen</button>
+                        </div>
+                    </div>
+                    <div id="modifier-placeholder" class="scheduler-empty">Klicke auf einen Zustand oder erstelle einen neuen.</div>
+                </div>
+            </div>
+            <!-- Tab: Items -->
+            <div id="game-admin-tab-items" class="modal-body" style="display:none;gap:12px;">
+                <div style="flex:0 0 30%;min-width:0;display:flex;flex-direction:column;max-height:70vh;">
+                    <div class="scheduler-header" style="margin-bottom:8px;flex-shrink:0;">
+                        <h3 style="font-size:13px;">Item-Bibliothek</h3>
+                        <button class="save-btn" style="font-size:11px;" onclick="_newItem()">+ Neu</button>
+                    </div>
+                    <input type="text" id="items-search" class="agent-status-input" placeholder="Suchen..." style="margin-bottom:6px;font-size:12px;padding:6px 10px;flex-shrink:0;" oninput="_renderItemsList()">
+                    <div style="display:flex;gap:6px;margin-bottom:6px;flex-shrink:0;">
+                        <select id="items-filter-category" class="agent-status-input" style="flex:1;font-size:11px;padding:4px 6px;" onchange="_renderItemsList()">
+                            <option value="">Alle Kategorien</option>
+                            <option value="outfit_piece">Outfit-Teil</option>
+                            <option value="key">Schluessel</option>
+                            <option value="tool">Werkzeug</option>
+                            <option value="consumable">Verbrauchbar</option>
+                            <option value="evidence">Beweis</option>
+                            <option value="gift">Geschenk</option>
+                            <option value="quest">Quest</option>
+                            <option value="decoration">Deko</option>
+                        </select>
+                        <select id="items-filter-rarity" class="agent-status-input" style="flex:1;font-size:11px;padding:4px 6px;" onchange="_renderItemsList()">
+                            <option value="">Alle Raritaeten</option>
+                            <option value="generic">Generic</option>
+                            <option value="common">Common</option>
+                            <option value="rare">Rare</option>
+                            <option value="unique">Unique</option>
+                        </select>
+                        <select id="items-sort" class="agent-status-input" style="flex:1;font-size:11px;padding:4px 6px;" onchange="_renderItemsList()" title="Sortierung">
+                            <option value="default">Gruppiert</option>
+                            <option value="name">Name A-Z</option>
+                            <option value="rarity">Raritaet</option>
+                            <option value="category">Kategorie</option>
+                        </select>
+                    </div>
+                    <div id="items-list" class="world-list" style="overflow-y:auto;flex:1;">
+                        <p class="scheduler-empty">Lade...</p>
+                    </div>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div id="item-edit-form" style="display:none;" class="world-inline-form">
+                        <input type="hidden" id="item-edit-id">
+                        <div class="form-row-inline">
+                            <input type="text" id="item-edit-name" class="agent-status-input" placeholder="Name (englisch, auch als Anzeigename)" style="flex:1;">
+                            <input type="text" id="item-edit-description" class="agent-status-input" placeholder="Beschreibung" style="flex:2;">
+                        </div>
+                        <div class="form-row-inline">
+                            <select id="item-edit-category" class="agent-status-input">
+                                <option value="outfit_piece">Outfit-Teil</option>
+                                <option value="key">Key / Schluessel</option>
+                                <option value="tool">Tool / Werkzeug</option>
+                                <option value="consumable">Consumable / Verbrauchbar</option>
+                                <option value="evidence">Evidence / Beweis</option>
+                                <option value="gift">Gift / Geschenk</option>
+                                <option value="quest">Quest</option>
+                                <option value="decoration">Decoration / Deko</option>
+                            </select>
+                            <select id="item-edit-rarity" class="agent-status-input" title="Generic = einfaerbbar in der Garderobe; alle anderen haben feste Farbe im Prompt">
+                                <option value="generic">Generic (einfaerbbar)</option>
+                                <option value="common">Common</option>
+                                <option value="rare">Rare</option>
+                                <option value="unique">Unique</option>
+                            </select>
+                        </div>
+                        <div class="form-row-inline" style="gap:10px;font-size:11px;">
+                            <label style="display:inline-flex;align-items:center;gap:3px;"><input type="checkbox" id="item-edit-stackable" style="margin:0;"> Stapelbar</label>
+                            <label style="display:inline-flex;align-items:center;gap:3px;"><input type="checkbox" id="item-edit-transferable" checked style="margin:0;"> Uebertragbar</label>
+                            <label style="display:inline-flex;align-items:center;gap:3px;"><input type="checkbox" id="item-edit-consumable" style="margin:0;"> Verbrauchbar</label>
+                        </div>
+                        <textarea id="item-edit-image-prompt" class="agent-status-input" rows="2" placeholder="Image Prompt (fuer Bildgenerierung, z.B. 'silver house key on wooden table, realistic')"></textarea>
+                        <textarea id="item-edit-prompt-fragment" class="agent-status-input" rows="2" placeholder="Prompt-Fragment (fuer Character-Bild, z.B. 'holding a hammer' oder 'black leather jacket, slim fit')"></textarea>
+                        <div id="item-edit-outfit-piece-section" style="display:none;margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                            <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Outfit-Teil</label>
+                            <div style="display:flex;gap:12px;margin-top:4px;">
+                                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;">
+                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                        <div id="item-edit-outfit-types-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                        <select id="item-edit-outfit-types-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ Outfit-Typ</option></select>
+                                    </div>
+                                    <select id="item-edit-slot" class="agent-status-input">
+                                        <option value="head">Kopf</option>
+                                        <option value="neck">Hals</option>
+                                        <option value="outer" selected>Mantel &amp; Jacke</option>
+                                        <option value="top">Oberteil</option>
+                                        <option value="underwear_top">Unterwaesche oben</option>
+                                        <option value="bottom">Unterteil</option>
+                                        <option value="underwear_bottom">Unterwaesche unten</option>
+                                        <option value="legs">Beine</option>
+                                        <option value="feet">Fuesse</option>
+                                    </select>
+                                    <div style="font-size:11px;color:var(--text-muted);">Verdeckt komplett:</div>
+                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                        <div id="item-edit-covers-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                        <select id="item-edit-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
+                                    </div>
+                                    <div style="font-size:11px;color:var(--text-muted);">Teilweise verdeckt:</div>
+                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                        <div id="item-edit-partially-covers-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                        <select id="item-edit-partially-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
+                                    </div>
+                                    <div style="font-size:11px;color:var(--text-muted);" title="Slots, die das Piece zusaetzlich belegt (z.B. Overall belegt top + bottom).">Belegt zusaetzlich:</div>
+                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
+                                        <div id="item-edit-additional-slots-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                        <select id="item-edit-additional-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
+                                    </div>
+                                </div>
+                                <div id="item-edit-silhouette" class="outfit-silhouette" style="flex:0 0 144px;display:flex;flex-direction:column;align-items:center;"></div>
+                            </div>
+                        </div>
+                        <div id="item-edit-consumable-section" style="display:none;margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                            <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Effekt beim Konsumieren</label>
+                            <textarea id="item-edit-effects" class="agent-status-input" rows="3" placeholder="stamina_change: -10&#10;courage_change: 5&#10;mood_influence: entspannt" style="font-family:monospace;font-size:12px;margin-top:4px;"></textarea>
+                            <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
+                                Format: <code style="background:var(--border-light);padding:1px 3px;border-radius:3px;">stat_change: +/-wert</code> pro Zeile (wie Aktivitaeten).
+                            </div>
+                            <div class="form-row-inline" style="margin-top:4px;">
+                                <label style="font-size:11px;white-space:nowrap;">Condition setzen:</label>
+                                <input type="text" id="item-edit-apply-condition" class="agent-status-input" placeholder="z.B. drunk" style="flex:1;font-size:12px;">
+                                <label style="font-size:11px;white-space:nowrap;">Dauer (h):</label>
+                                <input type="number" id="item-edit-condition-duration" class="agent-status-input" min="1" placeholder="2" style="width:60px;font-size:12px;">
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin:2px 0 0 0;line-height:1.3;">
+                                Optional: aktiviert eine Condition im Profil (analog kumulativer Effekt bei Aktivitaeten).
+                            </div>
+                        </div>
+                        <div id="item-edit-evidence-section" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                            <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Evidence: enthuelltes Geheimnis (optional)</label>
+                            <div class="form-row-inline" style="gap:6px;margin-top:4px;">
+                                <select id="item-edit-reveals-owner" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="">-- Character (Geheimnis-Inhaber) --</option>
+                                </select>
+                                <select id="item-edit-reveals-secret" class="agent-status-input" style="flex:2;font-size:12px;">
+                                    <option value="">-- Geheimnis --</option>
+                                </select>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Wenn ein Character dieses Item aufnimmt oder verschenkt bekommt, wird das Geheimnis fuer ihn als entdeckt markiert.</div>
+                        </div>
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="save-btn" onclick="_saveItem()">Speichern</button>
+                        </div>
+                    </div>
+                    <div id="item-placeholder" class="scheduler-empty">Klicke auf ein Item oder erstelle ein neues.</div>
+                </div>
+                <div style="flex:0 0 28%;min-width:0;display:flex;flex-direction:column;gap:12px;">
+                    <div id="item-image-panel" style="display:none;flex-direction:column;gap:8px;">
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Bild</div>
+                        <div id="item-image-preview" style="width:100%;aspect-ratio:1/1;background:rgba(0,0,0,0.2);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                            <span class="scheduler-empty" id="item-image-placeholder">Noch kein Bild</span>
+                            <img id="item-image-img" src="" alt="" style="display:none;width:100%;height:100%;object-fit:contain;">
+                        </div>
+                        <button class="save-btn" id="btn-generate-item-image" onclick="_generateItemImage()">Bild generieren</button>
+                    </div>
+                    <div id="item-image-placeholder-col" class="scheduler-empty">Item waehlen fuer Bild</div>
+                    <div id="item-owners-panel" style="display:none;border:1px solid var(--border);border-radius:6px;padding:8px;background:rgba(0,0,0,0.08);">
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:6px;">Besitzer dieses Items</div>
+                        <div id="item-owners-list" style="font-size:12px;line-height:1.5;">
+                            <span class="scheduler-empty" style="font-size:11px;">Niemand</span>
+                        </div>
+                        <div id="item-owners-add-row" style="display:flex;gap:6px;margin-top:8px;align-items:center;">
+                            <select id="item-owners-add-character" class="agent-status-input" style="flex:1;font-size:11px;padding:4px 6px;">
+                                <option value="">-- Character --</option>
+                            </select>
+                            <input type="number" id="item-owners-add-qty" class="agent-status-input" value="1" min="1" style="width:50px;font-size:11px;padding:4px 6px;" title="Menge">
+                            <button class="save-btn" style="font-size:11px;padding:4px 10px;" onclick="_addItemOwner()">+ Geben</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notifications Panel (Drawer von links) -->
+    <div id="notifications-panel" class="notifications-panel" style="display: none;">
+        <div class="panel-resize-handle handle-left" data-panel="notifications-panel" data-side="right"></div>
+        <div class="notifications-header">
+            <div class="notifications-header-top">
+                <h2 id="notifications-title">💬 Nachrichten</h2>
+                <div class="notifications-header-btns">
+                    <button class="notifications-mark-all" onclick="markAllNotificationsRead()" title="Alle gelesen">✓</button>
+                    <button class="notifications-close" onclick="toggleNotificationsPanel()">&times;</button>
+                </div>
+            </div>
+        </div>
+        <div id="notifications-content" class="notifications-content">
+            <p class="notification-empty">Keine Nachrichten</p>
+        </div>
+    </div>
+
+    <script src="/static/script.js?v={{ range(1, 99999) | random }}"></script>
+</body>
+</html>

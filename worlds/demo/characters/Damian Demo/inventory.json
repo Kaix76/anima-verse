@@ -1,0 +1,15 @@
+{
+  "inventory": [
+    {
+      "item_id": "item_cf618f8d",
+      "quantity": 1,
+      "obtained_at": "2026-04-29T19:55:11.450171",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    }
+  ],
+  "max_slots": 20,
+  "last_updated": "2026-04-29T19:55:11.450180"
+}

@@ -1,0 +1,6 @@
+name: searx
+version: "1.0.0"
+description: Web search via self-hosted SearX meta search engine
+skill_id: searx
+tool_name: WebSearch
+env_prefix: "SKILL_SEARX_"

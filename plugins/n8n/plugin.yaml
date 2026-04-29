@@ -1,0 +1,6 @@
+name: n8n
+version: "1.0.0"
+description: Ruft n8n-Workflows per Webhook (POST) auf und liefert die JSON-Antwort an das LLM
+skill_id: n8n
+tool_name: N8N
+always_load: true

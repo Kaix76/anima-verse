@@ -1,0 +1,28 @@
+{
+  "group": "Bar und Getraenke",
+  "activities": [
+    {
+      "id": "coffee",
+      "name": "Coffee",
+      "description": "Have a cup of coffee",
+      "category": "normal",
+      "effects": {
+        "stamina_change": 5,
+        "attention_change": 5
+      },
+      "name_de": "Kaffee",
+      "description_de": "Einen frisch gebruehten Kaffee trinken"
+    },
+    {
+      "id": "protein_shake",
+      "name": "Protein shake",
+      "description": "Drink a protein shake",
+      "category": "normal",
+      "effects": {
+        "stamina_change": 8
+      },
+      "name_de": "Eiweissshake",
+      "description_de": "Einen Protein-Shake trinken"
+    }
+  ]
+}

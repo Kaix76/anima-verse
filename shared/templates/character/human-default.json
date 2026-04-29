@@ -1,0 +1,203 @@
+{
+  "template_version": 2,
+  "label": "Human Standard",
+  "template_type": "character",
+  "base": "base-character",
+  "features": {
+    "story_enabled": false,
+    "storydev_enabled": false,
+    "memory_enabled": false,
+    "relationships_enabled": false,
+    "relationship_summary_enabled": false,
+    "secrets_enabled": false,
+    "inventory_enabled": false,
+    "activities_enabled": false,
+    "locations_enabled": false,
+    "mood_tracking_enabled": false,
+    "thoughts_enabled": false,
+    "status_effects_enabled": false,
+    "social_dialog_enabled": false,
+    "random_events_enabled": false,
+    "outfit_system_enabled": false,
+    "expression_variants_enabled": false,
+    "playable_avatar": false,
+    "assignments_enabled": false,
+    "roleplay_rules_enabled": false,
+    "beliefs_enabled": false,
+    "lessons_enabled": false,
+    "goals_enabled": false,
+    "soul_enabled": false
+  },
+  "sections": [
+    {
+      "id": "identity",
+      "column": 1,
+      "row": 1,
+      "fields": [
+        {
+          "key": "gender",
+          "label": "Gender",
+          "label_de": "Geschlecht",
+          "type": "select",
+          "options": [
+            {
+              "value": "male",
+              "label": "Male",
+              "label_de": "Männlich"
+            },
+            {
+              "value": "female",
+              "label": "Female",
+              "label_de": "Weiblich"
+            },
+            {
+              "value": "androgynous",
+              "label": "Androgynous",
+              "label_de": "Divers"
+            },
+            {
+              "value": "genderfluid",
+              "label": "Genderfluid",
+              "label_de": "Genderfluid"
+            },
+            {
+              "value": "nonbinary",
+              "label": "Non-binary",
+              "label_de": "Non-binary"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "age",
+          "label": "Age",
+          "label_de": "Alter",
+          "type": "number",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "character_personality",
+          "label": "Personality",
+          "label_de": "Persönlichkeit",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "workflow_required": [
+            "chat",
+            "instagram"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Personality",
+          "llm_generable": true,
+          "editor_visible": false,
+          "source_file": "soul/personality.md"
+        }
+      ]
+    },
+    {
+      "id": "characteristics",
+      "label": "Characteristics",
+      "label_de": "Eigenschaften",
+      "column": 3,
+      "row": 0,
+      "fields": [
+        {
+          "key": "popularity",
+          "label": "Popularity",
+          "label_de": "Popularität",
+          "type": "number",
+          "store": "config",
+          "hint": "0-100%. Determines how likely other characters react to Instagram posts",
+          "hint_de": "0-100%. Bestimmt wie wahrscheinlich andere Characters auf Instagram-Posts reagieren",
+          "llm_generable": true
+        },
+        {
+          "key": "trustworthiness",
+          "label": "Trustworthiness",
+          "label_de": "Vertrauenswürdigkeit",
+          "type": "number",
+          "store": "config",
+          "default": 50,
+          "hint": "0-100%. How much the character shares about conversations with the user to others",
+          "hint_de": "0-100%. Wie viel der Character über Gespräche mit dem User an andere weitergibt",
+          "llm_generable": true
+        },
+        {
+          "key": "social_dialog_probability",
+          "label": "Dialog probability",
+          "label_de": "Dialog-Wahrscheinlichkeit",
+          "type": "number",
+          "store": "config",
+          "default": 50,
+          "hint": "0-100%. Probability of conversations with other characters at the same location",
+          "hint_de": "0-100%. Wahrscheinlichkeit für Gespräche mit anderen Characters am selben Ort",
+          "llm_generable": true
+        },
+        {
+          "key": "roles",
+          "label": "Roles",
+          "label_de": "Rollen",
+          "type": "text",
+          "store": "config",
+          "hint": "Comma-separated role tags (e.g. 'photographer, model'). Activities with required_roles only show up for matching characters.",
+          "hint_de": "Kommagetrennte Rollen-Tags (z.B. 'photographer, model'). Aktivitaeten mit required_roles werden nur fuer passende Characters sichtbar.",
+          "placeholder": "e.g. photographer, model",
+          "placeholder_de": "z.B. photographer, model"
+        },
+        {
+          "key": "romantic_interests",
+          "label": "Romantic Interests",
+          "label_de": "Romantische Interessen",
+          "type": "text",
+          "store": "config",
+          "hint": "Describe romantic/sexual interests (e.g. \"women\", \"tall dark men\", \"dominant personalities\"). Empty = none.",
+          "hint_de": "Romantische/sexuelle Interessen beschreiben (z.B. \"Frauen\", \"grosse dunkle Maenner\", \"dominante Persoenlichkeiten\"). Leer = keine.",
+          "placeholder": "e.g. women, dominant men...",
+          "placeholder_de": "z.B. Frauen, dominante Maenner..."
+        }
+      ]
+    },
+    {
+      "id": "appearance",
+      "label": "Appearance",
+      "label_de": "Aussehen",
+      "column": 4,
+      "row": 0,
+      "fields": [
+        {
+          "key": "character_appearance",
+          "label": "Appearance Prompt",
+          "label_de": "Prompt für Aussehen",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "workflow_required": [
+            "image_generation"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Appearance",
+          "llm_generable": true
+        }
+      ]
+    },
+    {
+      "id": "other_config",
+      "label": "Other",
+      "label_de": "Sonstiges",
+      "column": 10,
+      "row": 1,
+      "fields": []
+    }
+  ],
+  "extra_activities": [
+    "sleeping"
+  ]
+}

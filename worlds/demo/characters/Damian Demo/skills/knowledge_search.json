@@ -1,0 +1,6 @@
+{
+  "max_candidates": 50,
+  "max_return": 8,
+  "source_tag": "file_extraction",
+  "enabled": false
+}

@@ -1,0 +1,1160 @@
+{
+  "items": [
+    {
+      "id": "item_c53cd0c9",
+      "name": "Bikini Bra",
+      "category": "outfit_piece",
+      "prompt_fragment": "bikini bra",
+      "created_at": "2026-04-22T22:15:12.747985",
+      "description": "",
+      "description_de": "",
+      "image": "1776888978.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [
+          "underwear_top"
+        ],
+        "outfit_types": [
+          "beach",
+          "pool"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_daffe7ca",
+      "name": "Beige chinos",
+      "category": "outfit_piece",
+      "prompt_fragment": "beige chinos",
+      "created_at": "2026-04-16T23:39:01.461082",
+      "description": "",
+      "description_de": "",
+      "image": "1776375553.png",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "image_prompt": "",
+      "effects": null,
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_5bfe0cbc",
+      "name": "Black Blazer",
+      "category": "outfit_piece",
+      "prompt_fragment": "black tailored blazer, slightly open to reveal cleavage, fitted on athletic frame, silver buttons, business setting",
+      "created_at": "2026-04-27T10:20:37.890374",
+      "description": "",
+      "description_de": "",
+      "image": "1777278057.png",
+      "image_prompt": "",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "effects": null,
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [
+          "underwear_top"
+        ],
+        "partially_covers": [
+          "top"
+        ],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_68c4d249",
+      "name": "Business Heels",
+      "category": "outfit_piece",
+      "prompt_fragment": "business heels",
+      "created_at": "2026-04-15T18:05:38.280195",
+      "description": "",
+      "description_de": "",
+      "image": "1776456991.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": [
+          "business",
+          "casual",
+          "clubwear",
+          "formal"
+        ]
+      }
+    },
+    {
+      "id": "item_f85cb432",
+      "name": "Business Shirt",
+      "category": "outfit_piece",
+      "prompt_fragment": "business shirt",
+      "created_at": "2026-04-15T15:28:07.108416",
+      "description": "",
+      "description_de": "",
+      "image": "1776454661.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [
+          "underwear_top"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "business"
+        ]
+      }
+    },
+    {
+      "id": "item_19f8855b",
+      "name": "Business Skirt",
+      "category": "outfit_piece",
+      "prompt_fragment": "business Skirt",
+      "created_at": "2026-04-17T14:09:11.237569",
+      "description": "",
+      "description_de": "",
+      "image": "1776457104.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_fcc885b2",
+      "name": "Business Suit",
+      "category": "outfit_piece",
+      "prompt_fragment": "business suit",
+      "created_at": "2026-04-17T23:29:56.537877",
+      "description": "",
+      "description_de": "",
+      "image": "1776461414.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [
+          "underwear_top",
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "business"
+        ]
+      }
+    },
+    {
+      "id": "item_6cc8e8ae",
+      "name": "Bussiness Shoes",
+      "category": "outfit_piece",
+      "prompt_fragment": "bussiness shoes",
+      "created_at": "2026-04-15T15:31:38.830873",
+      "description": "",
+      "description_de": "",
+      "image": "1776457732.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": [
+          "business"
+        ]
+      }
+    },
+    {
+      "id": "item_85e23bf0",
+      "name": "Bussiness Pants",
+      "category": "outfit_piece",
+      "prompt_fragment": "bussiness Pants",
+      "created_at": "2026-04-15T15:29:19.442888",
+      "description": "",
+      "description_de": "",
+      "image": "1776457480.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "business"
+        ]
+      }
+    },
+    {
+      "id": "item_3fd96ccb",
+      "name": "Charcoal-grey tailored suit",
+      "category": "outfit_piece",
+      "prompt_fragment": "a charcoal-grey tailored suit",
+      "created_at": "2026-04-16T23:53:07.461373",
+      "description": "",
+      "description_de": "",
+      "image": "1776376405.png",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "image_prompt": "",
+      "effects": null,
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [
+          "underwear_top",
+          "underwear_bottom"
+        ],
+        "partially_covers": [
+          "top"
+        ],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_0bdbf9e0",
+      "name": "Dark grey wool suit",
+      "category": "outfit_piece",
+      "prompt_fragment": "dark grey wool suit",
+      "created_at": "2026-04-16T23:20:10.321601",
+      "description": "",
+      "description_de": "",
+      "image": "1776374442.png",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "image_prompt": "",
+      "effects": null,
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_1a08a706",
+      "name": "Denim Jeans",
+      "category": "outfit_piece",
+      "prompt_fragment": "denim jeans",
+      "created_at": "2026-04-17T22:37:34.504472",
+      "description": "",
+      "description_de": "",
+      "image": "1776458260.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "casual"
+        ]
+      }
+    },
+    {
+      "id": "item_375167b2",
+      "name": "Distressed Charcoal Denim Jacket",
+      "category": "outfit_piece",
+      "prompt_fragment": "distressed charcoal denim jacket worn open, rugged texture, silver buttons, casual fit",
+      "created_at": "2026-04-25T12:20:43.275053",
+      "description": "",
+      "description_de": "",
+      "image": "1777112455.png",
+      "image_prompt": "",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "effects": null,
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "intimate"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_9f3a6725",
+      "name": "Fishnet Stockings",
+      "category": "outfit_piece",
+      "prompt_fragment": "black fishnet stockings, sheer texture, extending from thighs to ankles",
+      "created_at": "2026-04-25T20:15:22.449959",
+      "description": "",
+      "description_de": "",
+      "image": "1777140960.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "legs",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "clubwear"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_2d10b999",
+      "name": "Ivory-colored faux-fur wrap robe",
+      "category": "outfit_piece",
+      "prompt_fragment": "ivory-colored faux-fur wrap robe with a deep V-neckline",
+      "created_at": "2026-04-15T19:25:57.118015",
+      "description": "",
+      "description_de": "",
+      "image": "1777493370.png",
+      "rarity": "common",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "image_prompt": "",
+      "effects": null,
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "sport"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_6c41aa2c",
+      "name": "Jeans",
+      "category": "outfit_piece",
+      "prompt_fragment": "jeans",
+      "created_at": "2026-04-15T12:41:29.633988",
+      "description": "",
+      "description_de": "",
+      "image": "1776457052.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "casual"
+        ]
+      }
+    },
+    {
+      "id": "item_9b35c92f",
+      "name": "Knee-high socks",
+      "category": "outfit_piece",
+      "prompt_fragment": "knee-high socks",
+      "created_at": "2026-04-21T22:41:09.849142",
+      "description": "",
+      "description_de": "",
+      "image": "1776804072.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "legs",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {
+          "name": "Z-Image-school-outfit.safetensors",
+          "strength": 1.0,
+          "workflow": ""
+        }
+      }
+    },
+    {
+      "id": "item_946db709",
+      "name": "Leather Boots",
+      "category": "outfit_piece",
+      "prompt_fragment": "leather ankle boots, soft soles, worn with the jacket",
+      "created_at": "2026-04-22T11:16:28.904358",
+      "description": "",
+      "description_de": "",
+      "image": "1776849418.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "effects": null,
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_aa40f2c9",
+      "name": "Light denim jeans",
+      "category": "outfit_piece",
+      "prompt_fragment": "light denim jeans",
+      "created_at": "2026-04-17T00:42:55.325349",
+      "description": "",
+      "description_de": "",
+      "image": "1776379386.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_ddde1e35",
+      "name": "Light summer dress",
+      "category": "outfit_piece",
+      "prompt_fragment": "light summer dress with floral pattern",
+      "created_at": "2026-04-17T00:45:37.559026",
+      "description": "",
+      "description_de": "",
+      "image": "1776379598.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "image_prompt": "",
+      "effects": null,
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [
+          "bottom"
+        ],
+        "outfit_types": [],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_52eea713",
+      "name": "Long sport top",
+      "category": "outfit_piece",
+      "prompt_fragment": "long sport top",
+      "created_at": "2026-04-17T14:32:32.004548",
+      "description": "",
+      "description_de": "",
+      "image": "1776429165.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [
+          "underwear_top"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "sport"
+        ]
+      }
+    },
+    {
+      "id": "item_84188422",
+      "name": "Male Underware",
+      "category": "outfit_piece",
+      "prompt_fragment": "male underware",
+      "created_at": "2026-04-15T15:43:24.603880",
+      "description": "",
+      "description_de": "",
+      "image": "1776457831.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "underwear_bottom",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": [
+          "business",
+          "casual"
+        ]
+      }
+    },
+    {
+      "id": "item_c0ba44b9",
+      "name": "Navy roll-neck sweater",
+      "category": "outfit_piece",
+      "prompt_fragment": "navy roll-neck sweater",
+      "created_at": "2026-04-16T23:38:39.773363",
+      "description": "",
+      "description_de": "",
+      "image": "1776375543.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [
+          "underwear_top"
+        ],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_6107d038",
+      "name": "Bikini String Tanga",
+      "category": "outfit_piece",
+      "prompt_fragment": "bikini string tanga",
+      "created_at": "2026-04-22T22:13:59.031088",
+      "description": "",
+      "description_de": "",
+      "image": "1776888947.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [
+          "underwear_bottom"
+        ],
+        "outfit_types": [
+          "pool",
+          "beach"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_47e2bb1f",
+      "name": "White cardigan",
+      "category": "outfit_piece",
+      "prompt_fragment": "white cardigan",
+      "created_at": "2026-04-17T00:46:24.024923",
+      "description": "",
+      "description_de": "",
+      "image": "1776379603.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_2faebe22",
+      "name": "White Sheer Blouse",
+      "category": "outfit_piece",
+      "prompt_fragment": "white sheer blouse, unbuttoned to waist, casual wear, soft fabric",
+      "created_at": "2026-04-28T01:29:20.056041",
+      "description": "",
+      "image": "1777332592.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "effects": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "casual"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_76c857ec",
+      "name": "White Running Sneakers",
+      "category": "outfit_piece",
+      "prompt_fragment": "clean white athletic running sneakers, low-top, rubber soles, sporty laces",
+      "created_at": "2026-04-27T12:05:59.368263",
+      "description": "",
+      "description_de": "",
+      "image": "1777284695.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "sport"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_83b010b8",
+      "name": "Woman shoes",
+      "category": "outfit_piece",
+      "prompt_fragment": "comfortable woman shoes",
+      "created_at": "2026-04-17T15:36:01.216549",
+      "description": "",
+      "description_de": "",
+      "image": "1776433023.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_700f308f",
+      "name": "Towel",
+      "category": "outfit_piece",
+      "prompt_fragment": "towel around the waist",
+      "created_at": "",
+      "description": "Sauna",
+      "description_de": "Sauna",
+      "image": "1776427516.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [
+          "underwear_bottom"
+        ],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_189fa0ff",
+      "name": "Tanga",
+      "category": "outfit_piece",
+      "prompt_fragment": "tanga",
+      "created_at": "2026-04-15T12:44:30.379033",
+      "description": "",
+      "description_de": "",
+      "image": "1776458666.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "underwear_bottom",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": []
+      }
+    },
+    {
+      "id": "item_ae7616b3",
+      "name": "Tailored blazer",
+      "category": "outfit_piece",
+      "prompt_fragment": "tailored blazer",
+      "created_at": "2026-04-17T21:06:34.255112",
+      "description": "",
+      "description_de": "",
+      "image": "1776452900.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "outer",
+        "covers": [],
+        "partially_covers": [
+          "top"
+        ],
+        "outfit_types": [
+          "business"
+        ],
+        "color": "lightblue"
+      }
+    },
+    {
+      "id": "item_750811f7",
+      "name": "Tailored Black Trousers",
+      "category": "outfit_piece",
+      "prompt_fragment": "high-waisted tailored black trousers with a sharp crease down the leg, slim fit accentuating the athletic waist and long legs, professional cut",
+      "created_at": "2026-04-24T18:22:23.300550",
+      "description": "",
+      "description_de": "",
+      "image": "1777047773.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "bottom",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "business"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_a344f8e1",
+      "name": "T-Shirt",
+      "category": "outfit_piece",
+      "prompt_fragment": "blue t-shirt",
+      "created_at": "2026-04-15T12:40:43.472916",
+      "description": "",
+      "description_de": "",
+      "image": "1776249659.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "top",
+        "covers": [
+          "underwear_top"
+        ],
+        "partially_covers": [],
+        "outfit_types": [
+          "casual"
+        ]
+      }
+    },
+    {
+      "id": "item_3710e421",
+      "name": "Stiletto Heels",
+      "category": "outfit_piece",
+      "prompt_fragment": "black satin stiletto heels with a pointed toe, high thin heel, glossy finish reflecting studio lights",
+      "created_at": "2026-04-24T14:22:55.086714",
+      "description": "",
+      "description_de": "",
+      "image": "1777033415.png",
+      "image_prompt": "",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "additional_slots": [],
+        "outfit_types": [
+          "intimate"
+        ],
+        "lora": {}
+      }
+    },
+    {
+      "id": "item_37ef75ef",
+      "name": "Sport Shoes",
+      "category": "outfit_piece",
+      "prompt_fragment": "blue sport shoes",
+      "created_at": "2026-04-15T18:39:34.598018",
+      "description": "",
+      "description_de": "",
+      "image": "1776271179.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "outfit_types": [
+          "sport"
+        ]
+      }
+    },
+    {
+      "id": "item_3c60cf62",
+      "name": "Sneekers",
+      "category": "outfit_piece",
+      "prompt_fragment": "Sneekers",
+      "created_at": "2026-04-15T15:33:08.824406",
+      "description": "",
+      "description_de": "",
+      "image": "1776457789.png",
+      "rarity": "generic",
+      "stackable": false,
+      "max_stack": 1,
+      "transferable": true,
+      "consumable": false,
+      "reveals_secret": null,
+      "properties": {
+        "enables_locations": [],
+        "enables_activities": [],
+        "stat_bonuses": {},
+        "uses": null
+      },
+      "outfit_piece": {
+        "slot": "feet",
+        "covers": [],
+        "partially_covers": [],
+        "outfit_types": [
+          "casual"
+        ]
+      }
+    }
+  ],
+  "last_updated": "2026-04-29T22:42:30.596778"
+}

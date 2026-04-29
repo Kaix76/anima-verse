@@ -1,0 +1,73 @@
+{
+  "2": {
+    "inputs": {
+      "value": "Hallo, ich bin dein persönlicher Assistent. Wie kann ich dir heute helfen?\n"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_text"
+    }
+  },
+  "5": {
+    "inputs": {
+      "audioUI": "/api/view?filename=ComfyUI_temp_joqyi_00001_.flac&type=temp&subfolder=&rand=0.3855577456382524",
+      "audio": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "output_audio"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_size": "1.7B",
+      "device": "auto",
+      "voice_preset": "None (Zero-shot / Custom)",
+      "language": "Auto",
+      "instruct": "",
+      "top_k": 50,
+      "top_p": 1,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 2048,
+      "dtype": "auto",
+      "attn_implementation": "auto",
+      "x_vector_only_mode": false,
+      "use_torch_compile": false,
+      "use_cuda_graphs": false,
+      "compile_mode": "default",
+      "asr_use_forced_aligner": true
+    },
+    "class_type": "Qwen3TTSEngineNode",
+    "_meta": {
+      "title": "⚙️ Qwen3-TTS Engine"
+    }
+  },
+  "9": {
+    "inputs": {
+      "text": [
+        "2",
+        0
+      ],
+      "narrator_voice": "test.wav",
+      "seed": 390453807,
+      "enable_chunking": true,
+      "max_chars_per_chunk": 400,
+      "chunk_combination_method": "auto",
+      "silence_between_chunks_ms": 100,
+      "enable_audio_cache": true,
+      "batch_size": 0,
+      "TTS_engine": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "UnifiedTTSTextNode",
+    "_meta": {
+      "title": "🎤 TTS Text"
+    }
+  }
+}

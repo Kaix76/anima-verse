@@ -1,0 +1,51 @@
+{
+  "image_filename": "Damian Demo_1777479766_8c20e2fa_1.jpg",
+  "prompt": "photorealistic, portrait, only head, male, medium, brunette very short, amber eyes",
+  "backend": "Together-Fast",
+  "backend_type": "together",
+  "workflow": "",
+  "negative_prompt": "",
+  "from_character": "",
+  "faceswap": false,
+  "faceswap_method": "",
+  "faceswap_fallback": false,
+  "face_enhance": false,
+  "guidance_scale": null,
+  "num_inference_steps": 16,
+  "duration_s": 7.0,
+  "created_at": "2026-04-29T18:22:46",
+  "location": "",
+  "room_id": "",
+  "seed": 0,
+  "loras": [],
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "reference_images": {},
+  "target_model": "z_image",
+  "canonical": {
+    "persons": [
+      {
+        "label": "Damian Demo",
+        "name": "Damian Demo",
+        "appearance": "male, medium skin, average height height, average body frame,very short brunette hair, amber colored eyes ",
+        "gender": "male",
+        "is_agent": false
+      }
+    ],
+    "person_prompts": {},
+    "outfits": {},
+    "pose": "",
+    "expression": "",
+    "scene": "photorealistic, portrait, only head, male, medium, brunette very short, amber eyes",
+    "mood": "",
+    "activity": "",
+    "location": "",
+    "personality_hint": "",
+    "profile_image_hint": "",
+    "style": "photorealistic",
+    "negative": ""
+  },
+  "template_prompt": "photorealistic photorealistic, portrait, only head, male, medium, brunette very short, amber eyes",
+  "prompt_method": "caller_provided",
+  "items_used": [],
+  "image_analysis": "The image presents a close-up portrait of a young man, captured in a neutral gray background. The subject's gaze is directed straight at the camera, conveying a sense of directness and engagement.\n\nThe man's facial features are prominent, with a light skin tone and a subtle stubble on his chin. His hair is styled in a messy, textured manner, with a dark brown color that complements his overall appearance. His eyes are a striking feature, with a bright yellow hue that adds to the overall sense of vibrancy in the image.\n\nThe man's attire consists of a crisp white collared shirt, which is buttoned up to the top and appears to be made of a smooth, high-quality fabric. The shirt is slightly wrinkled, suggesting that it may have been worn for an extended period or has been subject to some wear and tear.\n\nIn terms of the overall composition of the image, the subject is positioned centrally, with the camera focused directly on his face. The background is a plain gray color, which serves to emphasize the subject's features and create a sense of simplicity and elegance.\n\nThe lighting in the image is soft and even, with no harsh shadows or highlights that might detract from the subject's appearance. This suggests that the image was captured using a professional-grade camera and lighting setup, with the intention of creating a high-quality portrait.\n\nOverall, the image presents a clean, modern, and sophisticated visual aesthetic, with a focus on the subject's facial features and attire. The use of a neutral background and soft lighting helps to create a sense of calm and serenity, while the subject's direct gaze engages the viewer and draws them into the image."
+}

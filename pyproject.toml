@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "agent-system"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [
+    { include = "app" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+uvicorn = "^0.23.2"
+
+
+[tool.poetry.group.dev.dependencies]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "agent-system"
+version = "0.1.0"
+dependencies = [
+    "openai>=1.0.0",
+    "sse-starlette>=1.6.1",
+    "fastapi>=0.95.0",
+    "uvicorn>=0.22.0",
+    "python-dotenv",
+    "jinja2>=3.1.2",
+    "python-multipart",
+    "bcrypt>=4.0.0",
+    "pyjwt>=2.8.0",
+    "apscheduler",
+    "opencv-python-headless",
+    "insightface",
+    "onnxruntime",
+    "aiohttp",
+    "gradio_client",
+    "rembg",
+    "pillow",
+    "langchain-core",
+    "anthropic>=0.40.0"
+]

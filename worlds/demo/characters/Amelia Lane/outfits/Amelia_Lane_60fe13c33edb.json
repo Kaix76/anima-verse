@@ -1,0 +1,23 @@
+{
+  "provider": "together",
+  "service": "Together-Fast",
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "loras": [],
+  "prompt": "full body portrait, Amelia Lane, female, fair skin, tall height, athletic body frame, shoulder length ash blonde hair, ice blue colored eyes, standing with weight shifted to one leg, arms loosely crossed over the chest, head tilted slightly as if scanning, confident smirk, one eyebrow slightly raised, eyes direct and steady, lips slightly pursed",
+  "negative_prompt": "",
+  "characters": [
+    "Amelia Lane"
+  ],
+  "reference_images": {
+    "input_reference_image_1": "Amelia Lane_1777485450_5346bae5_1.jpg"
+  },
+  "seed": 0,
+  "created_at": "2026-04-29T20:28:48",
+  "duration_s": 7.2,
+  "workflow": "",
+  "faceswap": false,
+  "mood": "",
+  "activity": "Waiting",
+  "equipped_pieces": {},
+  "equipped_items": []
+}

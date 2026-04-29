@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a0533"/>
+      <stop offset="100%" stop-color="#0a0a1a"/>
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="60%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#4c1d95" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e9d5ff" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="31" fill="url(#bg)" stroke="#7c3aed" stroke-width="0.5" stroke-opacity="0.3"/>
+  <!-- Outer spiral arm 1 -->
+  <path d="M32 32 C38 20, 52 18, 54 28 C56 38, 46 44, 38 36" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-opacity="0.5" stroke-linecap="round"/>
+  <!-- Outer spiral arm 2 -->
+  <path d="M32 32 C26 44, 12 46, 10 36 C8 26, 18 20, 26 28" fill="none" stroke="#a78bfa" stroke-width="1.5" stroke-opacity="0.5" stroke-linecap="round"/>
+  <!-- Inner spiral arm 1 -->
+  <path d="M32 32 C36 25, 46 24, 46 30 C46 36, 39 38, 35 34" fill="none" stroke="#c4b5fd" stroke-width="1.2" stroke-opacity="0.7" stroke-linecap="round"/>
+  <!-- Inner spiral arm 2 -->
+  <path d="M32 32 C28 39, 18 40, 18 34 C18 28, 25 26, 29 30" fill="none" stroke="#c4b5fd" stroke-width="1.2" stroke-opacity="0.7" stroke-linecap="round"/>
+  <!-- Central glow -->
+  <circle cx="32" cy="32" r="8" fill="url(#core)" opacity="0.9"/>
+  <circle cx="32" cy="32" r="4" fill="url(#glow)"/>
+  <circle cx="32" cy="32" r="1.5" fill="#f5f3ff"/>
+  <!-- Stars -->
+  <circle cx="50" cy="14" r="0.8" fill="#e9d5ff" opacity="0.9"/>
+  <circle cx="12" cy="18" r="0.6" fill="#c4b5fd" opacity="0.7"/>
+  <circle cx="52" cy="48" r="0.7" fill="#ddd6fe" opacity="0.8"/>
+  <circle cx="14" cy="50" r="0.5" fill="#c4b5fd" opacity="0.6"/>
+  <circle cx="44" cy="10" r="0.4" fill="#ede9fe" opacity="0.5"/>
+  <circle cx="20" cy="54" r="0.6" fill="#ddd6fe" opacity="0.7"/>
+  <circle cx="8" cy="32" r="0.5" fill="#e9d5ff" opacity="0.5"/>
+  <circle cx="56" cy="36" r="0.4" fill="#c4b5fd" opacity="0.6"/>
+</svg>

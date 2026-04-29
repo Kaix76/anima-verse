@@ -1,0 +1,145 @@
+{
+  "group": "Grundaktivitaeten",
+  "activities": [
+    {
+      "id": "sleeping",
+      "name": "Sleeping",
+      "description": "Sleep and rest",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": 15,
+        "courage_change": 10,
+        "attention_change": 15
+      },
+      "interruptible": true,
+      "name_de": "Schlafen",
+      "description_de": "Schlafen und ausruhen",
+      "auto_pick": false,
+      "outfit_type": "bed"
+    },
+    {
+      "id": "cleaning",
+      "name": "Cleaning",
+      "description": "Clean up and tidy",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -8,
+        "mood_influence": "zufrieden"
+      },
+      "interruptible": true,
+      "name_de": "Putzen",
+      "description_de": "Aufraeumen und sauber machen"
+    },
+    {
+      "id": "sitting",
+      "name": "Sitting",
+      "description": "Sit down and rest",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": 3
+      },
+      "interruptible": true,
+      "name_de": "Sitzen",
+      "description_de": "Ruhig sitzen und die Umgebung beobachten"
+    },
+    {
+      "id": "reading_newspaper",
+      "name": "Reading newspaper",
+      "description": "Read the newspaper",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -2,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "name_de": "Zeitung lesen",
+      "description_de": "Eine Zeitung lesen"
+    },
+    {
+      "id": "relaxing",
+      "name": "Relaxing",
+      "description": "Relax and take it easy",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "entspannt",
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "name_de": "Entpannen",
+      "description_de": "Auf der Couch sitzen und die Zeitung lesen"
+    },
+    {
+      "id": "thinking_things",
+      "name": "Thinking things over",
+      "description": "Think about things",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -3,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "name_de": "Gedanken machen",
+      "description_de": "Macht sich Gedanken über das Leben"
+    },
+    {
+      "id": "small_talk",
+      "name": "Small talk",
+      "description": "Have casual small talk",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "courage_change": 2
+      },
+      "interruptible": true,
+      "name_de": "Kleine Gespräche",
+      "description_de": "Gemütliche Unterhaltungen führen",
+      "partner_activity": "small_talk",
+      "requires_partner": true,
+      "fallback_activity": "thinking_things"
+    },
+    {
+      "id": "pose",
+      "name": "Pose",
+      "description": "pose for a picture",
+      "category": "creative",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -1
+      },
+      "interruptible": true,
+      "name_de": "Posen",
+      "description_de": "Für ein Bild posieren"
+    }
+  ]
+}

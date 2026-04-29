@@ -1,0 +1,43 @@
+{
+  "group": "Arbeit und Buero",
+  "activities": [
+    {
+      "id": "discussing_concept",
+      "name": "Discussing concept",
+      "description": "Discuss a concept or plan",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "business",
+      "effects": {
+        "stamina_change": -3,
+        "courage_change": 2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "name_de": "Konzept besprechen",
+      "description_de": "Ideen und Konzepte diskutieren"
+    },
+    {
+      "id": "meeting",
+      "name": "Meeting",
+      "description": "Attend a meeting",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "business",
+      "effects": {
+        "stamina_change": -8,
+        "courage_change": 2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "name_de": "Meeting",
+      "description_de": "An einer Besprechung teilnehmen"
+    }
+  ]
+}

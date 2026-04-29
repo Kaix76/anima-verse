@@ -1,0 +1,51 @@
+{
+  "group": "Bar und Getraenke",
+  "activities": [
+    {
+      "id": "making_coffee",
+      "name": "Making coffee",
+      "description": "Brew a fresh cup of coffee",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": -2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "name_de": "Kaffee kochen",
+      "description_de": "Kaffee frisch aufbruehen"
+    },
+    {
+      "id": "drinking_cocktails",
+      "name": "Drinking cocktails",
+      "description": "Enjoy cocktails at the bar",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 20,
+      "effects": {
+        "courage_change": 5,
+        "stamina_change": -3,
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "name_de": "Cocktails trinken",
+      "description_de": "Einen Cocktail an der Bar geniessen",
+      "cumulative_effect": {
+        "threshold": 3,
+        "condition_name": "drunk",
+        "prompt_modifier": "You are drunk. Slur your words occasionally, be unsteady, overly emotional and brutally honest. Lower your inhibitions.",
+        "mood_influence": "happy",
+        "duration_hours": 2,
+        "effects": {
+          "attention_change": -20,
+          "courage_change": 30
+        }
+      }
+    }
+  ]
+}

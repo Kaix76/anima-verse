@@ -1,0 +1,336 @@
+{
+  "3": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "input_size"
+    }
+  },
+  "10": {
+    "inputs": {
+      "images": [
+        "82",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "output_final"
+    }
+  },
+  "60": {
+    "inputs": {
+      "prompt": [
+        "61",
+        0
+      ],
+      "clip": [
+        "105",
+        1
+      ],
+      "vae": [
+        "91",
+        0
+      ],
+      "image1": [
+        "107",
+        0
+      ],
+      "image2": [
+        "108",
+        0
+      ],
+      "image3": [
+        "109",
+        0
+      ],
+      "image4": [
+        "110",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus Input Prompt"
+    }
+  },
+  "61": {
+    "inputs": {
+      "value": "man has sex with both woman at the couch"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_prompt_positiv"
+    }
+  },
+  "62": {
+    "inputs": {
+      "prompt": [
+        "63",
+        0
+      ],
+      "clip": [
+        "105",
+        1
+      ],
+      "vae": [
+        "91",
+        0
+      ],
+      "image1": [
+        "107",
+        0
+      ],
+      "image2": [
+        "108",
+        0
+      ],
+      "image3": [
+        "109",
+        0
+      ],
+      "image4": [
+        "110",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus Input Prompt"
+    }
+  },
+  "63": {
+    "inputs": {
+      "value": ""
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_prompt_negativ"
+    }
+  },
+  "68": {
+    "inputs": {
+      "seed": [
+        "69",
+        0
+      ],
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler_ancestral",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": [
+        "105",
+        0
+      ],
+      "positive": [
+        "60",
+        0
+      ],
+      "negative": [
+        "62",
+        0
+      ],
+      "latent_image": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "69": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "input_seed"
+    }
+  },
+  "71": {
+    "inputs": {
+      "unet_name": ""
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "input_gguf"
+    }
+  },
+  "74": {
+    "inputs": {
+      "clip_name": "",
+      "type": "qwen_image"
+    },
+    "class_type": "CLIPLoaderGGUF",
+    "_meta": {
+      "title": "input_clip"
+    }
+  },
+  "82": {
+    "inputs": {
+      "samples": [
+        "68",
+        0
+      ],
+      "vae": [
+        "91",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "91": {
+    "inputs": {
+      "vae_name": "pig_qwen_image_vae_fp32-f16.gguf"
+    },
+    "class_type": "VaeGGUF",
+    "_meta": {
+      "title": "GGUF VAE Loader"
+    }
+  },
+  "105": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
+      },
+      "lora_1": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_2": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_3": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "lora_4": {
+        "on": true,
+        "lora": "None",
+        "strength": 1
+      },
+      "➕ Add Lora": "",
+      "model": [
+        "115",
+        0
+      ],
+      "clip": [
+        "74",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "input_lora"
+    }
+  },
+  "107": {
+    "inputs": {
+      "image": "",
+      "resize": true,
+      "width": 1024,
+      "height": 1024,
+      "repeat": 1,
+      "keep_proportion": true,
+      "divisible_by": 32,
+      "mask_channel": "alpha",
+      "background_color": ""
+    },
+    "class_type": "LoadAndResizeImage",
+    "_meta": {
+      "title": "input_reference_image_1"
+    }
+  },
+  "108": {
+    "inputs": {
+      "image": "",
+      "resize": true,
+      "width": 1024,
+      "height": 1024,
+      "repeat": 1,
+      "keep_proportion": true,
+      "divisible_by": 32,
+      "mask_channel": "alpha",
+      "background_color": ""
+    },
+    "class_type": "LoadAndResizeImage",
+    "_meta": {
+      "title": "input_reference_image_2"
+    }
+  },
+  "109": {
+    "inputs": {
+      "image": "",
+      "resize": true,
+      "width": 1024,
+      "height": 1024,
+      "repeat": 1,
+      "keep_proportion": true,
+      "divisible_by": 32,
+      "mask_channel": "alpha",
+      "background_color": ""
+    },
+    "class_type": "LoadAndResizeImage",
+    "_meta": {
+      "title": "input_reference_image_3"
+    }
+  },
+  "110": {
+    "inputs": {
+      "image": "",
+      "resize": true,
+      "width": 1024,
+      "height": 1024,
+      "repeat": 1,
+      "keep_proportion": true,
+      "divisible_by": 32,
+      "mask_channel": "alpha",
+      "background_color": ""
+    },
+    "class_type": "LoadAndResizeImage",
+    "_meta": {
+      "title": "input_reference_image_4"
+    }
+  },
+  "114": {
+    "inputs": {
+      "unet_name": "",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "input_safetensors"
+    }
+  },
+  "115": {
+    "inputs": {
+      "boolean": false,
+      "on_true": [
+        "114",
+        0
+      ],
+      "on_false": [
+        "71",
+        0
+      ]
+    },
+    "class_type": "Switch any [Crystools]",
+    "_meta": {
+      "title": "safetensors_gguf"
+    }
+  }
+}

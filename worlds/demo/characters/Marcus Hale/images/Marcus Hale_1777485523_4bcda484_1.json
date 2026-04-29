@@ -1,0 +1,50 @@
+{
+  "image_filename": "Marcus Hale_1777485523_4bcda484_1.jpg",
+  "prompt": "photorealistic, portrait, only head, male, olive skin, short salt-and-pepper hair, hazel colored eyes",
+  "backend": "Together-Fast",
+  "backend_type": "together",
+  "workflow": "",
+  "negative_prompt": "",
+  "from_character": "",
+  "faceswap": false,
+  "faceswap_method": "",
+  "faceswap_fallback": false,
+  "face_enhance": false,
+  "guidance_scale": null,
+  "num_inference_steps": 16,
+  "duration_s": 6.2,
+  "created_at": "2026-04-29T19:58:43",
+  "location": "",
+  "room_id": "",
+  "seed": 0,
+  "loras": [],
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "reference_images": {},
+  "target_model": "z_image",
+  "canonical": {
+    "persons": [
+      {
+        "label": "Marcus Hale",
+        "name": "Marcus Hale",
+        "appearance": "male, olive skin, average height height, stocky body frame, short salt-and-pepper hair, hazel colored eyes",
+        "gender": "male",
+        "is_agent": true
+      }
+    ],
+    "person_prompts": {},
+    "outfits": {},
+    "pose": "",
+    "expression": "",
+    "scene": "photorealistic, portrait, only head, male, olive skin, short salt-and-pepper hair, hazel colored eyes",
+    "mood": "",
+    "activity": "",
+    "location": "",
+    "personality_hint": "",
+    "profile_image_hint": "",
+    "style": "photorealistic",
+    "negative": ""
+  },
+  "template_prompt": "photorealistic photorealistic, portrait, only head, male, olive skin, short salt-and-pepper hair, hazel colored eyes",
+  "prompt_method": "caller_provided",
+  "items_used": []
+}

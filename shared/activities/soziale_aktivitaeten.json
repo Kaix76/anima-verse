@@ -1,0 +1,27 @@
+{
+  "group": "Soziale Aktivitaeten",
+  "activities": [
+    {
+      "id": "eating_together",
+      "name": "Eating together",
+      "description": "Share a meal with others",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "effects": {
+        "stamina_change": 5,
+        "courage_change": 2,
+        "mood_influence": "glücklich"
+      },
+      "interruptible": true,
+      "name_de": "Gemeinsames Essen",
+      "description_de": "Zusammen essen und sich unterhalten",
+      "partner_activity": "eating_together",
+      "requires_partner": true,
+      "fallback_activity": "eating",
+      "invitation_text": "Wollen wir zusammen Essen?"
+    }
+  ]
+}

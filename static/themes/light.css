@@ -1,0 +1,101 @@
+/* Default Theme — Light & Green */
+:root {
+    --primary: #4CAF50; --primary-dark: #45a049; --secondary: #4a6fa5; --danger: #f44336; --danger-hover: #da190b;
+    --bg: #f5f5f5; --bg-container: white; --bg-alt: #f9f9f9; --bg-message: #e5e5ea;
+    --text: black; --text-muted: #666; --text-light: #999; --border: #ddd;
+    --radius: 8px; --shadow: 0 2px 10px rgba(0,0,0,0.1);
+    --font: Arial, sans-serif;
+    --container-bg: rgba(255, 255, 255, 0.88);
+    --modal-bg: rgba(255, 255, 255, 0.94);
+    --panel-bg: rgba(255, 255, 255, 0.92);
+    --panel-shadow-left: 4px 0 20px rgba(0,0,0,0.15);
+    --panel-shadow-right: -4px 0 20px rgba(0,0,0,0.15);
+    --panel-header-text: white;
+    --sidebar-avatar-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    --bg-hover: #f0f0f0;
+    --bg-secondary: #f5f5f5;
+    --text-secondary: #666;
+    --border-light: #f0f0f0;
+    --overlay-bg: rgba(0,0,0,0.6);
+    --message-radius: 18px;
+    --code-bg: rgba(0,0,0,0.08);
+    --token-border: rgba(0,0,0,0.1);
+    --tool-bg: linear-gradient(135deg, rgba(74,111,165,0.15), rgba(74,111,165,0.08));
+    --tool-color: #2d5a8f;
+    --input-bg: transparent; --input-color: inherit;
+    --header-bg: var(--primary); --header-text: white;
+    --header-location-bg: rgba(255,255,255,0.2); --header-location-text: white;
+    --header-btn-bg: rgba(255,255,255,0.3); --header-btn-text: white; --header-btn-border: white; --header-btn-hover: rgba(255,255,255,0.6);
+    --header-select-border: rgba(255,255,255,0.5); --header-select-hover: rgba(255,255,255,0.4);
+    --select-option-bg: #333; --select-option-color: white;
+    --tab-hover-bg: rgba(0,0,0,0.03); --tab-active-color: var(--primary);
+    --reset-bg: rgba(255,255,255,0.3); --reset-color: white; --reset-border: white; --reset-hover-bg: rgba(255,255,255,0.6);
+    --form-reset-bg: #f5f5f5;
+    --profile-border: white;
+    --close-bg: rgba(255,255,255,0.2); --close-color: white; --close-hover: rgba(255,255,255,0.35); --close-border: none;
+    --lightbox-close-bg: white; --lightbox-close-color: #333;
+    --toggle-shadow: 0 2px 8px rgba(0,0,0,0.12); --toggle-shadow-hover: 0 4px 12px rgba(0,0,0,0.18);
+    --gallery-header-bg: linear-gradient(135deg, #2196F3, #21CBF3);
+    --instagram-header-bg: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+    --queue-header-bg: linear-gradient(135deg, #5c6bc0, #7e57c2);
+    --worldmap-header-bg: linear-gradient(135deg, #43a047, #66bb6a);
+    --notifications-header-bg: linear-gradient(135deg, #667eea, #764ba2);
+    --error-bg: #ffebee; --error-text: #c62828;
+    --table-hover-bg: #f6fbf6;
+    --dot-active: var(--primary); --dot-inactive: #ccc;
+    --readiness-ok-bg: #e6f4ea; --readiness-ok-color: #1e7e34;
+    --readiness-missing-bg: #fce8e6; --readiness-missing-color: #c62828;
+    --editor-active-color: #1a73e8;
+    --readonly-bg: #f5f5f5;
+    --export-bg: #e3f2fd; --export-color: #1565C0; --export-hover: #bbdefb;
+    --import-bg: #e8f5e9; --import-color: #2e7d32; --import-hover: #c8e6c9;
+    --outfit-current-bg: #f0f8ff;
+    --appearance-preview-bg: #f0faf5;
+    --badge-chat-bg: #e8f5e9; --badge-chat-color: #2e7d32;
+    --badge-running-bg: #fff3e0; --badge-running-color: #e65100;
+    --badge-pending-bg: #e3f2fd; --badge-pending-color: #1565c0;
+    --badge-done-bg: #e8f5e9; --badge-done-color: #2e7d32;
+    --badge-failed-bg: #ffebee; --badge-failed-color: #c62828;
+    --vram-bar-bg: #e0e0e0; --vram-fill-color: #2196F3;
+    --worldmap-active-color: #43a047; --worldmap-active-glow: rgba(67,160,71,0.25);
+    --worldmap-active-tile-bg: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    --story-start-bg: #4CAF50; --story-start-hover: #43A047;
+    --story-continue-bg: #1976D2; --story-continue-hover: #1565C0;
+    --story-card-hover-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    --story-option-hover-border: #1976D2; --story-option-hover-bg: #e3f2fd;
+    --story-option-chosen-border: #1976D2; --story-option-chosen-bg: #bbdefb;
+    --story-option-hover-letter-bg: #1976D2; --story-option-chosen-letter-bg: #1565C0;
+    --story-end-color: #4CAF50; --story-end-bg: #e8f5e9;
+    --story-spinner-color: #1976D2;
+    --story-badge-bg: #e3f2fd; --story-badge-color: #1565c0;
+    --story-saved-bg: #fff3e0; --story-saved-color: #e65100;
+    --allowed-loc-color: var(--text);
+    --accent: #2e7d32;
+    --gallery-toggle-bg: var(--bg-container); --gallery-toggle-border: var(--border); --gallery-toggle-hover: var(--bg-alt);
+    --instagram-toggle-bg: var(--bg-container); --instagram-toggle-border: var(--border); --instagram-toggle-hover: var(--bg-alt);
+    --queue-toggle-bg: var(--bg-container); --queue-toggle-border: var(--border); --queue-toggle-hover: var(--bg-alt);
+    --worldmap-toggle-bg: var(--bg-container); --worldmap-toggle-border: var(--border); --worldmap-toggle-hover: var(--bg-alt);
+}
+
+/* Default-specific overrides */
+.modal-section h3 { color: #333; }
+select.auth-input option { background: white; color: #333; }
+.form-actions .reset-btn { background: #f5f5f5; }
+
+/* Wardrobe-Pieces "Neu" button sits on white panel — reset-btn defaults are white-on-white */
+#wpc-new-btn,
+.wardrobe-slot-action,
+.wardrobe-unequip-item { background: var(--form-reset-bg); color: var(--text-muted); border: 1px solid var(--border); }
+#wpc-new-btn:hover,
+.wardrobe-slot-action:hover,
+.wardrobe-unequip-item:hover { background: var(--bg-hover); }
+
+/* Gallery detail sidebar: base.css uses hardcoded light text for dark bg — override for light mode */
+.gallery-detail-sidebar { border-left: 1px solid var(--border); }
+.gallery-detail-meta { color: var(--text); }
+.gallery-detail-meta .git-table tr:not(:last-child) td { border-bottom: 1px solid var(--border); }
+.gallery-detail-meta .git-label { color: var(--text-muted); }
+.gallery-detail-meta .git-value { color: var(--text); }
+.gallery-detail-meta .git-analysis { color: var(--text-muted); border-top: 1px solid var(--border); }
+.gallery-detail-comment { color: var(--text); }
+.gallery-detail-actions { border-top: 1px solid var(--border); }

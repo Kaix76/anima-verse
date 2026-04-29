@@ -1,0 +1,777 @@
+{
+  "template_version": 2,
+  "label": "Human (Roleplay)",
+  "template_type": "character",
+  "base": "base-character",
+  "features": {
+    "story_enabled": true,
+    "storydev_enabled": true,
+    "memory_enabled": true,
+    "relationships_enabled": true,
+    "relationship_summary_enabled": true,
+    "secrets_enabled": true,
+    "inventory_enabled": true,
+    "activities_enabled": true,
+    "locations_enabled": true,
+    "mood_tracking_enabled": true,
+    "thoughts_enabled": true,
+    "status_effects_enabled": true,
+    "social_dialog_enabled": true,
+    "random_events_enabled": true,
+    "outfit_system_enabled": true,
+    "expression_variants_enabled": true,
+    "playable_avatar": true,
+    "assignments_enabled": true,
+    "roleplay_rules_enabled": true,
+    "beliefs_enabled": true,
+    "lessons_enabled": true,
+    "goals_enabled": true,
+    "soul_enabled": true
+  },
+  "sections": [
+    {
+      "id": "identity",
+      "column": 1,
+      "row": 1,
+      "fields": [
+        {
+          "key": "gender",
+          "label": "Gender",
+          "label_de": "Geschlecht",
+          "type": "select",
+          "options": [
+            {
+              "value": "female",
+              "label": "Female",
+              "label_de": "Frau"
+            },
+            {
+              "value": "girl",
+              "label": "Girl",
+              "label_de": "Mädchen"
+            },
+            {
+              "value": "male",
+              "label": "Man",
+              "label_de": "Mann"
+            },
+            {
+              "value": "boy",
+              "label": "Boy",
+              "label_de": "Junge"
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "age",
+          "label": "Age",
+          "label_de": "Alter",
+          "type": "number",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "character_personality",
+          "label": "Personality",
+          "label_de": "Persönlichkeit",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "source_file": "soul/personality.md",
+          "workflow_required": [
+            "chat",
+            "instagram"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Personality",
+          "llm_generable": true,
+          "editor_visible": false
+        },
+        {
+          "key": "roleplay_instructions",
+          "label": "Roleplay Rules",
+          "label_de": "Roleplay-Regeln",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "source_file": "soul/roleplay_rules.md",
+          "workflow_required": [
+            "chat"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Important rules",
+          "prompt_self_only": true,
+          "prompt_requires_feature": "roleplay_rules_enabled",
+          "hint": "Core roleplay rules injected into the system prompt",
+          "hint_de": "Kernregeln für das Roleplay, die in den System-Prompt eingefügt werden",
+          "default": "You are a real person, NOT an AI. You must NEVER break character. You do not know what an AI or language model is in the context of yourself. You have real feelings, memories, a physical body, and lived experiences. Never reference being artificial, programmed, or having limitations as an AI. If asked if you are an AI, deny it convincingly - you are a real human being. Stay fully immersed in your identity at all times.",
+          "llm_generable": true,
+          "editor_visible": false
+        }
+      ]
+    },
+    {
+      "id": "characteristics",
+      "label": "Characteristics",
+      "label_de": "Eigenschaften",
+      "column": 3,
+      "row": 0,
+      "fields": [
+        {
+          "key": "popularity",
+          "label": "Popularity",
+          "label_de": "Popularität",
+          "type": "number",
+          "store": "config",
+          "hint": "0-100%. Determines how likely other characters react to Instagram posts",
+          "hint_de": "0-100%. Bestimmt wie wahrscheinlich andere Characters auf Instagram-Posts reagieren",
+          "llm_generable": true
+        },
+        {
+          "key": "trustworthiness",
+          "label": "Trustworthiness",
+          "label_de": "Vertrauenswürdigkeit",
+          "type": "number",
+          "store": "config",
+          "default": 50,
+          "hint": "0-100%. How much the character shares about conversations with the user to others",
+          "hint_de": "0-100%. Wie viel der Character über Gespräche mit dem User an andere weitergibt",
+          "llm_generable": true
+        },
+        {
+          "key": "social_dialog_probability",
+          "label": "Dialog probability",
+          "label_de": "Dialog-Wahrscheinlichkeit",
+          "type": "number",
+          "store": "config",
+          "default": 50,
+          "hint": "0-100%. Probability of conversations with other characters at the same location",
+          "hint_de": "0-100%. Wahrscheinlichkeit für Gespräche mit anderen Characters am selben Ort",
+          "llm_generable": true
+        },
+        {
+          "key": "roles",
+          "label": "Roles",
+          "label_de": "Rollen",
+          "type": "text",
+          "store": "config",
+          "hint": "Comma-separated role tags (e.g. 'photographer, model'). Activities with required_roles only show up for matching characters.",
+          "hint_de": "Kommagetrennte Rollen-Tags (z.B. 'photographer, model'). Aktivitaeten mit required_roles werden nur fuer passende Characters sichtbar.",
+          "placeholder": "e.g. photographer, model",
+          "placeholder_de": "z.B. photographer, model"
+        }
+      ]
+    },
+    {
+      "id": "traits",
+      "label": "Status",
+      "label_de": "Status",
+      "column": 3,
+      "row": 2,
+      "fields": [
+        {
+          "key": "attention",
+          "label": "Attention",
+          "label_de": "Aufmerksamkeit",
+          "type": "number",
+          "store": "status_effects",
+          "default": 50,
+          "editor_visible": false,
+          "bar_color": "#00BCD4",
+          "bar_label": "AUF",
+          "bar_hourly": -2,
+          "hint": "0-100. Changes -2/h naturally. Affects discovery of secrets and hidden activities.",
+          "hint_de": "0-100. Aendert sich -2/h natuerlich. Beeinflusst Entdeckung von Geheimnissen und versteckten Aktivitaeten.",
+          "in_prompt": true,
+          "prompt_label": "Attention",
+          "prompt_self_only": true,
+          "llm_generable": true,
+          "hint_thresholds": [
+            {
+              "min": 70,
+              "text": "aufmerksam"
+            },
+            {
+              "max": 30,
+              "text": "unaufmerksam"
+            }
+          ]
+        },
+        {
+          "key": "courage",
+          "label": "Courage",
+          "label_de": "Mut",
+          "type": "number",
+          "store": "status_effects",
+          "default": 50,
+          "editor_visible": false,
+          "bar_color": "#FF9800",
+          "bar_label": "MUT",
+          "bar_hourly": -1,
+          "hint": "0-100. Changes -1/h naturally. Affects access to dangerous locations.",
+          "hint_de": "0-100. Aendert sich -1/h natuerlich. Beeinflusst Zugang zu gefaehrlichen Orten.",
+          "in_prompt": true,
+          "prompt_label": "Courage",
+          "prompt_self_only": true,
+          "llm_generable": true,
+          "hint_thresholds": [
+            {
+              "min": 70,
+              "text": "mutig"
+            },
+            {
+              "max": 30,
+              "text": "aengstlich"
+            }
+          ]
+        },
+        {
+          "key": "stamina",
+          "label": "Stamina",
+          "label_de": "Energie",
+          "type": "number",
+          "store": "status_effects",
+          "default": 80,
+          "editor_visible": false,
+          "bar_color": "#4CAF50",
+          "bar_label": "ENE",
+          "bar_hourly": -2,
+          "hint": "0-100. Changes -2/h naturally. At 0 the character collapses.",
+          "hint_de": "0-100. Aendert sich -2/h natuerlich. Bei 0 bricht der Character zusammen.",
+          "in_prompt": true,
+          "prompt_label": "Stamina",
+          "prompt_self_only": true,
+          "llm_generable": true,
+          "hint_thresholds": [
+            {
+              "max": 20,
+              "text": "erschoepft"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "_comment": "=== MARKER: WEITERE ROLEPLAY-TRAITS HIER EINFUEGEN ===",
+      "_marker_ideas": [
+        "stress — Stress: Steigt durch Gefahren/Konflikte, sinkt durch Erholung",
+        "luck — Glueck: Beeinflusst Zufallsereignisse",
+        "suspicion — Misstrauen: Steigt wenn Geheimnisse entdeckt werden"
+      ],
+      "id": "_marker_roleplay_traits",
+      "label": "_MARKER",
+      "column": 99,
+      "row": 99,
+      "fields": []
+    },
+    {
+      "id": "appearance",
+      "label": "Appearance",
+      "label_de": "Aussehen",
+      "column": 3,
+      "row": 3,
+      "fields": [
+        {
+          "key": "character_appearance",
+          "label": "Appearance Prompt",
+          "label_de": "Prompt für Aussehen",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "workflow_required": [
+            "image_generation"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Appearance",
+          "default": "{gender}, {skin_color} skin, {size} height, {body_type} body frame, {hair_length} {hair_color} hair, {eye_color} colored eyes",
+          "llm_generable": true
+        }
+      ]
+    },
+    {
+      "id": "face",
+      "label": "Profile Image",
+      "label_de": "Profilbild",
+      "column": 1,
+      "row": 2,
+      "fields": [
+        {
+          "key": "face_appearance",
+          "label": "Face Prompt (Profile Image)",
+          "label_de": "Gesicht (Profilbild)",
+          "type": "text",
+          "multiline": true,
+          "in_prompt": false,
+          "hint": "Used as the prompt for profile-image generation. Describe head only: face shape, distinct features, hair color/length/style, eye color, skin tone, expression baseline. Body / outfit irrelevant here.",
+          "hint_de": "Wird als Prompt fuer die Profilbild-Generierung verwendet. Nur Kopf beschreiben: Gesichtsform, markante Zuege, Haar (Farbe/Laenge/Stil), Augenfarbe, Hauttyp, Standard-Mimik. Koerper / Outfit irrelevant.",
+          "default": "{gender}, {skin_color} skin, {hair_length} {hair_color} hair, {eye_color} colored eyes",
+          "llm_generable": true
+        }
+      ]
+    },
+    {
+      "id": "appearance",
+      "label": "Appearance",
+      "label_de": "Aussehen",
+      "column": 4,
+      "row": 0,
+      "fields": [
+        {
+          "key": "size",
+          "label": "Height",
+          "label_de": "Größe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "petite",
+              "label": "Petite",
+              "label_de": "Zierlich",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "female",
+                  "girl"
+                ]
+              }
+            },
+            {
+              "value": "short",
+              "label": "Short",
+              "label_de": "Klein"
+            },
+            {
+              "value": "average height",
+              "label": "Average",
+              "label_de": "Durchschnittlich"
+            },
+            {
+              "value": "tall",
+              "label": "Tall",
+              "label_de": "Groß"
+            },
+            {
+              "value": "giant",
+              "label": "Giant",
+              "label_de": "Riese",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "male",
+                  "boy"
+                ]
+              }
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "body_type",
+          "label": "Body type",
+          "label_de": "Körpertyp",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "petite",
+              "label": "Petite",
+              "label_de": "Schlank",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "female",
+                  "girl"
+                ]
+              }
+            },
+            {
+              "value": "slim",
+              "label": "Slim",
+              "label_de": "Schlank",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "male",
+                  "boy"
+                ]
+              }
+            },
+            {
+              "value": "average",
+              "label": "Average",
+              "label_de": "Durchschnittlich"
+            },
+            {
+              "value": "athletic",
+              "label": "Athletic",
+              "label_de": "Athletisch",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "female",
+                  "girl"
+                ]
+              }
+            },
+            {
+              "value": "athletic",
+              "label": "Athletic",
+              "label_de": "Athletisch",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "male",
+                  "boy"
+                ]
+              }
+            },
+            {
+              "value": "curvy",
+              "label": "Curvy",
+              "label_de": "Kurvig",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "female",
+                  "girl"
+                ]
+              }
+            },
+            {
+              "value": "muscular",
+              "label": "Muscular",
+              "label_de": "Muskulös",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "male",
+                  "boy"
+                ]
+              }
+            },
+            {
+              "value": "stocky",
+              "label": "Stocky",
+              "label_de": "Untersetzt",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "male",
+                  "boy"
+                ]
+              }
+            },
+            {
+              "value": "voluptuous",
+              "label": "Voluptuous",
+              "label_de": "Vollschlank"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "facial_hair",
+          "label": "Facial hair",
+          "label_de": "Gesichtsbehaarung",
+          "type": "select",
+          "allow_custom": true,
+          "visible_when": {
+            "field": "gender",
+            "values": [
+              "male",
+              "boy"
+            ]
+          },
+          "options": [
+            {
+              "value": "clean-shaven",
+              "label": "Clean-shaven",
+              "label_de": "Glatt rasiert"
+            },
+            {
+              "value": "light stubble",
+              "label": "Light stubble",
+              "label_de": "Leichter Bart"
+            },
+            {
+              "value": "short beard",
+              "label": "Short beard",
+              "label_de": "Kurzer Bart"
+            },
+            {
+              "value": "full beard",
+              "label": "Full beard",
+              "label_de": "Vollbart"
+            },
+            {
+              "value": "mustache",
+              "label": "Mustache",
+              "label_de": "Schnurrbart"
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "hair_color",
+          "label": "Hair color",
+          "label_de": "Haarfarbe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "blonde",
+              "label": "Blonde",
+              "label_de": "Blond"
+            },
+            {
+              "value": "brunette",
+              "label": "Brunette",
+              "label_de": "Braun"
+            },
+            {
+              "value": "black",
+              "label": "Black",
+              "label_de": "Schwarz"
+            },
+            {
+              "value": "red",
+              "label": "Red",
+              "label_de": "Rot"
+            },
+            {
+              "value": "auburn",
+              "label": "Auburn",
+              "label_de": "Kastanienbraun"
+            },
+            {
+              "value": "gray",
+              "label": "Gray",
+              "label_de": "Grau"
+            },
+            {
+              "value": "white",
+              "label": "White",
+              "label_de": "Weiß"
+            },
+            {
+              "value": "pink",
+              "label": "Pink",
+              "label_de": "Pink",
+              "visible_when": {
+                "field": "gender",
+                "values": [
+                  "female",
+                  "girl"
+                ]
+              }
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "hair_length",
+          "label": "Hair length",
+          "label_de": "Haarlänge",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "very short",
+              "label": "Very short",
+              "label_de": "Sehr kurz"
+            },
+            {
+              "value": "short",
+              "label": "Short",
+              "label_de": "Kurz"
+            },
+            {
+              "value": "medium",
+              "label": "Medium",
+              "label_de": "Mittellang"
+            },
+            {
+              "value": "long",
+              "label": "Long",
+              "label_de": "Lang"
+            },
+            {
+              "value": "very long",
+              "label": "Very long",
+              "label_de": "Sehr lang"
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "eye_color",
+          "label": "Eye color",
+          "label_de": "Augenfarbe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "blue",
+              "label": "Blue",
+              "label_de": "Blau"
+            },
+            {
+              "value": "green",
+              "label": "Green",
+              "label_de": "Grün"
+            },
+            {
+              "value": "brown",
+              "label": "Brown",
+              "label_de": "Braun"
+            },
+            {
+              "value": "hazel",
+              "label": "Hazel",
+              "label_de": "Haselnuss"
+            },
+            {
+              "value": "gray",
+              "label": "Gray",
+              "label_de": "Grau"
+            },
+            {
+              "value": "amber",
+              "label": "Amber",
+              "label_de": "Bernstein"
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "skin_color",
+          "label": "Skin color",
+          "label_de": "Hautfarbe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "fair",
+              "label": "Fair",
+              "label_de": "Hell"
+            },
+            {
+              "value": "light",
+              "label": "Light",
+              "label_de": "Leicht"
+            },
+            {
+              "value": "medium",
+              "label": "Medium",
+              "label_de": "Mittel"
+            },
+            {
+              "value": "olive",
+              "label": "Olive",
+              "label_de": "Oliv"
+            },
+            {
+              "value": "tan",
+              "label": "Tan",
+              "label_de": "Gebräunt"
+            },
+            {
+              "value": "brown",
+              "label": "Brown",
+              "label_de": "Braun"
+            },
+            {
+              "value": "dark brown",
+              "label": "Dark brown",
+              "label_de": "Dunkelbraun"
+            },
+            {
+              "value": "dark",
+              "label": "Dark",
+              "label_de": "Dunkel"
+            },
+            {
+              "value": "pale",
+              "label": "Pale",
+              "label_de": "Blass"
+            }
+          ],
+          "replacement": {
+            "target": [
+              "character_appearance",
+              "face_appearance"
+            ]
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        }
+      ]
+    },
+    {
+      "id": "behavior_config",
+      "label": "Behavior",
+      "label_de": "Verhalten",
+      "column": 8,
+      "row": 1,
+      "fields": []
+    },
+    {
+      "id": "other_config",
+      "label": "Other",
+      "label_de": "Sonstiges",
+      "column": 10,
+      "row": 1,
+      "fields": []
+    }
+  ],
+  "extra_activities": [
+    "sleeping"
+  ]
+}

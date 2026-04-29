@@ -1,0 +1,16 @@
+{
+  "bbox": {
+    "x": 393,
+    "y": 269,
+    "w": 251,
+    "h": 534
+  },
+  "frame_size": [
+    1024,
+    1024
+  ],
+  "green_pixel_count": 130661,
+  "prompt": "photorealistic modern smartphone, isolated on white, screen is pure chroma green, centered, no person, no reflection, top-down product photo",
+  "target": "auto",
+  "generated_at": "2026-04-29T20:02:34"
+}

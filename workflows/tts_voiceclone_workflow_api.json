@@ -1,0 +1,111 @@
+{
+  "2": {
+    "inputs": {
+      "value": "Hallo, ich bin dein persönlicher Assistent. Wie kann ich dir heute helfen? Vielleicht etwas leichtes?"
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": {
+      "title": "input_text"
+    }
+  },
+  "3": {
+    "inputs": {
+      "audio": "SOPHIE_ref_norm.wav",
+      "audioUI": "/api/view?filename=SOPHIE_ref_norm.wav&type=input&subfolder=&rand=0.5386196471014402"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "input_reference_audio"
+    }
+  },
+  "9": {
+    "inputs": {
+      "target_text": [
+        "2",
+        0
+      ],
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "language": "Auto",
+      "ref_text": [
+        "39",
+        0
+      ],
+      "seed": 749844686584919,
+      "max_new_tokens": 2048,
+      "top_p": 0.8,
+      "top_k": 20,
+      "temperature": 1,
+      "repetition_penalty": 1.05,
+      "x_vector_only": false,
+      "attention": "auto",
+      "unload_model_after_generate": false,
+      "custom_model_path": "",
+      "ref_audio": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "FB_Qwen3TTSVoiceClone",
+    "_meta": {
+      "title": "🎭 Qwen3-TTS VoiceClone"
+    }
+  },
+  "15": {
+    "inputs": {
+      "preview": "Ich wollte, dass du mich siehst. Und ich wollte, dass du mich hörst. Ich will, dass du mich wahrnimmst, so wie ich bin.",
+      "previewMode": null,
+      "source": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  },
+  "16": {
+    "inputs": {
+      "audioUI": "/api/view?filename=ComfyUI_temp_xhnci_00001_.flac&type=temp&subfolder=&rand=0.3553099559792152",
+      "audio": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "output_audio"
+    }
+  },
+  "39": {
+    "inputs": {
+      "model": "medium",
+      "language": "auto",
+      "prompt": "",
+      "audio": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "Apply Whisper",
+    "_meta": {
+      "title": "Apply Whisper"
+    }
+  },
+  "40": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": true,
+      "anything": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "LayerUtility: Purge VRAM"
+    }
+  }
+}

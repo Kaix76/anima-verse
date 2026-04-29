@@ -1,0 +1,137 @@
+# Generated preset caches (LLM-generated, not curated)
+shared/templates/**/*_generated.json
+
+# Environment Variables & API Keys
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+# Per-world secrets overlay (api keys, passwords) — never commit
+worlds/*/secrets.json
+secrets.json
+
+# Internal planning notes — not for public release
+development_instructions/
+Aufgaben
+documentation/
+
+# Legacy ./storage runtime data (pre-worlds/)
+storage/
+
+# Internal helper / migration scripts — not part of the public release
+scripts/
+tools/
+
+# Files removed from public release
+docs/llm-task-mapping.md
+CHAT_PROMPTS.md
+MODEL_TESTS.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Shared cross-world files
+shared/templates/**/*nsfw*
+
+# Worlds (each world is a separate storage directory)
+worlds/*
+!worlds/demo/
+
+# World-specific start scripts (only start-demo.sh is tracked)
+start-*.sh
+!start-demo.sh
+
+# Logs
+logs/
+
+# Individual User/Agent Storage
+telegram_chats.json
+Aufgaben.md
+
+# Model Files (Large Binary Files)
+/models/
+voices/*.wav
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Cache
+.cache/
+*.cache
+.pytest_cache/
+.hypothesis/
+
+# Logs
+*.log
+logs/
+
+# PID files
+.pids/
+.pids/*.pid
+
+# Local test files & temporary scripts
+tests/
+test_local.py
+test_*.py
+!test.py
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node modules (if used)
+node_modules/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# IDE artifacts
+*.sublime-workspace
+.vscode/settings.json
+.idea/workspace.xml

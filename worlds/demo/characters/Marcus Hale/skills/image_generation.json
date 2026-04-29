@@ -1,0 +1,9 @@
+{
+  "instances": {
+    "Together-Fast": {}
+  },
+  "faceswap_enabled": true,
+  "swap_mode": "default",
+  "multiswap_mode": "face_hair",
+  "enabled": true
+}

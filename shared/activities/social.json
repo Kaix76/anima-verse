@@ -1,0 +1,45 @@
+{
+  "group": "Soziale Aktivitaeten",
+  "activities": [
+    {
+      "id": "chatting",
+      "name": "Chatting",
+      "description": "Have a casual conversation",
+      "category": "social",
+      "requires_partner": true,
+      "effects": {
+        "courage_change": 3,
+        "mood_influence": "gespraechig"
+      },
+      "name_de": "Unterhalten",
+      "description_de": "Mit jemandem plaudern"
+    },
+    {
+      "id": "talking",
+      "name": "Talking",
+      "description": "Talk to someone",
+      "category": "social",
+      "requires_partner": true,
+      "effects": {
+        "courage_change": 2
+      },
+      "name_de": "Reden",
+      "description_de": "Ein Gespraech fuehren"
+    },
+    {
+      "id": "partying",
+      "name": "Partying",
+      "description": "Celebrate and have fun",
+      "category": "social",
+      "requires_partner": true,
+      "effects": {
+        "stamina_change": -10,
+        "courage_change": 5,
+        "mood_influence": "ausgelassen",
+        "attention_change": -5
+      },
+      "name_de": "Feiern",
+      "description_de": "Ausgelassen feiern und Spass haben"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "image_filename": "Amelia Lane_1777485450_5346bae5_1.jpg",
+  "prompt": "photorealistic, portrait, only head, female, fair skin, shoulder length ash blonde hair, ice blue colored eyes",
+  "backend": "Together-Fast",
+  "backend_type": "together",
+  "workflow": "",
+  "negative_prompt": "",
+  "from_character": "",
+  "faceswap": false,
+  "faceswap_method": "",
+  "faceswap_fallback": false,
+  "face_enhance": false,
+  "guidance_scale": null,
+  "num_inference_steps": 16,
+  "duration_s": 7.9,
+  "created_at": "2026-04-29T19:57:30",
+  "location": "",
+  "room_id": "",
+  "seed": 0,
+  "loras": [],
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "reference_images": {},
+  "target_model": "z_image",
+  "canonical": {
+    "persons": [
+      {
+        "label": "Amelia Lane",
+        "name": "Amelia Lane",
+        "appearance": "female, fair skin, tall height, athletic body frame, shoulder length ash blonde hair, ice blue colored eyes",
+        "gender": "female",
+        "is_agent": true
+      }
+    ],
+    "person_prompts": {},
+    "outfits": {},
+    "pose": "",
+    "expression": "",
+    "scene": "photorealistic, portrait, only head, female, fair skin, shoulder length ash blonde hair, ice blue colored eyes",
+    "mood": "",
+    "activity": "",
+    "location": "",
+    "personality_hint": "",
+    "profile_image_hint": "",
+    "style": "photorealistic",
+    "negative": ""
+  },
+  "template_prompt": "photorealistic photorealistic, portrait, only head, female, fair skin, shoulder length ash blonde hair, ice blue colored eyes",
+  "prompt_method": "caller_provided",
+  "items_used": [],
+  "image_analysis": "The image depicts a young woman with a neutral expression, gazing directly at the camera. Her fair skin and light blonde hair, styled in loose waves, frame her face. Her eyes are a striking feature, with a light blue hue that seems almost iridescent. Her eyebrows are well-groomed, and her lips are a soft pink.\n\nShe wears a black top, which is partially obscured by her hair, and her shoulders are bare. The background of the image is a plain gray wall, providing a clean and minimalist backdrop for the subject. The overall effect is one of simplicity and elegance, with the subject's features taking center stage.\n\nThe image appears to be a professional portrait, possibly taken for a modeling portfolio or a personal branding project. The lighting is soft and even, with no harsh shadows or highlights that might detract from the subject's natural beauty. The composition is straightforward, with the subject placed centrally in the frame and looking directly at the camera.\n\nThe visual style of the image is reminiscent of high-end fashion photography, with a focus on capturing the subject's natural beauty and elegance. The use of a plain background and soft lighting helps to emphasize the subject's features, creating a sense of intimacy and sophistication. Overall, the image is a beautiful and understated portrait that showcases the subject's natural beauty and charm."
+}

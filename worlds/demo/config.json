@@ -1,0 +1,239 @@
+{
+  "providers": [
+    {
+      "name": "Infermatic",
+      "enabled": true,
+      "gpus": [],
+      "api_key": "",
+      "api_base": "https://api.totalgpt.ai",
+      "timeout": 300,
+      "type": "openai",
+      "max_concurrent": 1
+    }
+  ],
+  "llm_routing": [
+    {
+      "provider": "Infermatic",
+      "model": "Llama-3.2-11B-Vision-Instruct",
+      "temperature": 0.3,
+      "tasks": [
+        {
+          "task": "instagram_caption",
+          "order": 1
+        },
+        {
+          "task": "image_recognition",
+          "order": 1
+        },
+        {
+          "task": "image_analysis",
+          "order": 1
+        }
+      ]
+    },
+    {
+      "provider": "Infermatic",
+      "model": "TheDrummer-Valkyrie-49B-v1",
+      "temperature": 0.7,
+      "tasks": [
+        {
+          "task": "chat_stream",
+          "order": 1
+        },
+        {
+          "task": "story_stream",
+          "order": 1
+        },
+        {
+          "task": "group_chat_stream",
+          "order": 1
+        }
+      ]
+    },
+    {
+      "provider": "Infermatic",
+      "model": "TheDrummer-Rocinante-12B-v1.1",
+      "temperature": 0.5,
+      "tasks": [
+        {
+          "task": "extraction",
+          "order": 1
+        },
+        {
+          "task": "thought",
+          "order": 1
+        },
+        {
+          "task": "thought_greeting",
+          "order": 1
+        },
+        {
+          "task": "memory_consolidation",
+          "order": 1
+        },
+        {
+          "task": "consolidation",
+          "order": 1
+        },
+        {
+          "task": "relationship_summary",
+          "order": 1
+        },
+        {
+          "task": "image_prompt",
+          "order": 1
+        },
+        {
+          "task": "image_comment",
+          "order": 1
+        },
+        {
+          "task": "translation",
+          "order": 1
+        }
+      ],
+      "chat_template": "{% for message in messages %}<|im_start|>{{ message.role }}\n{{ message.content }}<|im_end|>\n{% endfor %}<|im_start|>assistant\n"
+    },
+    {
+      "provider": "Infermatic",
+      "model": "Sao10K-72B-Qwen2.5-Kunou-v1-FP8-Dynamic",
+      "temperature": 0.2,
+      "tasks": [
+        {
+          "task": "social_reaction",
+          "order": 1
+        },
+        {
+          "task": "random_event",
+          "order": 1
+        },
+        {
+          "task": "secret_generation",
+          "order": 1
+        },
+        {
+          "task": "outfit_generation",
+          "order": 1
+        },
+        {
+          "task": "send_message",
+          "order": 1
+        },
+        {
+          "task": "talk_to",
+          "order": 1
+        },
+        {
+          "task": "intent",
+          "order": 1
+        },
+        {
+          "task": "intent_commitment",
+          "order": 1
+        },
+        {
+          "task": "intent_location",
+          "order": 1
+        },
+        {
+          "task": "intent_activity",
+          "order": 1
+        },
+        {
+          "task": "expression_map",
+          "order": 1
+        }
+      ]
+    }
+  ],
+  "image_generation": {
+    "enabled": true,
+    "profile_image_prompt_prefix": "photorealistic, portrait, only head,",
+    "outfit_image_prompt_prefix": "full body portrait",
+    "outfit_image_width": 832,
+    "outfit_image_height": 1216,
+    "u2net_home": "./models/u2net",
+    "image_analysis_prompt": "You are an expert image analyst. Provide a detailed and objective description of the image (max 300 tokens) in flowing prose. Cover:\n1. Overall scene: setting, environment, lighting, mood, composition.\n2. Subjects: number of people, body type, hair, skin tone, facial expression, pose.\n3. Clothing: garments in detail (style, color, fit, condition).\n4. Actions and interactions: what is happening, body positions.\n5. Visual style: photographic, illustrated, 3D render, anime, etc. Camera angle, depth of field, color palette.\n\nRules:\n- Respond in fluent, descriptive English prose.\n- If something is ambiguous or partially visible, describe it as such.\n- Plain text only — no markdown.",
+    "rebuild_llm_system_template": "You are an image prompt enhancer for the {target_model} image model. {prompt_instruction} Rewrite the following prompt in the style requested, keeping ALL factual content (persons, outfits, pose, expression, scene, location, mood). Do NOT add new visual elements, do NOT remove any. Respond with ONLY the rewritten prompt, no preamble, no commentary.",
+    "backends": [
+      {
+        "name": "Together-Fast",
+        "enabled": true,
+        "gpus": [],
+        "api_type": "together",
+        "api_url": "https://api.together.xyz",
+        "api_key": "",
+        "model": "HiDream-ai/HiDream-I1-Fast",
+        "cost": 5,
+        "num_inference_steps": 16,
+        "guidance_scale": 1
+      }
+    ],
+    "outfit_imagegen_default": "backend:Together-Fast",
+    "expression_imagegen_default": "backend:Together-Fast",
+    "location_imagegen_default": "backend:Together-Fast"
+  },
+  "log_level": "INFO",
+  "storage_dir": "./storage",
+  "short_term_days": 3,
+  "mid_term_days": 30,
+  "long_term_days": 90,
+  "max_messages": 100,
+  "max_semantic": 50,
+  "commitment_max_days": 5,
+  "commitment_completed_days": 3,
+  "default_swap_mode": "comfyui",
+  "comfy_vram_required": 8,
+  "multiswap_workflow_file": "./workflows/multiswap_flux2_api.json",
+  "service_url": "http://localhost:8005",
+  "service_port": 8005,
+  "service_det_size": 640,
+  "service_omp_num_threads": 4,
+  "service_enabled": true,
+  "service_debug": false,
+  "enabled": true,
+  "blend": 1,
+  "codeformer_weight": 0.7,
+  "color_correction": true,
+  "sharpen": true,
+  "sharpen_strength": 0.5,
+  "auto": false,
+  "chunk_size": 300,
+  "backend": "xtts",
+  "fallback_backend": "",
+  "max_prompt_entries": 20,
+  "max_entries": 200,
+  "daily_summary_days": 7,
+  "batch_size": 5,
+  "max_input_tokens": 12000,
+  "max_output_tokens": 1500,
+  "search_max_candidates": 50,
+  "search_max_return": 8,
+  "summary_enabled": true,
+  "summary_interval_minutes": 120,
+  "min_idle_minutes": 5,
+  "min_scheduler_gap_minutes": 5,
+  "base_probability": 5,
+  "resolution_proactive": true,
+  "resolution_cooldown_minutes": 15,
+  "interval_hours": 24,
+  "min_memories": 5,
+  "max_active_arcs": 2,
+  "cooldown_hours": 6,
+  "max_beats": 5,
+  "beat_images": true,
+  "beat_faceswap": false,
+  "item_image_width": 256,
+  "item_image_height": 256,
+  "available_themes": "default,minimal,dark",
+  "prompt": "photorealistic modern smartphone, isolated on white, screen is pure chroma green, centered, no person, no reflection, top-down product photo",
+  "skills": {
+    "instagram": {
+      "enabled": true
+    }
+  },
+  "random_events": {
+    "base_probability": 2,
+    "resolution_cooldown_minutes": 10
+  }
+}

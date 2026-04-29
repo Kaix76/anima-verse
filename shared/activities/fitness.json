@@ -1,0 +1,18 @@
+{
+  "group": "Fitness und Sport",
+  "activities": [
+    {
+      "id": "dancing",
+      "name": "Dancing",
+      "description": "Dance to the music",
+      "category": "social",
+      "effects": {
+        "stamina_change": -10,
+        "courage_change": 5,
+        "mood_influence": "euphorisch"
+      },
+      "name_de": "Tanzen",
+      "description_de": "Tanzen auf der Tanzflaeche"
+    }
+  ]
+}

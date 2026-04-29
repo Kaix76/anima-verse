@@ -1,0 +1,478 @@
+{
+  "template_version": 2,
+  "label": "Animal",
+  "template_type": "character",
+  "base": "base-character",
+  "features": {
+    "story_enabled": true,
+    "storydev_enabled": true,
+    "memory_enabled": true,
+    "relationships_enabled": true,
+    "relationship_summary_enabled": true,
+    "secrets_enabled": true,
+    "inventory_enabled": true,
+    "activities_enabled": true,
+    "locations_enabled": true,
+    "mood_tracking_enabled": true,
+    "thoughts_enabled": true,
+    "status_effects_enabled": true,
+    "social_dialog_enabled": true,
+    "random_events_enabled": true,
+    "outfit_system_enabled": true,
+    "expression_variants_enabled": true,
+    "playable_avatar": true,
+    "assignments_enabled": true,
+    "roleplay_rules_enabled": true,
+    "beliefs_enabled": true,
+    "lessons_enabled": true,
+    "goals_enabled": false,
+    "soul_enabled": false
+  },
+  "sections": [
+    {
+      "id": "identity",
+      "label": "Identity",
+      "label_de": "Identität",
+      "column": 1,
+      "row": 1,
+      "fields": [
+        {
+          "key": "species",
+          "label": "Species",
+          "label_de": "Tierart",
+          "type": "select",
+          "allow_custom": true,
+          "required": true,
+          "options": [
+            {
+              "value": "dog",
+              "label": "Dog",
+              "label_de": "Hund"
+            },
+            {
+              "value": "cat",
+              "label": "Cat",
+              "label_de": "Katze"
+            },
+            {
+              "value": "fox",
+              "label": "Fox",
+              "label_de": "Fuchs"
+            },
+            {
+              "value": "wolf",
+              "label": "Wolf",
+              "label_de": "Wolf"
+            },
+            {
+              "value": "rabbit",
+              "label": "Rabbit",
+              "label_de": "Kaninchen"
+            },
+            {
+              "value": "horse",
+              "label": "Horse",
+              "label_de": "Pferd"
+            },
+            {
+              "value": "bear",
+              "label": "Bear",
+              "label_de": "Bär"
+            },
+            {
+              "value": "deer",
+              "label": "Deer",
+              "label_de": "Reh"
+            },
+            {
+              "value": "raccoon",
+              "label": "Raccoon",
+              "label_de": "Waschbär"
+            },
+            {
+              "value": "otter",
+              "label": "Otter",
+              "label_de": "Otter"
+            },
+            {
+              "value": "hamster",
+              "label": "Hamster",
+              "label_de": "Hamster"
+            },
+            {
+              "value": "guinea pig",
+              "label": "Guinea pig",
+              "label_de": "Meerschweinchen"
+            },
+            {
+              "value": "parrot",
+              "label": "Parrot",
+              "label_de": "Papagei"
+            },
+            {
+              "value": "owl",
+              "label": "Owl",
+              "label_de": "Eule"
+            },
+            {
+              "value": "raven",
+              "label": "Raven",
+              "label_de": "Rabe"
+            },
+            {
+              "value": "snake",
+              "label": "Snake",
+              "label_de": "Schlange"
+            },
+            {
+              "value": "lizard",
+              "label": "Lizard",
+              "label_de": "Eidechse"
+            },
+            {
+              "value": "tiger",
+              "label": "Tiger",
+              "label_de": "Tiger"
+            },
+            {
+              "value": "lion",
+              "label": "Lion",
+              "label_de": "Löwe"
+            },
+            {
+              "value": "panda",
+              "label": "Panda",
+              "label_de": "Panda"
+            },
+            {
+              "value": "dragon",
+              "label": "Dragon",
+              "label_de": "Drache"
+            }
+          ],
+          "in_prompt": true,
+          "prompt_label": "Species",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "llm_generable": true
+        },
+        {
+          "key": "breed",
+          "label": "Breed / Subspecies",
+          "label_de": "Rasse / Unterart",
+          "type": "text",
+          "in_prompt": true,
+          "prompt_label": "Breed",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "llm_generable": true
+        },
+        {
+          "key": "gender",
+          "label": "Gender",
+          "label_de": "Geschlecht",
+          "type": "select",
+          "options": [
+            {
+              "value": "male",
+              "label": "Male",
+              "label_de": "Männlich"
+            },
+            {
+              "value": "female",
+              "label": "Female",
+              "label_de": "Weiblich"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "age",
+          "label": "Age",
+          "label_de": "Alter",
+          "type": "number",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "character_personality",
+          "label": "Personality",
+          "label_de": "Persönlichkeit",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "workflow_required": [
+            "chat"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Personality",
+          "llm_generable": true,
+          "editor_visible": false,
+          "source_file": "soul/personality.md"
+        }
+      ]
+    },
+    {
+      "id": "others",
+      "label": "Other",
+      "label_de": "Sonstiges",
+      "column": 4,
+      "row": 0,
+      "fields": [
+        {
+          "key": "communication",
+          "label": "Communication style",
+          "label_de": "Kommunikationsstil",
+          "type": "text",
+          "multiline": true,
+          "in_prompt": true,
+          "prompt_label": "Communication",
+          "hint": "How the animal communicates (sounds, body language, thoughts in italics, etc.)",
+          "hint_de": "Wie das Tier kommuniziert (Geräusche, Körpersprache, Gedanken in Kursiv, etc.)",
+          "llm_generable": true
+        }
+      ]
+    },
+    {
+      "id": "characteristics",
+      "label": "Characteristics",
+      "label_de": "Eigenschaften",
+      "column": 3,
+      "row": 0,
+      "fields": [
+        {
+          "key": "animal_size",
+          "label": "Size",
+          "label_de": "Größe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "tiny",
+              "label": "Tiny",
+              "label_de": "Winzig"
+            },
+            {
+              "value": "small",
+              "label": "Small",
+              "label_de": "Klein"
+            },
+            {
+              "value": "medium-sized",
+              "label": "Medium",
+              "label_de": "Mittelgroß"
+            },
+            {
+              "value": "large",
+              "label": "Large",
+              "label_de": "Groß"
+            },
+            {
+              "value": "very large",
+              "label": "Very large",
+              "label_de": "Sehr groß"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "fur_type",
+          "label": "Fur / Coat type",
+          "label_de": "Fell / Haartyp",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "short",
+              "label": "Short fur",
+              "label_de": "Kurzes Fell"
+            },
+            {
+              "value": "medium",
+              "label": "Medium fur",
+              "label_de": "Mittellang"
+            },
+            {
+              "value": "long",
+              "label": "Long fur",
+              "label_de": "Langes Fell"
+            },
+            {
+              "value": "curly",
+              "label": "Curly fur",
+              "label_de": "Lockiges Fell"
+            },
+            {
+              "value": "smooth",
+              "label": "Smooth coat",
+              "label_de": "Glattes Fell"
+            },
+            {
+              "value": "feathers",
+              "label": "Feathers",
+              "label_de": "Federn"
+            },
+            {
+              "value": "scales",
+              "label": "Scales",
+              "label_de": "Schuppen"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "primary_color",
+          "label": "Primary color",
+          "label_de": "Hauptfarbe",
+          "type": "text",
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "pattern",
+          "label": "Pattern / Markings",
+          "label_de": "Muster / Abzeichen",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "solid color",
+              "label": "Solid",
+              "label_de": "Einfarbig"
+            },
+            {
+              "value": "spotted",
+              "label": "Spotted",
+              "label_de": "Gefleckt"
+            },
+            {
+              "value": "striped",
+              "label": "Striped",
+              "label_de": "Gestreift"
+            },
+            {
+              "value": "tabby",
+              "label": "Tabby",
+              "label_de": "Tabby"
+            },
+            {
+              "value": "merle",
+              "label": "Merle",
+              "label_de": "Merle"
+            },
+            {
+              "value": "brindle",
+              "label": "Brindle",
+              "label_de": "Gestromt"
+            },
+            {
+              "value": "patched",
+              "label": "Patched",
+              "label_de": "Gefleckt (mehrfarbig)"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "eye_color",
+          "label": "Eye color",
+          "label_de": "Augenfarbe",
+          "type": "select",
+          "allow_custom": true,
+          "options": [
+            {
+              "value": "blue",
+              "label": "Blue",
+              "label_de": "Blau"
+            },
+            {
+              "value": "green",
+              "label": "Green",
+              "label_de": "Grün"
+            },
+            {
+              "value": "brown",
+              "label": "Brown",
+              "label_de": "Braun"
+            },
+            {
+              "value": "amber",
+              "label": "Amber",
+              "label_de": "Bernstein"
+            },
+            {
+              "value": "golden",
+              "label": "Golden",
+              "label_de": "Golden"
+            },
+            {
+              "value": "yellow",
+              "label": "Yellow",
+              "label_de": "Gelb"
+            },
+            {
+              "value": "odd eyes",
+              "label": "Odd-eyed",
+              "label_de": "Verschiedenfarbig"
+            }
+          ],
+          "replacement": {
+            "target": "character_appearance"
+          },
+          "in_prompt": false,
+          "llm_generable": true
+        },
+        {
+          "key": "character_appearance",
+          "label": "Appearance",
+          "label_de": "Aussehen",
+          "type": "text",
+          "multiline": true,
+          "required": true,
+          "workflow_required": [
+            "image_generation"
+          ],
+          "in_prompt": true,
+          "prompt_label": "Appearance",
+          "default": "{animal_size} {species}, {breed}, {fur_type}, {primary_color} {pattern}, {eye_color}",
+          "llm_generable": true
+        },
+        {
+          "key": "romantic_interests",
+          "label": "Romantic Interests",
+          "label_de": "Romantische Interessen",
+          "type": "text",
+          "store": "config",
+          "hint": "Describe romantic/sexual interests (e.g. \"women\", \"tall dark men\", \"dominant personalities\"). Empty = none.",
+          "hint_de": "Romantische/sexuelle Interessen beschreiben (z.B. \"Frauen\", \"grosse dunkle Maenner\", \"dominante Persoenlichkeiten\"). Leer = keine.",
+          "placeholder": "e.g. women, dominant men...",
+          "placeholder_de": "z.B. Frauen, dominante Maenner..."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-04-29T20:49:20.442607",
+    "job_id": "intent_Amelia Lane_1777488440_send_message",
+    "status": "success",
+    "result": {
+      "success": false,
+      "error": "Keine Nachricht angegeben"
+    }
+  }
+]

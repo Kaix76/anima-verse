@@ -1,0 +1,59 @@
+{
+  "image_metas": {
+    "1777486491.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486503.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486510.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486520.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486529.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486540.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486548.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777486601.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    }
+  },
+  "image_types": {
+    "1777486503.png": "day",
+    "1777486510.png": "night",
+    "1777486520.png": "day",
+    "1777486529.png": "night",
+    "1777486540.png": "day",
+    "1777486548.png": "night",
+    "1777486601.png": "map"
+  },
+  "rooms": {
+    "1777486520.png": "1e6e9aa9",
+    "1777486529.png": "1e6e9aa9",
+    "1777486540.png": "aadcaba2",
+    "1777486548.png": "aadcaba2"
+  }
+}

@@ -1,0 +1,17 @@
+services:
+  pas-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8100:8000"
+    volumes:
+      - ../storage:/app/storage
+      - ../logs:/app/logs
+      - ../models:/app/models
+      - ../workflows:/app/workflows
+      - ../.env:/app/.env
+      - ../voices:/app/voices
+    restart: unless-stopped
+    env_file:
+      - ../.env

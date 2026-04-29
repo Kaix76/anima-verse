@@ -1,0 +1,89 @@
+/* Dark Theme — GitHub Dark Inspired */
+:root {
+    --primary: #1f6feb; --primary-dark: #1a60d2; --secondary: #238636; --danger: #da3633; --danger-hover: #da190b;
+    --bg: #0d1117; --bg-container: #161b22; --bg-alt: #0d1b2a; --bg-message: #1c2333;
+    --text: #e6edf3; --text-muted: #8b949e; --text-light: #6e7681; --border: #30363d;
+    --radius: 8px; --shadow: 0 2px 20px rgba(0,0,0,0.6);
+    --font: Arial, sans-serif;
+    --container-bg: rgba(22, 27, 34, 0.88);
+    --modal-bg: rgba(22, 27, 34, 0.94);
+    --panel-bg: rgba(22, 27, 34, 0.92);
+    --panel-shadow-left: 4px 0 24px rgba(0,0,0,0.5);
+    --panel-shadow-right: -4px 0 24px rgba(0,0,0,0.5);
+    --panel-header-text: white;
+    --sidebar-avatar-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    --bg-hover: var(--bg-alt);
+    --bg-secondary: #2a2a2a;
+    --text-secondary: #aaa;
+    --border-light: #2a2a2a;
+    --overlay-bg: rgba(0,0,0,0.6);
+    --message-radius: 18px;
+    --code-bg: rgba(255,255,255,0.08);
+    --token-border: rgba(255,255,255,0.1);
+    --tool-bg: linear-gradient(135deg, rgba(74,111,165,0.15), rgba(74,111,165,0.08));
+    --tool-color: #58a6ff;
+    --input-bg: var(--bg-alt); --input-color: var(--text);
+    --header-bg: var(--primary); --header-text: white;
+    --header-location-bg: rgba(255,255,255,0.15); --header-location-text: #ccc;
+    --header-btn-bg: rgba(255,255,255,0.3); --header-btn-text: white; --header-btn-border: white; --header-btn-hover: rgba(255,255,255,0.6);
+    --header-select-border: rgba(255,255,255,0.4); --header-select-hover: rgba(255,255,255,0.3);
+    --select-option-bg: #1a1a2e; --select-option-color: white;
+    --tab-hover-bg: rgba(255,255,255,0.05); --tab-active-color: var(--primary);
+    --reset-bg: rgba(255,255,255,0.3); --reset-color: white; --reset-border: white; --reset-hover-bg: rgba(255,255,255,0.6);
+    --form-reset-bg: var(--bg-alt);
+    --profile-border: rgba(255,255,255,0.3);
+    --close-bg: rgba(255,255,255,0.2); --close-color: white; --close-hover: rgba(255,255,255,0.35); --close-border: none;
+    --lightbox-close-bg: var(--bg-container); --lightbox-close-color: var(--text);
+    --toggle-shadow: 0 2px 10px rgba(0,0,0,0.3); --toggle-shadow-hover: 0 4px 14px rgba(0,0,0,0.5);
+    --gallery-toggle-border: #58a6ff; --gallery-toggle-bg: rgba(31,111,235,0.2); --gallery-toggle-hover: rgba(31,111,235,0.4);
+    --instagram-toggle-border: #c13584; --instagram-toggle-bg: rgba(131,58,180,0.25); --instagram-toggle-hover: rgba(131,58,180,0.4);
+    --queue-toggle-border: #7c4dff; --queue-toggle-bg: rgba(124,77,255,0.2); --queue-toggle-hover: rgba(124,77,255,0.4);
+    --worldmap-toggle-border: #4caf50; --worldmap-toggle-bg: rgba(76,175,80,0.2); --worldmap-toggle-hover: rgba(76,175,80,0.4);
+    --gallery-header-bg: linear-gradient(135deg, #2196F3, #21CBF3);
+    --instagram-header-bg: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+    --queue-header-bg: linear-gradient(135deg, #5c6bc0, #7e57c2);
+    --worldmap-header-bg: linear-gradient(135deg, #2e7d32, #388e3c);
+    --notifications-header-bg: linear-gradient(135deg, #4a3b8f, #6a3dba);
+    --error-bg: rgba(218,54,51,0.15); --error-text: #f85149;
+    --table-hover-bg: rgba(56,139,253,0.04);
+    --dot-active: #3fb950; --dot-inactive: #484f58;
+    --readiness-ok-bg: #1b3a1b; --readiness-ok-color: #66bb6a;
+    --readiness-missing-bg: #3a1b1b; --readiness-missing-color: #ef5350;
+    --editor-active-color: #8ab4f8;
+    --readonly-bg: #2a2a2a;
+    --export-bg: #1a3a5f; --export-color: #58a6ff; --export-hover: #1f4a7a;
+    --import-bg: #1b3a1b; --import-color: #66bb6a; --import-hover: #245a24;
+    --outfit-current-bg: rgba(56,139,253,0.08);
+    --appearance-preview-bg: #1a2e24;
+    --badge-chat-bg: rgba(46,160,67,0.15); --badge-chat-color: #3fb950;
+    --badge-running-bg: rgba(187,128,9,0.15); --badge-running-color: #d29922;
+    --badge-pending-bg: rgba(56,139,253,0.15); --badge-pending-color: #58a6ff;
+    --badge-done-bg: rgba(46,160,67,0.15); --badge-done-color: #3fb950;
+    --badge-failed-bg: rgba(248,81,73,0.15); --badge-failed-color: #f85149;
+    --vram-bar-bg: rgba(255,255,255,0.08); --vram-fill-color: #58a6ff;
+    --worldmap-active-color: #4caf50; --worldmap-active-glow: rgba(76,175,80,0.3);
+    --worldmap-active-tile-bg: linear-gradient(135deg, rgba(76,175,80,0.25), rgba(76,175,80,0.1));
+    --story-start-bg: #388E3C; --story-start-hover: #2E7D32;
+    --story-continue-bg: #1565C0; --story-continue-hover: #0D47A1;
+    --story-card-hover-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    --story-option-hover-border: #42a5f5; --story-option-hover-bg: #1e3a5f;
+    --story-option-chosen-border: #42a5f5; --story-option-chosen-bg: #1a3a6a;
+    --story-option-hover-letter-bg: #1565C0; --story-option-chosen-letter-bg: #0D47A1;
+    --story-end-color: #66bb6a; --story-end-bg: #1b3a1b;
+    --story-spinner-color: #42a5f5;
+    --story-badge-bg: #1e3a5f; --story-badge-color: #90caf9;
+    --story-saved-bg: #3e2723; --story-saved-color: #ffab40;
+    --allowed-loc-color: #ddd;
+    --accent: #66bb6a;
+}
+
+/* Dark-specific overrides */
+.lightbox-close { border: 1px solid var(--border); }
+.lightbox-close:hover { background: var(--bg-alt); }
+.auth-error { border: 1px solid rgba(218,54,51,0.3); }
+.storydev-result-content pre { background: #1a1a2e; color: #e6edf3; }
+.gallery-avatar { border-color: rgba(255,255,255,0.6); }
+.instagram-avatar { border-color: rgba(255,255,255,0.6); }
+.instagram-hashtag { color: #58a6ff; }
+.instagram-comment-submit { color: #58a6ff; }
+.image-actions .btn-zoom { color: #333; }

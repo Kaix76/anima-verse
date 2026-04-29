@@ -1,0 +1,53 @@
+{
+  "group": "Arbeit und Buero",
+  "activities": [
+    {
+      "id": "working_on_computer",
+      "name": "Working on computer",
+      "description": "Work at the computer",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -8,
+        "attention_change": -3
+      },
+      "name_de": "Arbeiten am Rechner",
+      "description_de": "Am Computer arbeiten"
+    },
+    {
+      "id": "sorting_papers",
+      "name": "Sorting papers",
+      "description": "Sort and organize documents",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -5
+      },
+      "name_de": "Papiere sortieren",
+      "description_de": "Dokumente und Unterlagen ordnen"
+    },
+    {
+      "id": "strategy_session",
+      "name": "Strategy session",
+      "description": "Plan strategies",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -10,
+        "courage_change": 3,
+        "attention_change": 5
+      },
+      "name_de": "Strategie-Session",
+      "description_de": "Strategische Planung und Analyse"
+    },
+    {
+      "id": "studying",
+      "name": "Studying",
+      "description": "Study and learn",
+      "category": "normal",
+      "effects": {
+        "stamina_change": -8,
+        "attention_change": 5
+      },
+      "name_de": "Lernen",
+      "description_de": "Stoff lernen und sich weiterbilden"
+    }
+  ]
+}

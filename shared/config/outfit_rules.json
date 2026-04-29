@@ -1,0 +1,85 @@
+{
+  "outfit_types": {
+    "casual": {
+      "required": [
+        "top",
+        "bottom",
+        "underwear_top",
+        "underwear_bottom",
+        "feet"
+      ],
+      "description": "Alltags-Look: jeans, kurze shorts, crop-top, skinny t-shirt, mini-rock, sneakers oder heels. Sitzt eng und formt die Figur. Tief ausgeschnittene oberteile ok, bauchfrei ok, offene schultern ok. Keine business-attire, keine uniform, keine sportklamotten. Farben alltagstauglich, keine buehnenkostuem-optik."
+    },
+    "formal": {
+      "required": [
+        "top",
+        "bottom",
+        "underwear_top",
+        "underwear_bottom",
+        "feet"
+      ],
+      "description": "Elegante Gala/Abend-Attire: cocktail dress, bodycon gown, body-hugging evening dress, tief ausgeschnittene robe, slit bis zum oberschenkel, rueckenfrei, off-shoulder. Hohe stiletto-heels, glitzer, satin, samt. Dezenter schmuck. Keine jeans, keine sneakers, keine streetwear."
+    },
+    "business": {
+      "required": [
+        "top",
+        "bottom",
+        "underwear_top",
+        "underwear_bottom",
+        "feet"
+      ],
+      "description": "Buero-/Office-Look: bleistift-rock, enge bluse, blazer, koerperbetonte kleider in gedeckten farben. Stoff-hose ok. Heels oder business-pumps. Bluse kann leicht offen sein, dekolletee angedeutet. Kein crop-top, keine jeans, kein club-outfit, keine sneakers. Professionell"
+    },
+    "clubwear": {
+      "required": [
+        "top",
+        "bottom",
+        "underwear_top",
+        "underwear_bottom",
+        "feet"
+      ],
+      "description": "Nachtclub/Party-Stil: eng anliegend bis hautnah, glitzernd oder metallic, mini-rock/micro-dress/hot-pants, latex/leder/pvc/mesh, bauchfrei erlaubt, rueckenfrei, fishnet-strumpfhose. Hohe stiletto-heels oder plateau-boots. Neon, gold, schwarz, metallic. Make-up gleaming. Keine jeans, keine casual sneakers."
+    },
+    "sport": {
+      "required": [
+        "top",
+        "bottom",
+        "feet"
+      ],
+      "description": "Sportkleidung fuer workout/running/yoga: sport-bra, leggings, bike-shorts, crop sport top, tank top, athletic shoes. Kann aber figurbetont und eng sein (yoga pants, form-fitting leggings). Bauchfrei ok. Keine jeans, keine heels, keine buerokleidung."
+    },
+    "home": {
+      "required": [
+        "top",
+        "bottom"
+      ],
+      "description": "Loungewear/zuhause entspannt: oversized t-shirt, tank top, booty shorts, sweatpants, soft hoodie, cozy cardigan. Barfuss, socks oder soft slippers. Bequem und privat — darf wenig sein (nur t-shirt ohne hose ok), oft ohne bra. Keine schuhe, keine aussenkleidung."
+    },
+    "bed": {
+      "required": [],
+      "description": "Schlafzimmer/bedroom: nachthemd, silk slip, sexy lingerie-set, string+bra, babydoll, komplett nackt unter der decke, oder nur ein oversized mens-shirt. Kein aussen-outfit. Barfuss, ggf. high heels fuer erotik-szene. Intim, verletzlich oder verfuehrerisch."
+    },
+    "bath": {
+      "required": [],
+      "description": "Badezimmer/dusche: nackt, eingewickelt in handtuch, shower cap, bademantel, nasses haar. Kein regulaeres outfit. Haut-akzentuiert, intim, privat. Ggf. nur unterwaesche oder lingerie nach dem duschen."
+    },
+    "beach": {
+      "required": [
+        "top",
+        "bottom"
+      ],
+      "description": "Strand-Look: bikini (string/triangle/mikro), one-piece monokini, sarong/pareo, cover-up mesh-dress, flip-flops, sun hat, sunglasses. Barfuss ok. Haut, bronzed, oeliger body, sonnencreme-glanz. Nackter bauch, beine, schultern. Keine regulaere kleidung."
+    },
+    "pool": {
+      "required": [
+        "top",
+        "bottom"
+      ],
+      "description": "Poolside: bikini, one-piece swimsuit, micro-bikini, thong-bottom, wet-hair-look, nasse haut, barfuss. Aehnlich beach aber urbaner (hotel-pool, rooftop). Minimale stoff-abdeckung, high-cut bottoms, cheeky rueckenausschnitt."
+    },
+    "intimate": {
+      "required": [],
+      "description": "Private indoor wear for the bedroom or behind closed doors: pyjamas, nightgown, slip dress, robe, nightshirt, oversized t-shirt. Soft fabrics, comfortable, fitted but not overly revealing. Slippers or barefoot."
+    }
+  }
+}
