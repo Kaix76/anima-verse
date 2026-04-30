@@ -1,0 +1,94 @@
+{
+  "inventory": [
+    {
+      "item_id": "item_marcus_card",
+      "quantity": 1,
+      "obtained_at": "2026-04-29 18:06:15",
+      "obtained_method": "manual",
+      "equipped": false
+    },
+    {
+      "item_id": "item_daffe7ca",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:56:33.029436",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_f85cb432",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:56:46.826722",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_fcc885b2",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:56:58.598401",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_6cc8e8ae",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:57:04.240422",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_85e23bf0",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:57:10.167158",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_3fd96ccb",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:57:14.609175",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_2d10b999",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:57:42.746638",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_6c41aa2c",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:57:51.418636",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    },
+    {
+      "item_id": "item_84188422",
+      "quantity": 1,
+      "obtained_at": "2026-04-30T12:58:16.757679",
+      "obtained_from": "",
+      "obtained_method": "manual",
+      "equipped": false,
+      "notes": ""
+    }
+  ],
+  "max_slots": 20,
+  "last_updated": "2026-04-30T12:58:16.757690"
+}

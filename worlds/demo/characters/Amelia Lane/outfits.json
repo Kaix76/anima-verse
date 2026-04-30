@@ -1,0 +1,22 @@
+{
+  "outfits": [
+    {
+      "id": "7e43616e",
+      "name": "Office Outfit",
+      "outfit": "wearing: business shirt, black tailored blazer, slightly open to reveal cleavage, fitted on athletic frame, silver buttons, business setting, business Skirt, business heels",
+      "pieces": [
+        "item_f85cb432",
+        "item_5bfe0cbc",
+        "item_19f8855b",
+        "item_68c4d249"
+      ],
+      "remove_slots": [],
+      "pieces_colors": {},
+      "locations": [],
+      "activities": [],
+      "excluded_locations": [],
+      "image": "",
+      "created_at": "2026-04-30T12:59:39.184828"
+    }
+  ]
+}

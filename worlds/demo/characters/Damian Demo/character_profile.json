@@ -19,12 +19,12 @@
   "current_location": "ec9b625c",
   "current_room": "1e6e9aa9",
   "current_activity": "Chatting",
-  "current_feeling": "",
+  "current_feeling": "gespraechig",
   "location_changed_at": "2026-04-29T20:17:18.449381",
   "activity_changed_at": "",
   "status_effects": {
-    "attention": 26,
-    "courage": 38,
-    "stamina": 56
+    "attention": 24,
+    "courage": 40,
+    "stamina": 54
   }
 }

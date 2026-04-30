@@ -25,10 +25,16 @@
   "current_feeling": "excited",
   "location_changed_at": "2026-04-29T20:47:20.346132",
   "activity_changed_at": "",
+  "equipped_pieces": {
+    "top": "item_f85cb432",
+    "outer": "item_5bfe0cbc",
+    "bottom": "item_19f8855b",
+    "feet": "item_68c4d249"
+  },
   "status_effects": {
-    "attention": 46,
-    "courage": 48,
-    "stamina": 76
+    "attention": 49,
+    "courage": 47,
+    "stamina": 79
   },
   "current_activity_detail": "drinking coffee"
 }

@@ -25,10 +25,17 @@
   "current_feeling": "glad",
   "location_changed_at": "2026-04-29T20:44:07.045120",
   "activity_changed_at": "",
+  "equipped_pieces": {
+    "bottom": "item_daffe7ca",
+    "underwear_bottom": "item_84188422",
+    "feet": "item_6cc8e8ae",
+    "top": "item_f85cb432",
+    "outer": "item_fcc885b2"
+  },
   "status_effects": {
-    "attention": 46,
-    "courage": 48,
-    "stamina": 76
+    "attention": 49,
+    "courage": 47,
+    "stamina": 79
   },
   "current_activity_detail": "drinking coffee"
 }

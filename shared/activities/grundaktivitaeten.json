@@ -134,12 +134,16 @@
       "condition": "",
       "cooldown_hours": 0,
       "duration_minutes": 0,
+      "outfit_type": "",
       "effects": {
         "stamina_change": -1
       },
       "interruptible": true,
       "name_de": "Posen",
-      "description_de": "Für ein Bild posieren"
+      "description_de": "Für ein Bild posieren",
+      "required_roles": [
+        "photomodel"
+      ]
     }
   ]
 }

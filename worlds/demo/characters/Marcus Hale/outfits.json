@@ -1,0 +1,23 @@
+{
+  "outfits": [
+    {
+      "id": "e0e34683",
+      "name": "Business Outfit",
+      "outfit": "wearing: beige chinos, male underware, bussiness shoes, business shirt, business suit",
+      "pieces": [
+        "item_daffe7ca",
+        "item_84188422",
+        "item_6cc8e8ae",
+        "item_f85cb432",
+        "item_fcc885b2"
+      ],
+      "remove_slots": [],
+      "pieces_colors": {},
+      "locations": [],
+      "activities": [],
+      "excluded_locations": [],
+      "image": "",
+      "created_at": "2026-04-30T13:00:54.707852"
+    }
+  ]
+}

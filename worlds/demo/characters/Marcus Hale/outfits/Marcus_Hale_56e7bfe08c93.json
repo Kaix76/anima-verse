@@ -1,0 +1,30 @@
+{
+  "provider": "together",
+  "service": "Together-Fast",
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "loras": [],
+  "prompt": "full body portrait, Marcus Hale, male, olive skin, average height height, stocky body frame, short salt-and-pepper hair, hazel colored eyes, Marcus Hale is wearing business shirt, beige chinos, business suit, bussiness shoes, holding glass near lips, elbow raised, other hand resting on table, upturned mouth, crinkled eyes, relaxed eyebrows, soft jaw",
+  "negative_prompt": "",
+  "characters": [
+    "Marcus Hale"
+  ],
+  "reference_images": {
+    "input_reference_image_1": "Marcus Hale_1777485523_4bcda484_1.jpg",
+    "input_reference_image_4": "1777486503.png"
+  },
+  "seed": 0,
+  "created_at": "2026-04-30T13:00:53",
+  "duration_s": 7.7,
+  "workflow": "",
+  "faceswap": false,
+  "mood": "glad",
+  "activity": "Coffee",
+  "equipped_pieces": {
+    "bottom": "item_daffe7ca",
+    "underwear_bottom": "item_84188422",
+    "feet": "item_6cc8e8ae",
+    "top": "item_f85cb432",
+    "outer": "item_fcc885b2"
+  },
+  "equipped_items": []
+}
