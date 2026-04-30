@@ -1915,21 +1915,28 @@ def auto_fill_missing_slots(character_name: str, outfit_type: str) -> List[Dict[
         it = get_item(pick)
         op = (it.get("outfit_piece") or {}) if it else {}
         add_slots = _clean_additional_slots(op.get("additional_slots"), slot)
-        # Konflikt-Check: ein additional-Slot, der schon durch ein anderes Item
-        # besetzt ist, wird NICHT ueberschrieben. In dem Fall ueberspringt der
-        # Auto-Fill das Piece — sonst waere die Belegung inkonsistent.
-        conflict = next((s for s in add_slots
-                         if eq_pieces.get(s) and eq_pieces[s] != pick), None)
-        if conflict:
-            logger.info("auto_fill [%s]: skip %s fuer slot '%s' — additional_slot '%s' bereits belegt",
-                        character_name, pick, slot, conflict)
-            continue
+        # Konflikte in additional_slots: existierende Pieces werden verdraengt
+        # (analog equip_piece). Sonst blockiert z.B. ein bereits angezogener
+        # Rock das Auto-Anziehen eines Kleides, das top+bottom belegt.
+        displaced: List[str] = []
+        for s in add_slots:
+            occ = eq_pieces.get(s) or ""
+            if occ and occ != pick and occ not in displaced:
+                displaced.append(occ)
+        for displaced_id in displaced:
+            for s in list(eq_pieces.keys()):
+                if eq_pieces.get(s) == displaced_id:
+                    eq_pieces.pop(s, None)
+            used_ids.discard(displaced_id)
 
         eq_pieces[slot] = pick
         for s in add_slots:
             eq_pieces[s] = pick
         used_ids.add(pick)
         filled.append({"slot": slot, "item_id": pick})
+        if displaced:
+            logger.info("auto_fill [%s]: %s belegt slot '%s' +%s — verdraengt %s",
+                        character_name, pick, slot, add_slots, displaced)
 
     if filled:
         profile["equipped_pieces"] = eq_pieces
