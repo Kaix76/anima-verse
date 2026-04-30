@@ -3247,29 +3247,30 @@ async function updatePlayerExpression(avatarName) {
         sceneImg.src = '';
         _setPlayerSceneOutfitLabel('');
         _updateOutfitLockButton('avatar', null);
+        _updateSceneWardrobeButton('avatar', null);
         return;
     }
+    // Wardrobe / Inventory / Lock buttons should be available as soon as an
+    // avatar is selected — the wardrobe button is the entry point for
+    // creating the very first outfit, so it must not be gated on an outfit
+    // already existing. Lock is per-character, also fine to show empty.
+    _updateOutfitLockButton('avatar', avatarName);
+    _updateSceneWardrobeButton('avatar', avatarName);
+    _setPlayerSceneOutfitLabel(avatarName);
+    sceneImg.onclick = null;
+    sceneImg.style.cursor = '';
+    sceneImg.title = '';
+
+    // Try to find an outfit with a rendered image as placeholder. If none,
+    // _loadExpressionImage falls back to the default profile image while
+    // the per-mood expression variant renders in the background.
+    let target = null;
     try {
         const outfitsRes = await fetch(`/characters/${encodeURIComponent(avatarName)}/outfits`);
         const outfits = outfitsRes.ok ? ((await outfitsRes.json()).outfits || []) : [];
-        const target = outfits.find(o => o.image);
-        if (target) {
-            _setPlayerSceneOutfitLabel(avatarName);
-            await _loadExpressionImage(avatarName, sceneImg, target, _PLAYER_EXPR);
-            sceneImg.onclick = null;
-            sceneImg.style.cursor = '';
-            sceneImg.title = '';
-            _updateOutfitLockButton('avatar', avatarName);
-            _updateSceneWardrobeButton('avatar', avatarName);
-            return;
-        }
-    } catch (e) { /* fall through to hide */ }
-
-    sceneImg.style.display = 'none';
-    sceneImg.src = '';
-    _setPlayerSceneOutfitLabel('');
-    _updateOutfitLockButton('avatar', null);
-    _updateSceneWardrobeButton('avatar', null);
+        target = outfits.find(o => o.image) || null;
+    } catch (e) { /* no placeholder; expression endpoint will provide fallback */ }
+    await _loadExpressionImage(avatarName, sceneImg, target, _PLAYER_EXPR);
 }
 
 function _setPlayerSceneOutfitLabel(characterName) {

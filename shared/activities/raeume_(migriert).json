@@ -42,10 +42,11 @@
       "condition": "",
       "cooldown_hours": 0,
       "duration_minutes": 0,
+      "outfit_type": "",
       "effects": {
         "stamina_change": 10,
         "courage_change": 8,
-        "mood_influence": "entspannt"
+        "mood_influence": "relaxed"
       },
       "interruptible": true,
       "name_de": "Trinken bestellen",

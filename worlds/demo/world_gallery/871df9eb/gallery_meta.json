@@ -28,6 +28,11 @@
       "backend": "Together-Fast",
       "backend_type": "together",
       "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777547424.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
     }
   },
   "image_types": {
@@ -35,6 +40,6 @@
     "1777486358.png": "night",
     "1777486394.png": "day",
     "1777486396.png": "night",
-    "1777486405.png": "map"
+    "1777547424.png": "map"
   }
 }

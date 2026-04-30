@@ -2,19 +2,6 @@
   "group": "Soziale Aktivitaeten",
   "activities": [
     {
-      "id": "chatting",
-      "name": "Chatting",
-      "description": "Have a casual conversation",
-      "category": "social",
-      "requires_partner": true,
-      "effects": {
-        "courage_change": 3,
-        "mood_influence": "gespraechig"
-      },
-      "name_de": "Unterhalten",
-      "description_de": "Mit jemandem plaudern"
-    },
-    {
       "id": "talking",
       "name": "Talking",
       "description": "Talk to someone",

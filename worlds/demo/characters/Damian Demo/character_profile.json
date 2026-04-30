@@ -17,14 +17,24 @@
   "profile_image": "Damian Demo_1777479766_8c20e2fa_1.jpg",
   "activity_partner": "Amelia Lane",
   "current_location": "ec9b625c",
-  "current_room": "1e6e9aa9",
+  "current_room": "Main room",
   "current_activity": "Chatting",
   "current_feeling": "gespraechig",
   "location_changed_at": "2026-04-29T20:17:18.449381",
   "activity_changed_at": "",
+  "equipped_pieces": {},
+  "equipped_items": [],
+  "equipped_pieces_meta": {},
   "status_effects": {
     "attention": 24,
     "courage": 40,
     "stamina": 54
-  }
+  },
+  "runtime_outfit_skip": [
+    "bottom",
+    "feet",
+    "outer",
+    "top",
+    "underwear_bottom"
+  ]
 }

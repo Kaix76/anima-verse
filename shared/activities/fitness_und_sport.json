@@ -13,7 +13,7 @@
       "outfit_type": "intimate",
       "effects": {
         "stamina_change": 10,
-        "mood_influence": "erfrischt"
+        "mood_influence": "refreshed"
       },
       "interruptible": true,
       "name_de": "Duschen",
@@ -144,14 +144,14 @@
       "condition": "",
       "cooldown_hours": 0,
       "duration_minutes": 0,
+      "outfit_type": "pool",
       "effects": {
         "stamina_change": 2,
-        "mood_influence": "schwitzen"
+        "mood_influence": "sweating"
       },
       "interruptible": true,
       "name_de": "Sonnen",
-      "description_de": "In der Sonne liegen",
-      "outfit_type": "pool"
+      "description_de": "In der Sonne liegen"
     }
   ]
 }

@@ -1,0 +1,30 @@
+{
+  "provider": "together",
+  "service": "Together-Fast",
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "loras": [],
+  "prompt": "full body portrait, Damian Demo, male, medium skin, average height height, average body frame,very short brunette hair, amber colored eyes , Damian Demo is wearing salmon blue t-shirt, denim jeans, dark grey wool suit, bussiness shoes, standing with one hand on hip, weight shifted to one leg, shoulder slightly raised, chin up, confident smirk, one eyebrow slightly raised, eyes direct and steady, lips slightly pursed",
+  "negative_prompt": "",
+  "characters": [
+    "Damian Demo"
+  ],
+  "reference_images": {
+    "input_reference_image_1": "Damian Demo_1777479766_8c20e2fa_1.jpg",
+    "input_reference_image_4": "1777486503.png"
+  },
+  "seed": 0,
+  "created_at": "2026-04-30T13:13:12",
+  "duration_s": 7.6,
+  "workflow": "",
+  "faceswap": false,
+  "mood": "",
+  "activity": "",
+  "equipped_pieces": {
+    "outer": "item_0bdbf9e0",
+    "bottom": "item_1a08a706",
+    "top": "item_a344f8e1",
+    "feet": "item_6cc8e8ae",
+    "underwear_bottom": "item_84188422"
+  },
+  "equipped_items": []
+}

@@ -13,18 +13,6 @@
       "description_de": "Eine Mahlzeit zu sich nehmen"
     },
     {
-      "id": "cooking",
-      "name": "Cooking",
-      "description": "Prepare a meal",
-      "category": "normal",
-      "effects": {
-        "stamina_change": -5,
-        "mood_influence": "zufrieden"
-      },
-      "name_de": "Kochen",
-      "description_de": "In der Kueche etwas zubereiten"
-    },
-    {
       "id": "watching_tv",
       "name": "Watching TV",
       "description": "Watch television",

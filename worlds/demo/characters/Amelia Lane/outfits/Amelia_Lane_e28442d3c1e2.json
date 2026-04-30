@@ -1,0 +1,30 @@
+{
+  "provider": "together",
+  "service": "Together-Fast",
+  "model": "HiDream-ai/HiDream-I1-Fast",
+  "loras": [],
+  "prompt": "full body portrait, Amelia Lane, female, fair skin, tall height, athletic body frame, shoulder length ash blonde hair, ice blue colored eyes, Amelia Lane is wearing tanga, business shirt underneath black tailored blazer, slightly open to reveal cleavage, fitted on athletic frame, silver buttons, business setting, business Skirt, business heels, sitting at conference table, hands folded, upright posture, attentive engaged pose, bright wide eyes, raised eyebrows, big grin, clenched jaw",
+  "negative_prompt": "",
+  "characters": [
+    "Amelia Lane"
+  ],
+  "reference_images": {
+    "input_reference_image_1": "Amelia Lane_1777485450_5346bae5_1.jpg",
+    "input_reference_image_4": "1777486503.png"
+  },
+  "seed": 0,
+  "created_at": "2026-04-30T13:21:31",
+  "duration_s": 7.3,
+  "workflow": "",
+  "faceswap": false,
+  "mood": "energized",
+  "activity": "Meeting",
+  "equipped_pieces": {
+    "top": "item_f85cb432",
+    "outer": "item_5bfe0cbc",
+    "bottom": "item_19f8855b",
+    "feet": "item_68c4d249",
+    "underwear_bottom": "item_189fa0ff"
+  },
+  "equipped_items": []
+}

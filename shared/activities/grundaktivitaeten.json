@@ -144,6 +144,24 @@
       "required_roles": [
         "photomodel"
       ]
+    },
+    {
+      "id": "cooking",
+      "name": "Cooking",
+      "description": "Prepare a meal",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -5,
+        "mood_influence": "pleased"
+      },
+      "interruptible": true,
+      "name_de": "Kochen",
+      "description_de": "In der Kueche etwas zubereiten"
     }
   ]
 }

@@ -1,0 +1,14 @@
+{
+  "image_filename": "Amelia Lane_1777548015_9a674174_1.jpg",
+  "prompt": "photorealistic, Amelia Lane, female, fair skin, tall height, athletic body frame, shoulder length ash blonde hair, ice blue colored eyes, Amelia Lane is wearing a black tailored blazer and skirt, sitting in a cafe with two men, smiling and holding a coffee cup",
+  "backend": "Together-Fast",
+  "backend_type": "together",
+  "workflow": "",
+  "faceswap": false,
+  "duration_s": 6.1,
+  "image_analysis": "",
+  "reference_images": {
+    "input_reference_image_1": "Amelia_Lane_3fd5523f6131.png",
+    "input_reference_image_4": "1777486510.png"
+  }
+}

@@ -17,7 +17,10 @@
             "coffee"
           ],
           "outfit_type": "",
-          "knowledge_item_id": ""
+          "knowledge_item_id": "",
+          "_pending_activities": {
+            "Meeting": 1
+          }
         },
         {
           "id": "aadcaba2",
@@ -35,7 +38,7 @@
       ],
       "image_prompt_day": "A small independent corner café in a European city, large windows facing the street, warm wood storefront with a hand-painted sign reading 'BRIDGEWATER', a few outdoor tables under a green awning, two bicycles leaning against the wall, late morning light, cinematic photo, no people, no text",
       "image_prompt_night": "The same small corner café at night, warm amber light spilling from the windows onto the cobblestones, neon 'open' sign glowing above the door, a single street lamp casting soft pools of light, the awning rolled up, cinematic photo, no people, no text",
-      "image_prompt_map": "A small iso icon of a café with a steaming coffee cup over a green awning on a white circular background, simple flat illustration, no text",
+      "image_prompt_map": "A small iso 3d icon of a café with a steaming coffee cup over the entrance",
       "grid_x": 3,
       "grid_y": 4,
       "background_images": [
@@ -45,7 +48,7 @@
         "1777486529.png",
         "1777486540.png",
         "1777486548.png",
-        "1777486601.png"
+        "1777547375.png"
       ],
       "danger_level": 0,
       "event_settings": {
@@ -60,7 +63,7 @@
         ],
         "event_blacklist": []
       },
-      "outfit_type": "",
+      "outfit_type": "business",
       "knowledge_item_id": ""
     },
     {
@@ -85,7 +88,7 @@
       ],
       "image_prompt_day": "A modest two-story detached suburban house, brick lower floor and beige siding upper floor, well-kept lawn, a single mature oak tree, gravel driveway with a covered car port and the silhouette of a motorcycle under a tarp, dark green front door with a small porch, late afternoon warm sunlight, cinematic photo, no people, no text",
       "image_prompt_night": "A modest two-story detached suburban house at night, warm interior lights glowing through curtained windows, a porch lantern lit, the silhouette of a covered motorcycle in the driveway, cool moonlight on the lawn, cinematic photo, no people, no text",
-      "image_prompt_map": "A small icon of a friendly two-story suburban house with a green door on a white circular background, simple flat illustration, no text",
+      "image_prompt_map": "A small iso 3d icon of a friendly two-story suburban house with a green door on a white circular background",
       "grid_x": 2,
       "grid_y": 5,
       "background_images": [
@@ -93,8 +96,23 @@
         "1777486358.png",
         "1777486394.png",
         "1777486396.png",
-        "1777486405.png"
-      ]
+        "1777547424.png"
+      ],
+      "danger_level": 0,
+      "event_settings": {
+        "event_probability": 0.1,
+        "max_concurrent_events": 1,
+        "event_cooldown_hours": 2,
+        "allowed_categories": [
+          "ambient",
+          "social",
+          "disruption",
+          "danger"
+        ],
+        "event_blacklist": []
+      },
+      "outfit_type": "home",
+      "knowledge_item_id": ""
     },
     {
       "id": "e9ba96be",
@@ -125,13 +143,13 @@
             "cooking",
             "sleeping"
           ],
-          "outfit_type": "",
+          "outfit_type": "home",
           "knowledge_item_id": ""
         }
       ],
       "image_prompt_day": "a typical high-rise building at the city by day",
       "image_prompt_night": "a typical high-rise building at the city by night",
-      "image_prompt_map": "a typical high-rise building at the city in iso view",
+      "image_prompt_map": "a typical high-rise building at the city in iso 3d view",
       "danger_level": 0,
       "outfit_type": "home",
       "event_settings": {
@@ -148,13 +166,13 @@
       },
       "knowledge_item_id": "",
       "background_images": [
-        "1777484451.png",
         "1777484512.png",
         "1777484528.png",
         "1777484771.png",
         "1777486285.png",
         "1777486302.png",
-        "1777486325.png"
+        "1777486325.png",
+        "1777547258.png"
       ],
       "grid_x": 4,
       "grid_y": 4

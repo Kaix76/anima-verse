@@ -12,7 +12,7 @@
   "social_dialog_probability": "50",
   "roles": "",
   "romantic_interests": "",
-  "chat_mode": "",
+  "chat_mode": "rp_first",
   "relationships_enabled": true,
   "mood_tracking": true,
   "photographer_mode": false,

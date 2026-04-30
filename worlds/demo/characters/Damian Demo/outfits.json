@@ -1,0 +1,25 @@
+{
+  "outfits": [
+    {
+      "id": "e4649e67",
+      "name": "Business Casual Outfit",
+      "outfit": "wearing: dark grey wool suit, denim jeans, blue t-shirt, bussiness shoes, male underware",
+      "pieces": [
+        "item_0bdbf9e0",
+        "item_1a08a706",
+        "item_a344f8e1",
+        "item_6cc8e8ae",
+        "item_84188422"
+      ],
+      "remove_slots": [],
+      "pieces_colors": {
+        "top": "salmon"
+      },
+      "locations": [],
+      "activities": [],
+      "excluded_locations": [],
+      "image": "",
+      "created_at": "2026-04-30T13:12:40.247703"
+    }
+  ]
+}

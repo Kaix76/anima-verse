@@ -39,6 +39,16 @@
       "backend": "Together-Fast",
       "backend_type": "together",
       "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777547325.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
+    },
+    "1777547375.png": {
+      "backend": "Together-Fast",
+      "backend_type": "together",
+      "model": "HiDream-ai/HiDream-I1-Fast"
     }
   },
   "image_types": {
@@ -48,7 +58,7 @@
     "1777486529.png": "night",
     "1777486540.png": "day",
     "1777486548.png": "night",
-    "1777486601.png": "map"
+    "1777547375.png": "map"
   },
   "rooms": {
     "1777486520.png": "1e6e9aa9",

@@ -29,10 +29,11 @@
       "condition": "",
       "cooldown_hours": 0,
       "duration_minutes": 0,
+      "outfit_type": "",
       "effects": {
         "stamina_change": -3,
         "courage_change": 3,
-        "mood_influence": "kreativ"
+        "mood_influence": "creative"
       },
       "interruptible": true,
       "name_de": "Musik spielen",
