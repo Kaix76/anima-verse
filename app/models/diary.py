@@ -168,15 +168,6 @@ def _save_stored(character_name: str, entries: List[Dict[str, Any]]) -> None:
     except Exception as e:
         logger.error("_save_stored diary DB-Fehler fuer %s: %s", character_name, e)
 
-    # JSON-Backup
-    try:
-        path = _get_diary_path(character_name)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        clean = [{k: v for k, v in e.items() if k != "_db_id"} for e in entries]
-        path.write_text(json.dumps(clean, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
-
 
 def add_summary(character_name: str, content: str, date: str) -> Dict[str, Any]:
     """Store a daily summary (LLM-generated). Only type that gets persisted."""
@@ -350,7 +341,20 @@ def _process_state_entry(e: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _collect_state_changes(character_name: str, date: str) -> List[Dict[str, Any]]:
-    """Location and activity changes from state_history DB table."""
+    """Location and activity changes from state_history DB table.
+
+    Consecutive identical activities (same value + same partner) collapse
+    into a single range entry like ``Aktivitaet: Sleeping (22:00 - 06:00)``
+    instead of repeating once per hourly tick. Same goes for location
+    pings — if a character was at the same location for hours, only one
+    entry with the time range is emitted.
+    """
+    raw_entries = _read_state_history_raw(character_name, date)
+    return _aggregate_state_entries(raw_entries)
+
+
+def _read_state_history_raw(character_name: str, date: str) -> List[Dict[str, Any]]:
+    """Return raw state_history entries for the day, oldest first."""
     try:
         conn = get_connection()
         rows = conn.execute(
@@ -358,7 +362,7 @@ def _collect_state_changes(character_name: str, date: str) -> List[Dict[str, Any
             "WHERE character_name=? AND ts LIKE ? ORDER BY ts ASC",
             (character_name, f"{date}%"),
         ).fetchall()
-        result = []
+        out = []
         for r in rows:
             state = {}
             try:
@@ -367,44 +371,96 @@ def _collect_state_changes(character_name: str, date: str) -> List[Dict[str, Any
                 pass
             if not state:
                 state = {"timestamp": r[0] or "", "type": "", "value": ""}
-            entry_dict = {
+            out.append({
                 "timestamp": state.get("timestamp", r[0] or ""),
                 "type": state.get("type", ""),
                 "value": state.get("value", ""),
-                "metadata": state.get("metadata", {}),
-            }
-            processed = _process_state_entry(entry_dict)
-            if processed:
-                result.append(processed)
-        return result
+                "metadata": state.get("metadata") or {},
+            })
+        return out
     except Exception as e:
-        logger.debug("_collect_state_changes DB error: %s — falling back to JSON", e)
-    # Fallback: JSON-Datei
+        logger.debug("_read_state_history_raw DB error: %s — falling back to JSON", e)
+
     from app.models.character import get_character_dir
     path = get_character_dir(character_name) / "state_history.json"
     if not path.exists():
         return []
     try:
         raw_entries = json.loads(path.read_text(encoding="utf-8"))
-        result = []
+        out = []
         for e in raw_entries:
             ts = e.get("timestamp", "")
             if not ts.startswith(date):
                 continue
-            # Adapt JSON entry format to internal format
-            entry_dict = {
+            out.append({
                 "timestamp": ts,
                 "type": e.get("type", ""),
                 "value": e.get("value", ""),
                 "metadata": e.get("metadata") or {},
-            }
-            processed = _process_state_entry(entry_dict)
-            if processed:
-                result.append(processed)
-        return result
+            })
+        return out
     except Exception as e:
         logger.debug("State history collect error: %s", e)
         return []
+
+
+def _aggregate_state_entries(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse runs of identical state entries into time-range entries.
+
+    Two entries belong to the same run when:
+      - same ``type``
+      - same ``value`` (case-insensitive)
+      - for ``activity``: same partner (different partners → different runs)
+
+    The collapsed entry keeps the FIRST timestamp (start) and adds
+    ``end_timestamp`` from the LAST entry in the run. The diary renderer
+    can format that as ``HH:MM - HH:MM``.
+
+    ``effects`` ticks are not collapsed (each one carries unique deltas).
+    """
+    runs: List[List[Dict[str, Any]]] = []
+    for entry in raw:
+        if not runs:
+            runs.append([entry])
+            continue
+        last = runs[-1][-1]
+        if entry["type"] != last["type"] or entry["type"] == "effects":
+            runs.append([entry])
+            continue
+        # Same type — also compare value case-insensitively.
+        if (entry.get("value") or "").strip().lower() != (last.get("value") or "").strip().lower():
+            runs.append([entry])
+            continue
+        # For activity, partners must match.
+        if entry["type"] == "activity":
+            p1 = (entry.get("metadata") or {}).get("partner", "")
+            p2 = (last.get("metadata") or {}).get("partner", "")
+            if (p1 or "") != (p2 or ""):
+                runs.append([entry])
+                continue
+        runs[-1].append(entry)
+
+    result: List[Dict[str, Any]] = []
+    for run in runs:
+        first = run[0]
+        last = run[-1]
+        processed = _process_state_entry(first)
+        if not processed:
+            continue
+        if len(run) > 1 and last["timestamp"] != first["timestamp"]:
+            # Aggregate: keep start, expose end via end_timestamp + content range.
+            processed["end_timestamp"] = last["timestamp"]
+            processed["repeat_count"] = len(run)
+            # Reformat content with a time-range hint (HH:MM - HH:MM).
+            try:
+                start_hm = first["timestamp"][11:16]
+                end_hm = last["timestamp"][11:16]
+                if start_hm and end_hm and start_hm != end_hm:
+                    processed["content"] = f"{processed['content']} ({start_hm} - {end_hm})"
+            except Exception:
+                pass
+        result.append(processed)
+    return result
 
 
 def _collect_chat_events(character_name: str, date: str) -> List[Dict[str, Any]]:

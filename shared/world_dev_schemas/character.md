@@ -25,25 +25,25 @@ Outfits beschreiben Kleidung/Aussehen in bestimmten Situationen. Jedes Outfit is
   "name": "Outfit-Name (eindeutig)",
   "pieces": [
     {
-      "slot": "underwear_top",
+      "slots": ["underwear_top"],
       "name": "Black Lace Bra",
       "prompt_fragment": "black lace bra with thin straps",
       "outfit_types": ["intimate", "casual"]
     },
     {
-      "slot": "top",
+      "slots": ["top"],
       "name": "Silk Blouse",
       "prompt_fragment": "white silk blouse, partially unbuttoned",
       "outfit_types": ["business", "casual"]
     },
     {
-      "slot": "bottom",
+      "slots": ["bottom"],
       "name": "Pencil Skirt",
       "prompt_fragment": "tight black pencil skirt, knee length",
       "outfit_types": ["business"]
     },
     {
-      "slot": "feet",
+      "slots": ["feet"],
       "name": "Red Stilettos",
       "prompt_fragment": "red stiletto heels, 12cm",
       "outfit_types": ["business", "formal"]
@@ -57,7 +57,7 @@ Outfits beschreiben Kleidung/Aussehen in bestimmten Situationen. Jedes Outfit is
 
 - `name`: Eindeutiger Outfit-Name (z.B. "Buero-Versehen", "Afterwork-Look")
 - `pieces`: **PFLICHT** — Liste von Piece-Objekten. Jedes Piece hat:
-  - `slot` (PFLICHT): einer aus `head, neck, underwear_top, underwear_bottom, legs, feet, top, bottom, outer`
+  - `slots` (PFLICHT): Liste der Slots, die dieses Teil belegt. Erlaubte Slots: `head, neck, underwear_top, underwear_bottom, legs, feet, top, bottom, outer`. Ein einzelnes Teil meist `["top"]` oder `["bottom"]` o.ae., aber Multi-Slot-Teile listen ALLE Slots gleichzeitig: ein Kleid `["top", "bottom"]`, ein Jumpsuit `["top", "bottom", "legs"]`, halterlose Struempfe `["legs", "feet"]`. Erstelle KEIN zweites Piece fuer die belegten Mehrfach-Slots — das Multi-Slot-Teil reserviert sie schon.
   - `name` (PFLICHT): kurzer englischer Item-Name, 2-4 Worte (z.B. "Black Leather Jacket")
   - `prompt_fragment` (PFLICHT): konkrete englische Beschreibung fuers Bild ("black leather moto jacket, silver zippers"). KEIN Character-Name, KEIN Pose
   - `outfit_types` (optional): in welchen Anlaessen das Piece passt — `casual`, `business`, `formal`, `intimate`, `sport`, `home`, `bed`, `bath`, `beach`, `work`. Mehrfachzuordnung erlaubt
@@ -125,9 +125,9 @@ Wichtig: Der Code-Block MUSS mit ```json:character beginnen, damit das System ih
   "outfit": {
     "name": "Strand-Pose",
     "pieces": [
-      {"slot": "top", "name": "Triangle Bikini Top", "prompt_fragment": "neon pink triangle bikini top, thin strings", "outfit_types": ["beach"]},
-      {"slot": "bottom", "name": "Brazilian Bikini Bottom", "prompt_fragment": "neon pink brazilian bikini bottom, side strings", "outfit_types": ["beach"]},
-      {"slot": "feet", "name": "White Sandals", "prompt_fragment": "white strappy sandals, flat sole", "outfit_types": ["beach", "casual"]}
+      {"slots": ["top"], "name": "Triangle Bikini Top", "prompt_fragment": "neon pink triangle bikini top, thin strings", "outfit_types": ["beach"]},
+      {"slots": ["bottom"], "name": "Brazilian Bikini Bottom", "prompt_fragment": "neon pink brazilian bikini bottom, side strings", "outfit_types": ["beach"]},
+      {"slots": ["feet"], "name": "White Sandals", "prompt_fragment": "white strappy sandals, flat sole", "outfit_types": ["beach", "casual"]}
     ]
   }
 }

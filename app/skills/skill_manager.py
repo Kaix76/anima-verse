@@ -21,6 +21,7 @@ from .outfit_creation_skill import OutfitCreationSkill
 from .set_activity_skill import SetActivitySkill
 from .video_generation_skill import VideoGenerationSkill
 from .markdown_writer_skill import MarkdownWriterSkill
+from .retrospect_skill import RetrospectSkill
 
 
 class SkillManager:
@@ -49,6 +50,7 @@ class SkillManager:
         'setactivity': SetActivitySkill,
         'videogen': VideoGenerationSkill,
         'markdown_writer': MarkdownWriterSkill,
+        'retrospect': RetrospectSkill,
     }
 
     def __init__(self):

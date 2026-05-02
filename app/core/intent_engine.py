@@ -12,7 +12,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.core.log import get_logger
 
@@ -88,73 +88,117 @@ def _parse_delay(delay_str: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# LLM-based fallback (language-agnostic, async)
-# ---------------------------------------------------------------------------
-
-_LLM_PROMPT = """Analyze this character's chat response. Does the character commit to a SPECIFIC real-world action they will actually perform?
-
-Response:
-{response}
-
-If yes, return a JSON array. Each item: {{"type": "<type>", "delay": "<0/30m/2h/1d>", "params": {{}}}}
-Supported types: instagram_post, send_message, remind, execute_tool, change_outfit, describe_room
-If no concrete commitment: return []
-Return ONLY valid JSON, nothing else."""
-
-
-async def check_llm_intent(response_text: str, agent_config: Dict[str, Any],
-                           character_name: str = "") -> List[Intent]:
-    """LLM-based intent detection for responses > 150 chars. Language-agnostic."""
-    if len(response_text) < 150:
-        return []
-    try:
-        import asyncio
-        from app.core.llm_router import llm_call
-        # Truncation auf Satz-/Wort-Grenze statt harter Cut mitten im Wort
-        # (LLM verweigerte sonst die JSON-Antwort wegen abgeschnittenem Input).
-        max_len = 2000
-        snippet = response_text
-        if len(snippet) > max_len:
-            cut = snippet[:max_len]
-            # bevorzugt Satzende, sonst Wortgrenze
-            for sep in (". ", "! ", "? ", "\n", " "):
-                idx = cut.rfind(sep)
-                if idx > max_len // 2:
-                    cut = cut[:idx + len(sep)].rstrip()
-                    break
-            snippet = cut + " […]"
-        result = await asyncio.to_thread(
-            llm_call,
-            task="intent_commitment",
-            system_prompt="",
-            user_prompt=_LLM_PROMPT.format(response=snippet),
-            agent_name=character_name)
-        raw = (result.content or "").strip()
-        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if not json_match:
-            return []
-        data = json.loads(json_match.group(0))
-        intents = []
-        for item in data:
-            if not isinstance(item, dict) or 'type' not in item:
-                continue
-            delay = _parse_delay(str(item.get('delay', '0')))
-            intents.append(Intent(
-                type=item['type'], delay_seconds=delay,
-                params=item.get('params', {}), raw='[LLM]'))
-        if intents:
-            logger.info("LLM-Intent erkannt: %s", [i.type for i in intents])
-        return intents
-    except Exception as e:
-        logger.debug("LLM-Intent check fehlgeschlagen: %s", e)
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Execution routing
 # ---------------------------------------------------------------------------
 
 _KNOWN_TYPES = {"instagram_post", "send_message", "remind", "execute_tool", "change_outfit", "describe_room"}
+
+# Mapping: intent type -> tool names that, when executed with matching
+# content in the same turn, make the INTENT marker redundant. RP-finetunes
+# often emit BOTH a real <tool> call AND a [INTENT: ...] marker for the
+# same action — running both duplicates the action.
+_TOOL_FOR_INTENT = {
+    "send_message":   {"SendMessage"},
+    "instagram_post": {"Instagram", "InstagramPost"},
+    "change_outfit":  {"ChangeOutfit", "OutfitChange"},
+    "describe_room":  {"DescribeRoom"},
+    # remind, execute_tool: no direct tool equivalent — always run via INTENT
+}
+
+
+def _normalize_text(s: str) -> str:
+    """Collapse whitespace + lowercase for fuzzy comparison."""
+    if not s:
+        return ""
+    return " ".join(s.split()).lower()
+
+
+def _intent_payload(intent: "Intent") -> str:
+    """Extract the comparable content blob from an INTENT marker."""
+    p = intent.params or {}
+    if intent.type == "send_message":
+        return _normalize_text(p.get("content") or p.get("message") or "")
+    if intent.type == "instagram_post":
+        return _normalize_text(p.get("caption") or "")
+    if intent.type == "change_outfit":
+        return _normalize_text(p.get("hint") or p.get("style") or "")
+    if intent.type == "describe_room":
+        return _normalize_text(p.get("description") or "")
+    return ""
+
+
+def _tool_payload(tool_name: str, raw_input: str) -> str:
+    """Extract the comparable content blob from a tool invocation's raw input.
+
+    Tool inputs are either freetext ("Recipient, message...") or JSON.
+    """
+    if not raw_input:
+        return ""
+    s = raw_input.strip()
+    if tool_name == "SendMessage":
+        # Convention: "Name, message text" — first comma splits.
+        parts = s.split(",", 1)
+        return _normalize_text(parts[1] if len(parts) > 1 else s)
+    if tool_name in ("Instagram", "InstagramPost"):
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                return _normalize_text(d.get("caption") or d.get("input") or "")
+        except Exception:
+            pass
+        return _normalize_text(s)
+    if tool_name in ("ChangeOutfit", "OutfitChange"):
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                return _normalize_text(d.get("hint") or d.get("style") or d.get("input") or "")
+        except Exception:
+            pass
+        return _normalize_text(s)
+    if tool_name == "DescribeRoom":
+        try:
+            d = json.loads(s)
+            if isinstance(d, dict):
+                return _normalize_text(d.get("description") or d.get("input") or "")
+        except Exception:
+            pass
+        return _normalize_text(s)
+    return ""
+
+
+def _is_intent_redundant(intent: "Intent",
+                          executed_tools: Optional[List]) -> bool:
+    """True when an INTENT marker matches a tool already executed in the
+    same turn (same tool family, same/overlapping content blob).
+
+    ``executed_tools``: list of ``(tool_name, raw_input)`` tuples captured
+    by the tool executor during the streaming phase.
+
+    Comparison: normalized text equality, OR one contains the other (≥30
+    chars). Different content → both run; identical or near-identical →
+    INTENT skipped.
+    """
+    if not executed_tools:
+        return False
+    candidate_tools = _TOOL_FOR_INTENT.get(intent.type)
+    if not candidate_tools:
+        return False
+    intent_text = _intent_payload(intent)
+    if not intent_text:
+        return False
+    for (tname, raw) in executed_tools:
+        if tname not in candidate_tools:
+            continue
+        tool_text = _tool_payload(tname, raw)
+        if not tool_text:
+            continue
+        if tool_text == intent_text:
+            return True
+        # Allow small variation — one is contained in the other
+        shorter, longer = (tool_text, intent_text) if len(tool_text) <= len(intent_text) else (intent_text, tool_text)
+        if len(shorter) >= 30 and shorter in longer:
+            return True
+    return False
 
 
 def execute_intent(intent: Intent, character_name: str,
@@ -303,13 +347,18 @@ def _handle_remind(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Store reminder in character memory."""
     user_id = payload.get("user_id", "")
     character_name = payload.get("agent_name", "")
-    note = payload.get("note", payload.get("message", "Reminder"))
+    note = (payload.get("note") or payload.get("message") or "").strip()
+    if not note:
+        logger.warning("Intent remind ohne note/message — kein Memory erzeugt (agent=%s)",
+                       character_name)
+        return {"success": False, "error": "missing_note"}
     try:
         from app.models.memory import add_memory
         add_memory(
             character_name=character_name,
-            content=f"Reminder: {note}", memory_type="commitment", importance=5,
-            tags=["reminder"])
+            content=f"Reminder: {note}", memory_type="commitment", importance=4,
+            tags=["reminder"],
+            extra_meta={"source": "intent"})
         return {"success": True, "note": note}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -388,12 +437,22 @@ def _handle_describe_room(payload: Dict[str, Any]) -> Dict[str, Any]:
 def process_response_intents(
     response: str, character_name: str,
     agent_config: Dict[str, Any],
-    scheduler_manager: Any = None) -> List[Intent]:
+    scheduler_manager: Any = None,
+    executed_tools: Optional[List] = None) -> List[Intent]:
     """Sync entry: extract tag-based intents and execute/schedule them.
-    Returns list of found intents (empty = none found).
+
+    ``executed_tools``: optional list of ``(tool_name, raw_input)`` tuples
+    captured during the same streaming turn. INTENT markers whose action
+    matches a tool already run with the same payload are skipped to avoid
+    double-execution (e.g. duplicate Instagram posts when the LLM emits
+    both ``<tool name="Instagram">`` and ``[INTENT: instagram_post]``).
     """
     intents = parse_intent_tags(response)
     for intent in intents:
+        if _is_intent_redundant(intent, executed_tools):
+            logger.info("INTENT skipped (redundant with executed tool): %s",
+                        intent.type)
+            continue
         if intent.type in _KNOWN_TYPES:
             execute_intent(intent, character_name, scheduler_manager)
         else:
@@ -404,12 +463,21 @@ def process_response_intents(
 async def process_response_intents_async(
     response: str, character_name: str,
     agent_config: Dict[str, Any],
-    scheduler_manager: Any = None) -> List[Intent]:
-    """Async entry: tag-based + LLM fallback for long responses without tags."""
+    scheduler_manager: Any = None,
+    executed_tools: Optional[List] = None) -> List[Intent]:
+    """Async entry: tag-based intent extraction.
+
+    The LLM fallback has been removed — the tag-based [INTENT: ...] path
+    stays for the user-facing streaming chat where the chat-LLM emits
+    intent markers. See ``process_response_intents`` for the
+    ``executed_tools`` skip semantics.
+    """
     intents = parse_intent_tags(response)
-    if not intents and len(response) > 150:
-        intents = await check_llm_intent(response, agent_config, character_name=character_name)
     for intent in intents:
+        if _is_intent_redundant(intent, executed_tools):
+            logger.info("INTENT skipped (redundant with executed tool): %s",
+                        intent.type)
+            continue
         if intent.type in _KNOWN_TYPES:
             execute_intent(intent, character_name, scheduler_manager)
         else:

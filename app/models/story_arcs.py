@@ -79,7 +79,7 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
-    """Speichert alle Story Arcs in die DB (Upsert) und JSON-Backup."""
+    """Speichert alle Story Arcs in die DB (Upsert)."""
     arcs = data.get("arcs", [])
     now = datetime.now().isoformat()
     try:
@@ -119,14 +119,6 @@ def _save(data: Dict[str, Any]) -> None:
                 ))
     except Exception as e:
         logger.error("_save story_arcs DB-Fehler: %s", e)
-
-    # JSON-Backup
-    try:
-        p = _arcs_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def get_active_arcs(character_name: str = "") -> List[Dict[str, Any]]:

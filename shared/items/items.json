@@ -23,17 +23,17 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [
-          "underwear_top"
-        ],
         "outfit_types": [
           "beach",
           "pool"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "top",
+          "underwear_top"
+        ]
       }
     },
     {
@@ -60,14 +60,15 @@
       "image_prompt": "",
       "effects": null,
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [
           "underwear_bottom"
         ],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "bottom"
+        ]
       }
     },
     {
@@ -94,16 +95,17 @@
       },
       "effects": null,
       "outfit_piece": {
-        "slot": "outer",
         "covers": [
           "underwear_top"
         ],
         "partially_covers": [
           "top"
         ],
-        "additional_slots": [],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -128,7 +130,6 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
         "outfit_types": [
@@ -136,6 +137,9 @@
           "casual",
           "clubwear",
           "formal"
+        ],
+        "slots": [
+          "feet"
         ]
       }
     },
@@ -161,13 +165,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [
           "underwear_top"
         ],
         "partially_covers": [],
         "outfit_types": [
           "business"
+        ],
+        "slots": [
+          "top"
         ]
       }
     },
@@ -193,10 +199,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "bottom"
+        ]
       }
     },
     {
@@ -221,7 +229,6 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "outer",
         "covers": [
           "underwear_top",
           "underwear_bottom"
@@ -229,6 +236,9 @@
         "partially_covers": [],
         "outfit_types": [
           "business"
+        ],
+        "slots": [
+          "outer"
         ]
       }
     },
@@ -254,11 +264,13 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
         "outfit_types": [
           "business"
+        ],
+        "slots": [
+          "feet"
         ]
       }
     },
@@ -284,13 +296,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [
           "underwear_bottom"
         ],
         "partially_covers": [],
         "outfit_types": [
           "business"
+        ],
+        "slots": [
+          "bottom"
         ]
       }
     },
@@ -318,7 +332,6 @@
       "image_prompt": "",
       "effects": null,
       "outfit_piece": {
-        "slot": "outer",
         "covers": [
           "underwear_top",
           "underwear_bottom"
@@ -326,9 +339,11 @@
         "partially_covers": [
           "top"
         ],
-        "additional_slots": [],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -355,12 +370,13 @@
       "image_prompt": "",
       "effects": null,
       "outfit_piece": {
-        "slot": "outer",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -385,13 +401,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [
           "underwear_bottom"
         ],
         "partially_covers": [],
         "outfit_types": [
           "casual"
+        ],
+        "slots": [
+          "bottom"
         ]
       }
     },
@@ -419,14 +437,15 @@
       },
       "effects": null,
       "outfit_piece": {
-        "slot": "outer",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "intimate"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -452,14 +471,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "legs",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "clubwear"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "legs"
+        ]
       }
     },
     {
@@ -486,14 +506,15 @@
       "image_prompt": "",
       "effects": null,
       "outfit_piece": {
-        "slot": "outer",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "sport"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -518,13 +539,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [
           "underwear_bottom"
         ],
         "partially_covers": [],
         "outfit_types": [
           "casual"
+        ],
+        "slots": [
+          "bottom"
         ]
       }
     },
@@ -551,16 +574,17 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "legs",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [],
         "lora": {
           "name": "Z-Image-school-outfit.safetensors",
           "strength": 1.0,
           "workflow": ""
-        }
+        },
+        "slots": [
+          "legs"
+        ]
       }
     },
     {
@@ -587,12 +611,13 @@
       },
       "effects": null,
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "feet"
+        ]
       }
     },
     {
@@ -617,10 +642,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "bottom"
+        ]
       }
     },
     {
@@ -647,14 +674,14 @@
       "image_prompt": "",
       "effects": null,
       "outfit_piece": {
-        "slot": "top",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [
-          "bottom"
-        ],
         "outfit_types": [],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "top",
+          "bottom"
+        ]
       }
     },
     {
@@ -679,13 +706,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [
           "underwear_top"
         ],
         "partially_covers": [],
         "outfit_types": [
           "sport"
+        ],
+        "slots": [
+          "top"
         ]
       }
     },
@@ -711,12 +740,14 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "underwear_bottom",
         "covers": [],
         "partially_covers": [],
         "outfit_types": [
           "business",
           "casual"
+        ],
+        "slots": [
+          "underwear_bottom"
         ]
       }
     },
@@ -742,11 +773,13 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [
           "underwear_top"
         ],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "top"
+        ]
       }
     },
     {
@@ -772,17 +805,17 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [
-          "underwear_bottom"
-        ],
         "outfit_types": [
           "pool",
           "beach"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "bottom",
+          "underwear_bottom"
+        ]
       }
     },
     {
@@ -807,10 +840,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "outer",
         "covers": [],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -836,14 +871,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "casual"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "top"
+        ]
       }
     },
     {
@@ -869,14 +905,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "sport"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "feet"
+        ]
       }
     },
     {
@@ -901,10 +938,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "feet"
+        ]
       }
     },
     {
@@ -929,12 +968,14 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "outer",
         "covers": [
           "underwear_bottom"
         ],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -959,10 +1000,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "underwear_bottom",
         "covers": [],
         "partially_covers": [],
-        "outfit_types": []
+        "outfit_types": [],
+        "slots": [
+          "underwear_bottom"
+        ]
       }
     },
     {
@@ -987,7 +1030,6 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "outer",
         "covers": [],
         "partially_covers": [
           "top"
@@ -995,7 +1037,10 @@
         "outfit_types": [
           "business"
         ],
-        "color": "lightblue"
+        "color": "lightblue",
+        "slots": [
+          "outer"
+        ]
       }
     },
     {
@@ -1021,14 +1066,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "bottom",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "business"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "bottom"
+        ]
       }
     },
     {
@@ -1053,13 +1099,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "top",
         "covers": [
           "underwear_top"
         ],
         "partially_covers": [],
         "outfit_types": [
           "casual"
+        ],
+        "slots": [
+          "top"
         ]
       }
     },
@@ -1086,14 +1134,15 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
-        "additional_slots": [],
         "outfit_types": [
           "intimate"
         ],
-        "lora": {}
+        "lora": {},
+        "slots": [
+          "feet"
+        ]
       }
     },
     {
@@ -1118,10 +1167,12 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "outfit_types": [
           "sport"
+        ],
+        "slots": [
+          "feet"
         ]
       }
     },
@@ -1147,11 +1198,13 @@
         "uses": null
       },
       "outfit_piece": {
-        "slot": "feet",
         "covers": [],
         "partially_covers": [],
         "outfit_types": [
           "casual"
+        ],
+        "slots": [
+          "feet"
         ]
       }
     }

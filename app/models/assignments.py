@@ -29,7 +29,14 @@ def _get_assignments_path() -> Path:
 
 
 def _load_all() -> List[Dict[str, Any]]:
-    """Load all assignments from the DB."""
+    """Load all assignments from the DB.
+
+    The full assignment dict is stored in the ``meta`` JSON column. We use
+    that as the source of truth and only fall back to a minimal stub when
+    meta is genuinely empty. Some legacy rows have a populated meta dict
+    that's missing the redundant ``id`` key — for those we fill the id
+    from the DB column instead of throwing the rest of the data away.
+    """
     try:
         conn = get_connection()
         rows = conn.execute(
@@ -43,10 +50,17 @@ def _load_all() -> List[Dict[str, Any]]:
                 meta = json.loads(r[5] or "{}")
             except Exception:
                 pass
-            if meta and "id" in meta:
+            if isinstance(meta, dict) and meta:
+                # Patch missing id from the dedicated column, then trust meta
+                # for everything else (description, participants, ...).
+                meta.setdefault("id", r[0])
+                meta.setdefault("title", r[2] or meta.get("title", ""))
+                meta.setdefault("status", r[3] or meta.get("status", "active"))
+                meta.setdefault("created_at", r[6] or meta.get("created_at", ""))
                 assignments.append(meta)
             else:
-                # Minimal fallback
+                # Genuinely empty meta — fall back to a minimal stub so the
+                # row is at least visible.
                 assignments.append({
                     "id": r[0],
                     "title": r[2] or "",
@@ -114,14 +128,6 @@ def _save_all(assignments: List[Dict[str, Any]]) -> None:
                 ))
     except Exception as e:
         logger.error("_save_all assignments DB-Fehler: %s", e)
-
-    # JSON-Backup
-    try:
-        path = _get_assignments_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(assignments, indent=2, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------

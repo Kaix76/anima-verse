@@ -6,6 +6,11 @@ import os
 import re
 import time
 import uuid
+
+# Erkennt 4xx-Status-Codes in Exception-Strings (z.B. "400 Client Error",
+# "HTTP 422", "Bad Request"). 4xx = Service erreichbar, Payload kaputt —
+# Backend NICHT als unavailable markieren.
+_re_4xx = re.compile(r"\b(?:HTTP\s*)?4(?:00|01|03|04|05|22)\b|Bad Request|Unprocessable", re.IGNORECASE)
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -945,9 +950,24 @@ class ImageGenerationSkill(BaseSkill):
                 result = op(current)
             except Exception as e:
                 last_error = e
-                logger.warning("Fallback-Engine: %s warf Exception (%s: %s) — versuche Fallback",
-                               current.name, type(e).__name__, str(e)[:200])
-                current.available = False
+                # Unterscheidung: Connection/Server-Probleme vs. Payload-Fehler.
+                # 4xx-Fehler (HTTP 400/422 wie Workflow-Validation) bedeuten der
+                # Service ist erreichbar — nur das gesendete JSON ist kaputt.
+                # In dem Fall NICHT als unavailable markieren, sonst wird das
+                # Backend vom Pool entfernt und nachgelagerte Steps (z.B.
+                # MultiSwap) finden faelschlich kein ComfyUI mehr.
+                _err_str = str(e)
+                _is_payload_err = bool(_re_4xx.search(_err_str))
+                if _is_payload_err:
+                    logger.warning(
+                        "Fallback-Engine: %s warf Payload-Fehler (%s: %s) — Backend bleibt verfuegbar, "
+                        "versuche anderen Backend (Workflow/Prompt vermutlich inkompatibel)",
+                        current.name, type(e).__name__, _err_str[:200])
+                else:
+                    logger.warning(
+                        "Fallback-Engine: %s warf Exception (%s: %s) — Backend als unavailable markiert, versuche Fallback",
+                        current.name, type(e).__name__, _err_str[:200])
+                    current.available = False
                 current = self._pick_fallback_backend(
                     current, workflow, character_name, tried)
                 continue
@@ -1778,16 +1798,15 @@ class ImageGenerationSkill(BaseSkill):
     # Reihenfolge der Mask-Regionen im Prompt (alphabetisch nach Layer-Order).
     MULTISWAP_REGIONS = ("face", "hair", "body", "clothes", "accessories", "background")
     # Node-Titel (nicht Node-IDs!) damit Workflows austauschbar bleiben.
-    # Fuer Loader/Mask zusaetzlich Class-Type-Fallback in _apply_multiswap.
+    # Fuer Loader zusaetzlich Class-Type-Fallback in _apply_multiswap.
     MULTISWAP_MASK_TITLE = "input_mask"
     MULTISWAP_PROMPT_TITLE = "input_prompt"
     MULTISWAP_UNET_TITLES = ("input_safetensors", "input_unet", "input_model", "input_gguf")
-    MULTISWAP_MASK_CLASS = "LayerMask: PersonMaskUltra V2"
 
     # Maximale Anzahl Character-Slots, die der MultiSwap-Workflow in einem
-    # Pass entgegennimmt (heute: input_reference_image1/2). Bei mehr Characters
+    # Pass entgegennimmt (heute: input_reference_image_1/_2). Bei mehr Characters
     # wird in 2er-Bloecken iteriert. Erweiterung auf 3 sobald der Workflow
-    # input_reference_image3 bekommt: Konstante hochsetzen, sonst keine Aenderung.
+    # input_reference_image_3 bekommt: Konstante hochsetzen, sonst keine Aenderung.
     MULTISWAP_MAX_REFS_PER_PASS = 2
 
     def _apply_multiswap(
@@ -1800,7 +1819,7 @@ class ImageGenerationSkill(BaseSkill):
         """Wendet MultiSwap-Workflow auf gespeicherte Bilder an.
 
         Pro Pass werden bis zu MULTISWAP_MAX_REFS_PER_PASS Character-Refs
-        gleichzeitig geswapt (Slots input_reference_image1/2). Bei mehr
+        gleichzeitig geswapt (Slots input_reference_image_1/_2). Bei mehr
         Characters wird in 2er-Bloecken iteriert (Ergebnis -> Target naechster
         Block). Standardfall (1-2 Characters) braucht damit nur 1 Pass.
 
@@ -1895,24 +1914,20 @@ class ImageGenerationSkill(BaseSkill):
                     return _nid
             return None
 
-        def _find_by_class(class_type: str) -> Optional[str]:
-            for _nid, _node in _wf_data.items():
-                if isinstance(_node, dict) and _node.get("class_type") == class_type:
-                    return _nid
-            return None
-
         # Mask-Flags aus Modus bestimmen — alle Regionen explizit, damit
         # Prompt und Mask aus derselben Quelle gespeist werden.
         _mode_flags = self.MULTISWAP_MODES.get(multiswap_mode, self.MULTISWAP_MODES["face_hair"])
         flags = {region: bool(_mode_flags.get(region, False)) for region in self.MULTISWAP_REGIONS}
 
-        # Mask-Node: zuerst per Titel (input_mask), dann per Class-Type-Fallback
-        mask_nid = _find_by_title(self.MULTISWAP_MASK_TITLE) or _find_by_class(self.MULTISWAP_MASK_CLASS)
+        # Mask-Node: per Titel (input_mask). Wenn nicht vorhanden, nutzt der
+        # Workflow keine Region-Mask — Flags werden ignoriert (legitimes
+        # Workflow-Design, nur DEBUG-Log).
+        mask_nid = _find_by_title(self.MULTISWAP_MASK_TITLE)
         if mask_nid:
             node_overrides[mask_nid] = dict(flags)
         else:
-            logger.warning("MultiSwap: Mask-Node nicht gefunden (Titel '%s' oder Class '%s') — Flags ignoriert",
-                           self.MULTISWAP_MASK_TITLE, self.MULTISWAP_MASK_CLASS)
+            logger.debug("MultiSwap: kein '%s'-Node — Workflow ohne Region-Mask, Flags ignoriert",
+                         self.MULTISWAP_MASK_TITLE)
 
         # Prompt-Hint: nur fuer aelteren MultiSwap-Workflow noetig, der einen
         # separaten 'input_prompt' Text-Node hatte. Der neue Workflow hat einen
@@ -1979,8 +1994,9 @@ class ImageGenerationSkill(BaseSkill):
             return []
 
         # In Bloecke aufteilen (Standardfall 1-2 Chars -> 1 Pass).
-        # Slot-Titel im neuen MultiSwap-Workflow sind ohne Underscore vor der
-        # Nummer: input_reference_image1, input_reference_image2.
+        # Slot-Titel im MultiSwap-Workflow folgen der `input_reference_image_N`
+        # Konvention (mit Underscore vor der Nummer) — analog zu den uebrigen
+        # input_*-Slots im System.
         chunks = [
             face_slots[i:i + self.MULTISWAP_MAX_REFS_PER_PASS]
             for i in range(0, len(face_slots), self.MULTISWAP_MAX_REFS_PER_PASS)
@@ -1996,7 +2012,7 @@ class ImageGenerationSkill(BaseSkill):
             success = True
             for pass_idx, chunk in enumerate(chunks, 1):
                 ref_paths = {
-                    f"input_reference_image{slot_no}": ref
+                    f"input_reference_image_{slot_no}": ref
                     for slot_no, ref in enumerate(chunk, 1)
                 }
                 logger.info("MultiSwap: Pass %d/%d (refs=%s)",
@@ -2761,7 +2777,12 @@ class ImageGenerationSkill(BaseSkill):
                 _prompt_method = "caller_provided"
                 _canonical_dict = canonical_to_dict(pv)
 
-            # Enhanced Prompt fuer Caller verfuegbar machen
+            # Enhanced Prompt fuer Caller verfuegbar machen — thread-local
+            # zuerst, damit parallele Generationen sich nicht gegenseitig
+            # ueberschreiben (Race-Condition zwischen Instagram-Post und
+            # Expression-Regen). self.last_enhanced_prompt bleibt als
+            # Backward-Compat fuer non-threaded Caller.
+            self._meta_tls.last_enhanced_prompt = enhanced_prompt
             self.last_enhanced_prompt = enhanced_prompt
 
             # Start-Zeit fuer Logging merken

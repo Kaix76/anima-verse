@@ -372,28 +372,20 @@ def extract_romantic_interests() -> Dict[str, str]:
     except Exception:
         user_name = ""
 
-    prompt = (
-        "Given these fictional characters, extract their romantic/sexual interests "
-        "as a short general description (5-15 words each). Be conservative — only include "
-        "interests clearly stated or strongly implied.\n"
-        "Describe the TYPE of person they are attracted to, NOT specific character names.\n\n"
-        "Characters:\n" + "\n".join(char_descriptions) + "\n\n"
-        "Return a JSON object where each key is a character name and the value is "
-        "a short text describing their romantic/sexual preferences.\n"
-        "Use empty string \"\" if no romantic interests are apparent.\n"
-        "Examples: \"Frauen\", \"dominante Maenner\", \"Maenner und Frauen, sexuell offen\"\n"
-        "Output ONLY the JSON object, nothing else."
-    )
-
     try:
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
         import re as _re
         import json as _json
 
+        sys_prompt, user_prompt = render_task(
+            "relationship_summary_romantic_interests",
+            char_descriptions="\n".join(char_descriptions))
+
         response = llm_call(
             task="relationship_summary",
-            system_prompt="You are a character relationship analyst. Be conservative.",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name="system")
 
         raw = _re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', response.content).strip()
@@ -671,6 +663,15 @@ def record_interaction(char_a: str,
     """
     # Guard: no self-relationships
     if char_a.lower() == char_b.lower():
+        return {}
+
+    # Guard: reserved names (admin, user, system, default, player, "") are
+    # NOT real characters — they're login accounts or sentinels. If the
+    # caller falls back to the login name (e.g. when active_character is
+    # empty), we must not record a relationship for it. Skip silently —
+    # the chat itself still works, only the relationship metric is dropped.
+    from app.models.character import _RESERVED_NAMES
+    if char_a.lower() in _RESERVED_NAMES or char_b.lower() in _RESERVED_NAMES:
         return {}
 
     # Guard: check if relationships are enabled for both characters

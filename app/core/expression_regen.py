@@ -572,9 +572,14 @@ def generate_expression_image(character_name: str,
     #    partially_covers → Fragment wird "{fragment} unter {covering_fragment}".
     _covered_slots = set()
     _partially_covered = {}  # slot → (covering_frag, covering_slot)
-    for _slot, _iid in (equipped_pieces or {}).items():
-        if not _iid:
+    # Multi-Slot-Pieces nur einmal verarbeiten — vom ersten ihrer Slots
+    # in VALID_PIECE_SLOTS-Reihenfolge.
+    _seen_items_for_covers = set()
+    for _slot in VALID_PIECE_SLOTS:
+        _iid = (equipped_pieces or {}).get(_slot)
+        if not _iid or _iid in _seen_items_for_covers:
             continue
+        _seen_items_for_covers.add(_iid)
         _it = _get_item(_iid)
         if not _it:
             continue
@@ -602,7 +607,7 @@ def generate_expression_image(character_name: str,
             _suppressed_slots.add(_covering_slot)
 
     _piece_fragments = []
-    _rendered_items = set()  # Dedup fuer Multi-Slot-Pieces
+    _rendered_items = set()  # Dedup: Multi-Slot-Pieces nur einmal rendern
     for _slot in VALID_PIECE_SLOTS:
         if _slot in _covered_slots:
             continue
@@ -611,15 +616,10 @@ def generate_expression_image(character_name: str,
         _iid = (equipped_pieces or {}).get(_slot)
         if not _iid:
             continue
+        if _iid in _rendered_items:
+            continue
         _it = _get_item(_iid)
         if not _it:
-            continue
-        # Multi-Slot-Pieces: nur aus ihrem Primary-Slot rendern.
-        _op = _it.get("outfit_piece") or {}
-        _primary = (_op.get("slot") or "").strip().lower()
-        if _primary and _primary != _slot:
-            continue
-        if _iid in _rendered_items:
             continue
         _rendered_items.add(_iid)
         _frag = (_it.get("prompt_fragment") or "").strip()
@@ -823,6 +823,12 @@ def generate_expression_image(character_name: str,
                     workflow_name, [l["name"] for l in _invalid])
                 loras_override = None
 
+    # Aufloesung aus Admin-Config (image_generation.outfit_image_width/height)
+    # — Expression-Variants nutzen dieselbe Aufloesung wie Garderobe-Outfit-Bilder.
+    # Wenn nicht gesetzt, faellt die Generation auf Workflow-/Backend-Default zurueck.
+    outfit_w = int(os.environ.get("OUTFIT_IMAGE_WIDTH", 0) or 0) or None
+    outfit_h = int(os.environ.get("OUTFIT_IMAGE_HEIGHT", 0) or 0) or None
+
     # Prompt + Payload abhaengig vom Workflow-Typ
     # Aktuell haben alle Workflows (Qwen, Z-Image, Flux.2) nur input_prompt_positiv,
     # daher ist _is_separated=False. Der Separated-Pfad bleibt fuer zukuenftige Workflows.
@@ -869,6 +875,11 @@ def generate_expression_image(character_name: str,
             "equipped_pieces_override": equipped_pieces or {},
         }
         logger.info("Expression-Regen: Single-Prompt Modus (kein separated prompt)")
+
+    if outfit_w:
+        payload["override_width"] = outfit_w
+    if outfit_h:
+        payload["override_height"] = outfit_h
 
     if model_override:
         payload["model_override"] = model_override

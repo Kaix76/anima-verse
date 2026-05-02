@@ -38,6 +38,156 @@ async def outfit_rules_page():
     return HTMLResponse(content=_build_outfit_rules_html())
 
 
+@router.get("/llm-stats", response_class=HTMLResponse)
+async def llm_stats_page():
+    """Serve the LLM-Stats admin HTML page (read-only Auswertung)."""
+    return HTMLResponse(
+        content=_build_llm_stats_html(),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@router.get("/llm-stats/data")
+async def llm_stats_data(
+    request: Request,
+    user=Depends(require_admin)):
+    """Aggregierte LLM-Call-Statistik fuer den Admin-Stats-Tab.
+
+    Query-Parameter:
+        from, to     : ISO-Timestamps (inklusiv). Default: letzte 24h.
+        agents       : komma-separierte Liste von agent_name. Default: alle.
+        group_by_agent : "1" = pro (task, model, provider, agent),
+                         sonst (default) = pro (task, model, provider).
+        task         : optionaler Task-Filter (Substring-Match).
+
+    Response:
+        {
+            "from": iso, "to": iso,
+            "agents": [alle distinct agent_names im Zeitraum],
+            "rows": [{
+                task, model, provider, agent_name,
+                calls, avg_duration, min_duration, max_duration, p90_duration,
+                avg_in_tokens, avg_out_tokens, avg_total_tokens,
+                max_in_tokens, max_total_tokens, avg_max_tokens
+            }, ...]
+        }
+    """
+    from datetime import datetime, timedelta
+    from app.core.db import get_connection
+
+    qp = request.query_params
+    to_str = qp.get("to") or ""
+    from_str = qp.get("from") or ""
+    if not to_str:
+        to_str = datetime.now().isoformat(timespec="seconds")
+    if not from_str:
+        # Default-Fenster: letzte 24h
+        try:
+            to_dt = datetime.fromisoformat(to_str)
+        except Exception:
+            to_dt = datetime.now()
+        from_str = (to_dt - timedelta(hours=24)).isoformat(timespec="seconds")
+
+    agents_raw = (qp.get("agents") or "").strip()
+    selected_agents = [a.strip() for a in agents_raw.split(",") if a.strip()] if agents_raw else []
+    group_by_agent = qp.get("group_by_agent") in ("1", "true", "yes", "on")
+    task_filter = (qp.get("task") or "").strip().lower()
+
+    conn = get_connection()
+
+    where = ["ts >= ?", "ts <= ?"]
+    params: list = [from_str, to_str]
+    if selected_agents:
+        placeholders = ",".join(["?"] * len(selected_agents))
+        where.append(f"agent_name IN ({placeholders})")
+        params.extend(selected_agents)
+
+    sql = (
+        "SELECT task, model, provider, agent_name, "
+        "       in_tokens, out_tokens, max_tokens, duration_s "
+        "FROM llm_call_stats "
+        f"WHERE {' AND '.join(where)} "
+        "ORDER BY ts DESC "
+        "LIMIT 100000"
+    )
+    cur = conn.execute(sql, params)
+    raw_rows = cur.fetchall()
+
+    # Distinct agents im Zeitraum (fuer Filter-Dropdown). Wir lesen das
+    # immer ungefiltert, damit der User auch nach Filter-Wechsel die
+    # vollstaendige Liste sieht.
+    agents_sql = (
+        "SELECT DISTINCT agent_name FROM llm_call_stats "
+        "WHERE ts >= ? AND ts <= ? AND agent_name != '' "
+        "ORDER BY agent_name COLLATE NOCASE"
+    )
+    agents_cur = conn.execute(agents_sql, [from_str, to_str])
+    agents_list = [r[0] for r in agents_cur.fetchall()]
+
+    # Aggregation in Python — flexibel + p90 ohne Window-Functions.
+    buckets: Dict[tuple, Dict[str, list]] = {}
+    for r in raw_rows:
+        task, model, provider, agent, in_tok, out_tok, max_tok, dur = r
+        if task_filter and task_filter not in (task or "").lower():
+            continue
+        if group_by_agent:
+            key = (task, model, provider or "", agent or "")
+        else:
+            key = (task, model, provider or "", "")
+        b = buckets.setdefault(key, {
+            "durations": [], "in_tokens": [], "out_tokens": [],
+            "max_tokens": [],
+        })
+        b["durations"].append(float(dur))
+        b["in_tokens"].append(int(in_tok))
+        b["out_tokens"].append(int(out_tok))
+        if max_tok:
+            b["max_tokens"].append(int(max_tok))
+
+    def _p90(vals: list) -> float:
+        if not vals:
+            return 0.0
+        s = sorted(vals)
+        idx = max(0, int(len(s) * 0.9) - 1)
+        return s[min(idx, len(s) - 1)]
+
+    rows_out = []
+    for (task, model, provider, agent), b in buckets.items():
+        durs = b["durations"]
+        ins = b["in_tokens"]
+        outs = b["out_tokens"]
+        mxs = b["max_tokens"]
+        n = len(durs)
+        totals = [a + bb for a, bb in zip(ins, outs)]
+        rows_out.append({
+            "task": task,
+            "model": model,
+            "provider": provider,
+            "agent_name": agent,
+            "calls": n,
+            "avg_duration": round(sum(durs) / n, 2) if n else 0.0,
+            "min_duration": round(min(durs), 2) if n else 0.0,
+            "max_duration": round(max(durs), 2) if n else 0.0,
+            "p90_duration": round(_p90(durs), 2),
+            "avg_in_tokens": int(sum(ins) / n) if n else 0,
+            "avg_out_tokens": int(sum(outs) / n) if n else 0,
+            "avg_total_tokens": int(sum(totals) / n) if n else 0,
+            "max_in_tokens": max(ins) if ins else 0,
+            "max_total_tokens": max(totals) if totals else 0,
+            "avg_max_tokens": int(sum(mxs) / len(mxs)) if mxs else 0,
+        })
+
+    rows_out.sort(key=lambda x: (-x["calls"], x["task"], x["model"]))
+
+    return {
+        "from": from_str,
+        "to": to_str,
+        "agents": agents_list,
+        "group_by_agent": group_by_agent,
+        "rows": rows_out,
+    }
+
+
 @router.get("/outfit-rules/data")
 async def outfit_rules_get(user=Depends(require_admin)):
     """Liefert shared/config/outfit_rules.json + Liste gueltiger Slots."""
@@ -488,6 +638,426 @@ async def settings_memory_consolidate(request: Request, user=Depends(require_adm
     return {"status": "success", "submitted": submitted, "characters": len(targets), "iterations": iterations}
 
 
+# ── Agent Loop ────────────────────────────────────────────────────────
+
+@router.get("/agent-loop/status")
+async def agent_loop_status(user=Depends(require_admin)):
+    """Return AgentLoop status for the admin panel.
+
+    Mirrors ``AgentLoop.status()``: running, paused, current agent,
+    remaining round, recent turns. Pause source is the task_queue
+    'default' pause flag (DB-persistent across restarts).
+    """
+    from app.core.agent_loop import get_agent_loop
+    return get_agent_loop().status()
+
+
+@router.post("/agent-loop/pause")
+async def agent_loop_pause(user=Depends(require_admin)):
+    """Pause the AgentLoop (and the task_queue 'default' it shares).
+
+    The pause is persistent — survives restart because it lives in the
+    world DB via ``task_queue._is_paused``.
+    """
+    from app.core.task_queue import get_task_queue
+    tq = get_task_queue()
+    if tq:
+        tq.pause_queue("default")
+    return {"status": "paused"}
+
+
+@router.post("/agent-loop/resume")
+async def agent_loop_resume(user=Depends(require_admin)):
+    """Resume the AgentLoop."""
+    from app.core.task_queue import get_task_queue
+    tq = get_task_queue()
+    if tq:
+        tq.resume_queue("default")
+    return {"status": "running"}
+
+
+@router.post("/agent-loop/bump")
+async def agent_loop_bump(request: Request, user=Depends(require_admin)):
+    """Manually bump a character — they think on the next slot.
+
+    Body: {"character": "<name>"}
+    Useful for debugging / forcing immediate attention without forced_thoughts.
+    """
+    body = await request.json()
+    name = (body.get("character") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="character required")
+    from app.core.agent_loop import get_agent_loop
+    ok = get_agent_loop().bump(name)
+    return {"status": "queued" if ok else "skipped", "character": name}
+
+
+@router.get("/agent-loop", response_class=HTMLResponse)
+async def agent_loop_page(user=Depends(require_admin)):
+    """Minimal HTML panel for the AgentLoop: status + pause toggle + recent turns."""
+    return """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Agent Loop</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:20px; }
+h1 { font-size:18px; margin-top:0; }
+.bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; padding:10px; background:#161b22; border:1px solid #30363d; border-radius:6px; }
+.bar button { background:#238636; color:#fff; border:0; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:13px; }
+.bar button.paused { background:#da3633; }
+.bar .label { color:#8b949e; font-size:12px; }
+.section { margin-bottom:14px; padding:10px; background:#161b22; border:1px solid #30363d; border-radius:6px; }
+.section h2 { font-size:13px; margin:0 0 6px; color:#58a6ff; }
+.section .data { font-family: ui-monospace, SFMono-Regular, monospace; font-size:12px; color:#c9d1d9; white-space:pre-wrap; }
+.recent table { width:100%; font-size:12px; border-collapse:collapse; }
+.recent th, .recent td { text-align:left; padding:4px 6px; border-bottom:1px solid #21262d; vertical-align:top; }
+.recent th { color:#8b949e; font-weight:500; }
+.outcome-ok { color:#3fb950; }
+.outcome-timeout { color:#d29922; }
+.outcome-err { color:#f85149; }
+.tag { display:inline-block; padding:1px 6px; margin:1px 3px 1px 0; border-radius:3px; font-size:11px; background:#21262d; color:#8b949e; }
+.tag.tool { background:#1f3a5f; color:#79c0ff; }
+.tag.intent { background:#3a2f5f; color:#d2a8ff; }
+.preview { color:#8b949e; font-style:italic; max-width:380px; word-break:break-word; }
+.muted { color:#484f58; }
+</style>
+</head>
+<body>
+<h1>Agent Loop</h1>
+<div class="bar">
+  <button id="btn-pause" onclick="togglePause()">Pause</button>
+  <span id="status-label" class="label">loading…</span>
+</div>
+
+<div class="section">
+  <h2>Current</h2>
+  <div class="data" id="current">—</div>
+</div>
+
+<div class="section">
+  <h2>Bump (priority)</h2>
+  <div id="bumped" class="data">—</div>
+</div>
+
+<div class="section">
+  <h2>Round (remaining)</h2>
+  <div id="round" class="data">—</div>
+</div>
+
+<div class="section recent">
+  <h2>Recent turns</h2>
+  <table id="recent-table"><thead><tr><th>Agent</th><th>Started</th><th>Dur</th><th>Outcome</th><th>Tools / Intents</th><th>Preview</th></tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+let _state = null;
+
+async function load() {
+  try {
+    const r = await fetch('/admin/agent-loop/status');
+    if (!r.ok) { document.getElementById('status-label').textContent = 'auth required (open /admin/settings first)'; return; }
+    _state = await r.json();
+    render();
+  } catch(e) { document.getElementById('status-label').textContent = 'error: ' + e.message; }
+}
+
+function render() {
+  const s = _state || {};
+  const btn = document.getElementById('btn-pause');
+  const lbl = document.getElementById('status-label');
+  if (s.paused) {
+    btn.textContent = 'Resume';
+    btn.classList.add('paused');
+    lbl.textContent = 'PAUSED — Loop is sleeping. Persistent across restarts.';
+  } else if (s.standby) {
+    btn.textContent = 'Pause';
+    btn.classList.remove('paused');
+    lbl.textContent = 'STANDBY — no \'thought\' LLM reachable. Loop polls every 30s.';
+  } else if (s.running) {
+    btn.textContent = 'Pause';
+    btn.classList.remove('paused');
+    lbl.textContent = 'Running.';
+  } else {
+    btn.textContent = 'Pause';
+    btn.classList.remove('paused');
+    lbl.textContent = 'Loop not started.';
+  }
+  document.getElementById('current').textContent = s.current_agent || '(idle)';
+  const bumped = s.bumped || [];
+  document.getElementById('bumped').textContent = bumped.length ? bumped.join(' → ') : '(none)';
+  const round = s.remaining_in_round || [];
+  document.getElementById('round').textContent = round.length ? round.join(' → ') : '(round empty — refilling on next pick)';
+  const tbody = document.querySelector('#recent-table tbody');
+  tbody.innerHTML = '';
+  for (const r of (s.recent || []).slice().reverse()) {
+    const tr = document.createElement('tr');
+    let cls = 'outcome-ok';
+    if (r.outcome && r.outcome.startsWith('error')) cls = 'outcome-err';
+    else if (r.outcome === 'timeout' || r.outcome === 'no_llm') cls = 'outcome-timeout';
+    const tools = (r.tools || []).map(t => `<span class="tag tool">${escapeHtml(t)}</span>`).join('');
+    const intents = (r.intents || []).map(i => `<span class="tag intent">${escapeHtml(i)}</span>`).join('');
+    const tagsCell = (tools + intents) || '<span class="muted">—</span>';
+    const preview = r.preview ? `<span class="preview">${escapeHtml(r.preview)}</span>` : '<span class="muted">—</span>';
+    const startedShort = (r.started_at || '').replace('T', ' ').split('.')[0];
+    tr.innerHTML = `<td>${escapeHtml(r.agent)}</td><td>${escapeHtml(startedShort)}</td><td>${r.duration_s}s</td><td class="${cls}">${escapeHtml(r.outcome)}</td><td>${tagsCell}</td><td>${preview}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function togglePause() {
+  const ep = (_state && _state.paused) ? '/admin/agent-loop/resume' : '/admin/agent-loop/pause';
+  try { await fetch(ep, { method: 'POST' }); } catch(e) {}
+  await load();
+}
+
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
+"""
+
+
+# ── Template Playground ────────────────────────────────────────────────
+
+@router.get("/templates/list")
+async def templates_list(user=Depends(require_admin)):
+    """List all .md files under shared/templates/llm/."""
+    from app.core.template_preview import list_templates
+    return {"templates": list_templates()}
+
+
+@router.get("/templates/file")
+async def templates_read(path: str, user=Depends(require_admin)):
+    from app.core.template_preview import read_template
+    try:
+        return {"path": path, "content": read_template(path)}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template not found: {path}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/templates/file")
+async def templates_save(request: Request, user=Depends(require_admin)):
+    body = await request.json()
+    path = (body.get("path") or "").strip()
+    content = body.get("content")
+    if not path or content is None:
+        raise HTTPException(status_code=400, detail="path + content required")
+    from app.core.template_preview import save_template
+    try:
+        save_template(path, content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "saved", "path": path}
+
+
+@router.get("/templates/render")
+async def templates_render(path: str, agent: str = "", avatar: str = "",
+                           user=Depends(require_admin)):
+    """Render the template at ``path`` against real production data for
+    the given agent + avatar."""
+    from app.core.template_preview import render_with_real_data
+    return render_with_real_data(path, agent, avatar)
+
+
+@router.get("/templates", response_class=HTMLResponse)
+async def templates_page(user=Depends(require_admin)):
+    """Template playground: top bar + 2-column editor/preview."""
+    return _TEMPLATES_PAGE_HTML
+
+
+_TEMPLATES_PAGE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Templates</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:0; height:100vh; display:flex; flex-direction:column; }
+.topbar { display:flex; gap:8px; align-items:center; padding:10px 14px; background:#161b22; border-bottom:1px solid #30363d; flex-wrap:wrap; }
+.topbar select, .topbar button { background:#0d1117; color:#c9d1d9; border:1px solid #30363d; padding:6px 10px; border-radius:4px; font-size:12px; }
+.topbar select { min-width:200px; }
+.topbar button { cursor:pointer; }
+.topbar button:hover { background:#21262d; }
+.topbar button.primary { background:#238636; border-color:#238636; color:#fff; }
+.topbar button.primary:hover { background:#2ea043; }
+.topbar label { font-size:11px; color:#8b949e; }
+#status { margin-left:auto; font-size:11px; color:#8b949e; }
+#status.ok { color:#3fb950; }
+#status.err { color:#f85149; }
+.cols { flex:1; display:flex; min-height:0; }
+.col { flex:1; display:flex; flex-direction:column; min-width:0; }
+.col + .col { border-left:1px solid #30363d; }
+.col-header { padding:6px 10px; background:#161b22; border-bottom:1px solid #30363d; font-size:11px; color:#8b949e; }
+textarea, pre.preview { flex:1; margin:0; padding:10px; background:#0d1117; color:#c9d1d9; border:0; outline:0; font-family: ui-monospace, SFMono-Regular, monospace; font-size:12px; line-height:1.5; resize:none; white-space:pre-wrap; word-break:break-word; overflow:auto; }
+textarea:focus { background:#010409; }
+.note { padding:6px 10px; background:#161b22; border-top:1px solid #30363d; font-size:11px; color:#8b949e; }
+.kind-chat { color:#58a6ff; }
+.kind-tasks { color:#a5a5a5; }
+.no-preview { opacity:0.5; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <label>Template</label>
+  <select id="sel-template"></select>
+  <label>Avatar</label>
+  <select id="sel-avatar"></select>
+  <label>Agent</label>
+  <select id="sel-agent"></select>
+  <button id="btn-save" class="primary">Save</button>
+  <button id="btn-render">Refresh preview</button>
+  <span id="status">—</span>
+</div>
+<div class="cols">
+  <div class="col">
+    <div class="col-header">Edit (raw markdown)</div>
+    <textarea id="editor" spellcheck="false" placeholder="Pick a template above…"></textarea>
+  </div>
+  <div class="col">
+    <div class="col-header">Preview (real data, what production would build)</div>
+    <pre class="preview" id="preview">—</pre>
+    <div class="note" id="note">—</div>
+  </div>
+</div>
+
+<script>
+let _state = { templates: [], characters: [], dirty: false };
+
+function setStatus(msg, kind) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = kind || '';
+}
+
+async function loadTemplates() {
+  const r = await fetch('/admin/templates/list');
+  if (!r.ok) { setStatus('list failed: ' + r.status, 'err'); return; }
+  const d = await r.json();
+  _state.templates = d.templates || [];
+  const sel = document.getElementById('sel-template');
+  sel.innerHTML = '';
+  let lastKind = '';
+  for (const t of _state.templates) {
+    if (t.kind !== lastKind) {
+      const og = document.createElement('optgroup');
+      og.label = t.kind;
+      og.id = 'optgroup-' + t.kind;
+      sel.appendChild(og);
+      lastKind = t.kind;
+    }
+    const o = document.createElement('option');
+    o.value = t.path;
+    o.textContent = t.path.split('/').pop().replace('.md', '') + (t.has_preview ? '' : '  (no preview)');
+    if (!t.has_preview) o.classList.add('no-preview');
+    document.getElementById('optgroup-' + t.kind).appendChild(o);
+  }
+}
+
+async function loadCharacters() {
+  const r = await fetch('/characters/list');
+  if (!r.ok) return;
+  const d = await r.json();
+  const chars = d.characters || [];
+  const av = document.getElementById('sel-avatar');
+  const ag = document.getElementById('sel-agent');
+  av.innerHTML = '<option value="">(none)</option>';
+  ag.innerHTML = '';
+  for (const c of chars) {
+    const oa = document.createElement('option'); oa.value = c; oa.textContent = c; av.appendChild(oa);
+    const og = document.createElement('option'); og.value = c; og.textContent = c; ag.appendChild(og);
+  }
+  if (chars.length >= 2) av.value = chars[0];
+  if (chars.length >= 1) ag.value = chars[chars.length >= 2 ? 1 : 0];
+}
+
+async function loadFile(path) {
+  setStatus('loading…');
+  try {
+    const r = await fetch('/admin/templates/file?path=' + encodeURIComponent(path));
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    document.getElementById('editor').value = d.content || '';
+    _state.dirty = false;
+    setStatus('loaded', 'ok');
+    await render();
+  } catch (e) {
+    setStatus('load failed: ' + e.message, 'err');
+  }
+}
+
+async function saveFile() {
+  const path = document.getElementById('sel-template').value;
+  const content = document.getElementById('editor').value;
+  if (!path) return;
+  setStatus('saving…');
+  try {
+    const r = await fetch('/admin/templates/file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    _state.dirty = false;
+    setStatus('saved', 'ok');
+    await render();
+  } catch (e) {
+    setStatus('save failed: ' + e.message, 'err');
+  }
+}
+
+async function render() {
+  const path = document.getElementById('sel-template').value;
+  const avatar = document.getElementById('sel-avatar').value;
+  const agent = document.getElementById('sel-agent').value;
+  if (!path) return;
+  setStatus('rendering…');
+  try {
+    const r = await fetch(`/admin/templates/render?path=${encodeURIComponent(path)}&agent=${encodeURIComponent(agent)}&avatar=${encodeURIComponent(avatar)}`);
+    const d = await r.json();
+    const prev = document.getElementById('preview');
+    const note = document.getElementById('note');
+    if (d.ok) {
+      prev.textContent = d.output || '(empty)';
+      note.textContent = d.note || '';
+      setStatus('rendered', 'ok');
+    } else {
+      prev.textContent = '(no output)';
+      note.textContent = d.note || 'preview failed';
+      setStatus('preview failed', 'err');
+    }
+  } catch (e) {
+    setStatus('render failed: ' + e.message, 'err');
+  }
+}
+
+document.getElementById('sel-template').addEventListener('change', e => loadFile(e.target.value));
+document.getElementById('sel-avatar').addEventListener('change', render);
+document.getElementById('sel-agent').addEventListener('change', render);
+document.getElementById('btn-save').addEventListener('click', saveFile);
+document.getElementById('btn-render').addEventListener('click', render);
+document.getElementById('editor').addEventListener('input', () => { _state.dirty = true; setStatus('unsaved changes'); });
+
+(async () => {
+  await Promise.all([loadTemplates(), loadCharacters()]);
+  const sel = document.getElementById('sel-template');
+  if (sel.options.length) {
+    sel.value = sel.options[0].value;
+    await loadFile(sel.value);
+  }
+})();
+</script>
+</body>
+</html>
+"""
+
+
 @router.get("/settings/comfyui-models")
 async def comfyui_models(user=Depends(require_admin)):
     """Return cached ComfyUI checkpoints and LoRAs."""
@@ -740,8 +1310,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     <a href="#" data-section="_users" onclick="event.preventDefault(); activateIframe('_users', '/admin/users', 'User-Verwaltung')"><span class="nav-icon">👥</span> User-Verwaltung</a>
     <a href="#" data-section="_outfit_rules" onclick="event.preventDefault(); activateIframe('_outfit_rules', '/admin/outfit-rules', 'Outfit-Regeln')"><span class="nav-icon">👗</span> Outfit-Regeln</a>
     <a href="#" data-section="_models" onclick="event.preventDefault(); activateIframe('_models', '/admin/models', 'Model Capabilities')"><span class="nav-icon">🧩</span> Model Capabilities</a>
+    <a href="#" data-section="_agent_loop" onclick="event.preventDefault(); activateIframe('_agent_loop', '/admin/agent-loop', 'Agent Loop')"><span class="nav-icon">🔄</span> Agent Loop</a>
+    <a href="#" data-section="_templates" onclick="event.preventDefault(); activateIframe('_templates', '/admin/templates', 'LLM Templates')"><span class="nav-icon">📄</span> LLM Templates</a>
     <div class="nav-section-label">Logs & Monitoring</div>
     <a href="#" data-section="_dashboard" onclick="event.preventDefault(); activateIframe('_dashboard', '/dashboard', 'Dashboard')"><span class="nav-icon">📊</span> Dashboard</a>
+    <a href="#" data-section="_llm_stats" onclick="event.preventDefault(); activateIframe('_llm_stats', '/admin/llm-stats', 'LLM Stats')"><span class="nav-icon">📈</span> LLM Stats</a>
     <a href="#" data-section="_llm_log" onclick="event.preventDefault(); activateIframe('_llm_log', '/logs/llm', 'LLM Log')"><span class="nav-icon">📝</span> LLM Log</a>
     <a href="#" data-section="_image_log" onclick="event.preventDefault(); activateIframe('_image_log', '/logs/image-prompts', 'Image Prompt Log')"><span class="nav-icon">🖼</span> Image Prompt Log</a>
 </nav>
@@ -2524,3 +3097,263 @@ loadAll();
 </script>
 </body>
 </html>'''
+
+
+def _build_llm_stats_html() -> str:
+    """LLM-Call-Statistik — read-only Auswertung mit Zeitraum-/Character-Filter."""
+    return '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LLM Stats</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
+h1 { font-size: 18px; margin-bottom: 8px; color: #e6edf3; }
+.hint { font-size: 12px; color: #8b949e; margin-bottom: 16px; }
+
+.filter-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 14px; }
+.filter-bar label { font-size: 12px; color: #8b949e; display: inline-flex; align-items: center; gap: 6px; }
+.filter-bar input, .filter-bar select { background: #0d1117; color: #c9d1d9;
+    border: 1px solid #30363d; padding: 5px 8px; border-radius: 5px; font-size: 12px; }
+.filter-bar input[type="datetime-local"] { font-family: inherit; }
+.filter-bar select[multiple] { min-width: 180px; min-height: 70px; }
+
+.btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+    padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+.btn:hover { background: #30363d; }
+.btn-primary { background: #1f6feb; border-color: #388bfd; color: #fff; }
+.btn-primary:hover { background: #388bfd; }
+.btn.active { background: #1f6feb; border-color: #388bfd; color: #fff; }
+
+.preset-row { display: flex; gap: 4px; }
+.summary { font-size: 12px; color: #8b949e; margin-bottom: 10px; }
+
+table { width: 100%; border-collapse: collapse; background: #161b22;
+    border: 1px solid #30363d; border-radius: 8px; overflow: hidden; font-size: 12px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid #30363d; text-align: right; white-space: nowrap; }
+th { background: #1c2128; color: #8b949e; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.4px; font-size: 11px; cursor: pointer; user-select: none; }
+th:hover { color: #c9d1d9; }
+th.left, td.left { text-align: left; }
+th .arrow { color: #58a6ff; margin-left: 2px; }
+tr:last-child td { border-bottom: none; }
+tr:hover { background: #1c2128; }
+td.task { font-family: monospace; color: #d2a8ff; }
+td.model { font-family: monospace; color: #79c0ff; }
+td.provider { color: #8b949e; }
+td.agent { color: #ffa657; }
+td.dim { color: #6e7681; }
+
+.empty { text-align: center; padding: 40px; color: #8b949e; }
+.error { color: #f85149; padding: 10px; background: #da363322; border-radius: 6px; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>LLM Call Statistik</h1>
+<p class="hint">Aggregat aus <code>llm_call_stats</code>. Zeitraum + Character filterbar. Aufgeschluesselt nach Task x Model x Provider; mit Toggle auch nach Character.</p>
+
+<div class="filter-bar">
+    <div class="preset-row">
+        <button class="btn" data-preset="1h" onclick="applyPreset('1h')">1h</button>
+        <button class="btn" data-preset="24h" onclick="applyPreset('24h')">24h</button>
+        <button class="btn" data-preset="7d" onclick="applyPreset('7d')">7d</button>
+        <button class="btn" data-preset="30d" onclick="applyPreset('30d')">30d</button>
+    </div>
+    <label>From <input type="datetime-local" id="from-input"></label>
+    <label>To <input type="datetime-local" id="to-input"></label>
+    <label>Task <input type="text" id="task-filter" placeholder="substring..." style="width:140px;"></label>
+    <label>Character
+        <select id="agent-select" multiple size="3"></select>
+    </label>
+    <label><input type="checkbox" id="group-by-agent"> nach Character aufschluesseln</label>
+    <button class="btn btn-primary" onclick="loadData()">Apply</button>
+</div>
+
+<div class="summary" id="summary"></div>
+<div id="error-box"></div>
+
+<table id="stats-table">
+    <thead id="stats-thead"></thead>
+    <tbody id="stats-tbody"><tr><td class="empty" colspan="20">Lade...</td></tr></tbody>
+</table>
+
+<script>
+let CURRENT_ROWS = [];
+let SORT_KEY = "calls";
+let SORT_DIR = -1;
+
+function isoLocal(dt) {
+    const pad = n => String(n).padStart(2, "0");
+    return dt.getFullYear() + "-" + pad(dt.getMonth()+1) + "-" + pad(dt.getDate())
+        + "T" + pad(dt.getHours()) + ":" + pad(dt.getMinutes());
+}
+
+function applyPreset(p) {
+    const now = new Date();
+    let from = new Date(now);
+    if (p === "1h") from.setHours(now.getHours() - 1);
+    else if (p === "24h") from.setHours(now.getHours() - 24);
+    else if (p === "7d") from.setDate(now.getDate() - 7);
+    else if (p === "30d") from.setDate(now.getDate() - 30);
+    document.getElementById("from-input").value = isoLocal(from);
+    document.getElementById("to-input").value = isoLocal(now);
+    document.querySelectorAll(".preset-row .btn").forEach(b => b.classList.remove("active"));
+    const btn = document.querySelector(".preset-row .btn[data-preset='" + p + "']");
+    if (btn) btn.classList.add("active");
+    loadData();
+}
+
+function buildQuery() {
+    const fromVal = document.getElementById("from-input").value;
+    const toVal = document.getElementById("to-input").value;
+    const task = document.getElementById("task-filter").value.trim();
+    const agentSel = document.getElementById("agent-select");
+    const agents = Array.from(agentSel.selectedOptions).map(o => o.value).filter(v => v);
+    const grouped = document.getElementById("group-by-agent").checked;
+    const params = new URLSearchParams();
+    if (fromVal) params.set("from", fromVal.length === 16 ? fromVal + ":00" : fromVal);
+    if (toVal) params.set("to", toVal.length === 16 ? toVal + ":00" : toVal);
+    if (task) params.set("task", task);
+    if (agents.length) params.set("agents", agents.join(","));
+    if (grouped) params.set("group_by_agent", "1");
+    return params.toString();
+}
+
+async function loadData() {
+    const errBox = document.getElementById("error-box");
+    errBox.innerHTML = "";
+    document.getElementById("stats-tbody").innerHTML =
+        '<tr><td class="empty" colspan="20">Lade...</td></tr>';
+    try {
+        const q = buildQuery();
+        const resp = await fetch("/admin/llm-stats/data?" + q, { credentials: "same-origin" });
+        if (resp.status === 401 || resp.status === 403) {
+            const ret = encodeURIComponent(window.location.pathname);
+            window.location.href = "/?return=" + ret;
+            return;
+        }
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        CURRENT_ROWS = data.rows || [];
+        updateAgentDropdown(data.agents || []);
+        renderSummary(data);
+        renderTable();
+    } catch (e) {
+        errBox.innerHTML = '<div class="error">Fehler: ' + escapeHtml(e.message) + "</div>";
+        document.getElementById("stats-tbody").innerHTML = "";
+    }
+}
+
+function updateAgentDropdown(agents) {
+    const sel = document.getElementById("agent-select");
+    const prev = new Set(Array.from(sel.selectedOptions).map(o => o.value));
+    sel.innerHTML = "";
+    for (const a of agents) {
+        const opt = document.createElement("option");
+        opt.value = a;
+        opt.textContent = a;
+        if (prev.has(a)) opt.selected = true;
+        sel.appendChild(opt);
+    }
+}
+
+function renderSummary(data) {
+    const total = CURRENT_ROWS.reduce((s, r) => s + r.calls, 0);
+    const groups = CURRENT_ROWS.length;
+    const grouped = data.group_by_agent ? "Task x Model x Provider x Character" : "Task x Model x Provider";
+    document.getElementById("summary").textContent =
+        groups + " Gruppen, " + total + " Calls insgesamt | Gruppierung: " + grouped
+        + " | Zeitraum: " + data.from + " bis " + data.to;
+}
+
+function renderTable() {
+    const grouped = document.getElementById("group-by-agent").checked;
+    const thead = document.getElementById("stats-thead");
+    const tbody = document.getElementById("stats-tbody");
+
+    const cols = [
+        { key: "task",             label: "Task",          cls: "left" },
+        { key: "model",            label: "Model",         cls: "left" },
+        { key: "provider",         label: "Provider",      cls: "left" }
+    ];
+    if (grouped) cols.push({ key: "agent_name", label: "Character", cls: "left" });
+    cols.push(
+        { key: "calls",            label: "Calls" },
+        { key: "avg_duration",     label: "avg s" },
+        { key: "min_duration",     label: "min s" },
+        { key: "max_duration",     label: "max s" },
+        { key: "p90_duration",     label: "p90 s" },
+        { key: "avg_in_tokens",    label: "avg in" },
+        { key: "avg_out_tokens",   label: "avg out" },
+        { key: "avg_max_tokens",   label: "cfg max out" },
+        { key: "avg_total_tokens", label: "avg in+out" },
+        { key: "max_in_tokens",    label: "peak in" },
+        { key: "max_total_tokens", label: "peak in+out" }
+    );
+
+    let th = "<tr>";
+    for (const c of cols) {
+        const isSort = c.key === SORT_KEY;
+        const arrow = isSort ? '<span class="arrow">' + (SORT_DIR > 0 ? "↑" : "↓") + "</span>" : "";
+        th += '<th class="' + (c.cls || "") + '" onclick="sortBy(\\'' + c.key + '\\')">'
+            + escapeHtml(c.label) + arrow + "</th>";
+    }
+    th += "</tr>";
+    thead.innerHTML = th;
+
+    const sorted = CURRENT_ROWS.slice().sort((a, b) => {
+        const va = a[SORT_KEY], vb = b[SORT_KEY];
+        if (typeof va === "number") return (va - vb) * SORT_DIR;
+        return String(va || "").localeCompare(String(vb || "")) * SORT_DIR;
+    });
+
+    if (!sorted.length) {
+        tbody.innerHTML = '<tr><td class="empty" colspan="' + cols.length + '">Keine Daten im gewaehlten Zeitraum</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = sorted.map(r => {
+        let row = "<tr>";
+        row += '<td class="left task">' + escapeHtml(r.task) + "</td>";
+        row += '<td class="left model">' + escapeHtml(r.model) + "</td>";
+        row += '<td class="left provider">' + escapeHtml(r.provider || "—") + "</td>";
+        if (grouped) row += '<td class="left agent">' + escapeHtml(r.agent_name || "—") + "</td>";
+        row += "<td>" + r.calls + "</td>";
+        row += "<td>" + r.avg_duration.toFixed(2) + "</td>";
+        row += "<td>" + r.min_duration.toFixed(2) + "</td>";
+        row += "<td>" + r.max_duration.toFixed(2) + "</td>";
+        row += "<td>" + r.p90_duration.toFixed(2) + "</td>";
+        row += "<td>" + r.avg_in_tokens + "</td>";
+        row += "<td>" + r.avg_out_tokens + "</td>";
+        const cfg = r.avg_max_tokens;
+        row += '<td class="' + (cfg ? "" : "dim") + '">' + (cfg || "—") + "</td>";
+        row += "<td>" + r.avg_total_tokens + "</td>";
+        row += "<td>" + r.max_in_tokens + "</td>";
+        row += "<td>" + r.max_total_tokens + "</td>";
+        row += "</tr>";
+        return row;
+    }).join("");
+}
+
+function sortBy(key) {
+    if (SORT_KEY === key) SORT_DIR = -SORT_DIR;
+    else { SORT_KEY = key; SORT_DIR = -1; }
+    renderTable();
+}
+
+function escapeHtml(s) {
+    return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+applyPreset("24h");
+</script>
+</body>
+</html>'''
+
+

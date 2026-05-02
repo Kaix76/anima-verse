@@ -196,6 +196,14 @@ async def lifespan(app: FastAPI):
     await _thought_loop.start()
     logger.info("ThoughtLoop bereit!")
 
+    # AgentLoop starten — kontinuierliche Gedanken-Schleife mit
+    # importance-gewichtetem Round-Robin. Ersetzt den alten periodischen
+    # Tick. Pause haengt am world-pause-Toggle (task_queue 'default').
+    from app.core.agent_loop import get_agent_loop
+    _agent_loop = get_agent_loop()
+    await _agent_loop.start()
+    logger.info("AgentLoop bereit!")
+
     # Task-Queue Worker erst starten, wenn ALLE Handler registriert sind
     # (sonst schlagen recovered persistierte Tasks beim Recovery fehl).
     from app.core.task_queue import get_task_queue
@@ -257,6 +265,10 @@ async def lifespan(app: FastAPI):
 
     _consolidation_task = _aio.create_task(_periodic_consolidation())
 
+    # Periodic background jobs (replace old ThoughtLoop tick).
+    from app.core import periodic_jobs
+    periodic_jobs.start()
+
     from app.core import channel_health
     channel_health.start()
 
@@ -267,9 +279,19 @@ async def lifespan(app: FastAPI):
 
     event_loop_watchdog.stop()
     _consolidation_task.cancel()
+    try:
+        from app.core import periodic_jobs
+        await periodic_jobs.stop()
+    except Exception as _pe:
+        logger.debug("periodic_jobs stop failed: %s", _pe)
 
     # Shutdown
     await _telegram_polling.stop()
+    try:
+        from app.core.agent_loop import get_agent_loop
+        await get_agent_loop().stop()
+    except Exception as _ae:
+        logger.debug("AgentLoop stop failed: %s", _ae)
     await _thought_loop.stop()
     if _scheduler_manager:
         logger.info("Fahre Scheduler herunter...")

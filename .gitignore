@@ -19,6 +19,9 @@ documentation/
 # Legacy ./storage runtime data (pre-worlds/)
 storage/
 
+# Legacy JSON-Backups, nach DB-Migration aus den Welten verschoben
+migrated_backups/
+
 # Internal helper / migration scripts — not part of the public release
 scripts/
 tools/

@@ -3274,22 +3274,15 @@ async def suggest_animate_prompt(character_name: str, image_name: str, request: 
 
         logger.info("[suggest-animate] Bildanalyse vorhanden (%d Zeichen), rufe LLM auf... (llm_override=%s)", len(image_analysis), llm_override or "")
 
-        system_content = custom_system_prompt or (
-            "You write short animation prompts for image-to-video AI models. "
-            "The user gives you an image description. You respond with ONLY the MOTION instructions. "
-            "Do NOT re-describe the image content, appearance, clothing, or scene. "
-            "ONLY describe what MOVES and HOW it moves. Keep it to 1-3 sentences.\n\n"
-            "Good example: 'She blinks slowly and tilts her head slightly. Her hair sways gently. "
-            "Background lights pulse and flicker.'\n"
-            "Bad example: 'A woman with pink hair wearing a dress stands in a room...' (this re-describes the image)\n\n"
-            "Reply ONLY with the motion prompt. No explanations, no markdown."
-        )
-
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
+        default_system, user_prompt = render_task(
+            "animation_prompt", image_analysis=image_analysis)
+        system_content = custom_system_prompt or default_system
         response = llm_call(
             task="instagram_caption",
             system_prompt=system_content,
-            user_prompt=f"Bildbeschreibung:\n{image_analysis}",
+            user_prompt=user_prompt,
             agent_name=character_name)
         result = (response.content or "").strip().strip('"').strip("'")
         logger.info("[suggest-animate] Prompt generiert: %s", result[:100])

@@ -146,29 +146,21 @@ def _generate_summary(character_name: str,
     bereits herausgefallenen Fakten (Sliding Window) nicht verloren geht.
     """
     from app.core.llm_router import llm_call
+    from app.core.prompt_templates import render_task
 
     previous_section = ""
     if previous_summary:
         previous_section = (
-            f"\nBisherige Zusammenfassung der Beziehung:\n{previous_summary}\n"
-            "Beruecksichtige diese als Basis und ergaenze/aktualisiere sie mit den neuen Fakten.\n"
+            f"Previous summary of the relationship:\n{previous_summary}\n"
+            "Use this as a base and update/extend it with the new facts.\n"
         )
 
-    system_prompt = (
-        f"Du bist ein Beziehungs-Analyst fuer fiktive Characters.\n"
-        f"Character: {character_name}\n"
-        f"Anderer Character: {related_character}\n\n"
-        "Erstelle eine kurze, narrative Zusammenfassung der Beziehung aus Sicht "
-        f"von {character_name}. Die Summary soll:\n"
-        "- Die Art der Beziehung beschreiben (Freund, Bekannter, Rivale, etc.)\n"
-        "- Wichtige gemeinsame Erlebnisse/Interaktionen erwaehnen\n"
-        "- Den emotionalen Ton der Beziehung einfangen\n"
-        "- In 1-3 Saetzen formuliert sein\n"
-        "- In der Sprache des Characters geschrieben sein (als wuerde der Character darueber nachdenken)\n\n"
-        "Antworte NUR mit der Zusammenfassung, kein anderer Text."
-    )
-
-    user_msg = f"/no_think\n{previous_section}Aktuelle Fakten/Ereignisse:\n{facts}"
+    system_prompt, user_msg = render_task(
+        "relationship_summary_pair",
+        character_name=character_name,
+        related_character=related_character,
+        previous_section=previous_section,
+        facts=facts)
 
     try:
         response = llm_call(

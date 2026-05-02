@@ -87,7 +87,7 @@ def _load_events() -> List[Dict[str, Any]]:
 
 
 def _save_events(events: List[Dict[str, Any]]):
-    """Speichert Events in die DB (Upsert via string-id in payload) und JSON-Backup.
+    """Speichert Events in die DB (Upsert via string-id in payload).
 
     Das events-Schema hat nur (id INTEGER, ts, kind, character_name, payload).
     Die event-string-ID wird im payload gespeichert; zum Loeschen brauchen wir
@@ -136,16 +136,6 @@ def _save_events(events: List[Dict[str, Any]]):
                     )
     except Exception as e:
         logger.error("_save_events DB-Fehler: %s", e)
-
-    # JSON-Backup
-    try:
-        path = _get_events_file()
-        path.write_text(
-            json.dumps({"events": events}, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    except Exception:
-        pass
 
 
 def add_event(text: str,

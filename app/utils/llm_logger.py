@@ -105,7 +105,8 @@ def log_llm_call(
     if not error and tokens_input > 0 and tokens_output > 0 and duration_s > 0:
         try:
             from app.utils.llm_stats import record_call
-            record_call(model, task, provider, tokens_input, tokens_output, duration_s)
+            record_call(model, task, provider, tokens_input, tokens_output, duration_s,
+                        agent_name=agent_name, max_tokens=max_tokens)
         except Exception as e:
             logger.warning("llm_stats.record_call fehlgeschlagen: %s", e)
 

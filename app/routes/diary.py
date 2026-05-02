@@ -98,19 +98,18 @@ def _generate_summary_sync(character_name: str, date: str, day_text: str):
     char_name = profile.get("character_name", character_name)
     personality = profile.get("character_personality", "")
 
-    system_prompt = (
-        f"Du bist {char_name}.\n"
-        f"{f'Persoenlichkeit: {personality}' if personality else ''}\n\n"
-        f"Schreibe einen kurzen Tagebucheintrag (3-5 Saetze) basierend auf den "
-        f"folgenden Ereignissen deines Tages. Schreibe in der Ich-Form, "
-        f"persoenlich und emotional. Fasse die wichtigsten Momente zusammen."
-    )
+    from app.core.prompt_templates import render_task
+    system_prompt, user_prompt = render_task(
+        "consolidation_daily_diary",
+        character_name=char_name,
+        personality=personality,
+        day_text=day_text)
 
     try:
         response = llm_call(
             task="consolidation",
             system_prompt=system_prompt,
-            user_prompt=day_text,
+            user_prompt=user_prompt,
             agent_name=character_name)
         summary = (response.content or "").strip() if response else ""
         if summary:

@@ -93,7 +93,7 @@ class TelegramChannel(ChannelInterface):
             logger.error("Konnte Mapping nicht laden: %s", e)
 
     def _save_chat_mapping(self) -> None:
-        """Speichern Chat-ID Mapping in DB + JSON-Backup."""
+        """Speichern Chat-ID Mapping in DB."""
         now = datetime.now().isoformat()
         try:
             from app.core.db import transaction as _transaction
@@ -107,15 +107,6 @@ class TelegramChannel(ChannelInterface):
                     """, (str(chat_id), char_name or "", now))
         except Exception as e:
             logger.error("Mapping DB-Speicher-Fehler: %s", e)
-        # JSON-Backup
-        try:
-            from app.core.paths import get_storage_dir
-            _sd = get_storage_dir()
-            mapping_file = _sd / "telegram_mapping.json"
-            data = {str(k): v for k, v in self.chat_to_user_mapping.items()}
-            mapping_file.write_text(json.dumps(data, ensure_ascii=False, indent=2))
-        except Exception as e:
-            logger.error("Konnte Mapping nicht speichern: %s", e)
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Hole oder erstelle aiohttp Session"""

@@ -41,14 +41,18 @@ def generate_secrets(character_name: str,
         profile = get_character_profile(character_name)
         context = f"Character: {character_name}\nPersonality: {profile.get('character_personality', 'unknown')}"
 
-    # Prompt bauen
-    system_prompt = _build_generation_prompt(character_name, context, count)
+    from app.core.prompt_templates import render_task
+    system_prompt, user_prompt = render_task(
+        "secret_generation",
+        character_name=character_name,
+        context=context,
+        count=count)
 
     try:
         response = llm_call(
             task="secret_generation",
             system_prompt=system_prompt,
-            user_prompt="Generiere die Geheimnisse als JSON-Array.",
+            user_prompt=user_prompt,
             agent_name=character_name)
 
         raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', response.content).strip()
@@ -142,40 +146,6 @@ def _build_generation_context(character_name: str) -> str:
         pass
 
     return "\n\n".join(parts)
-
-
-def _build_generation_prompt(character_name: str, context: str, count: int) -> str:
-    """Baut den System-Prompt fuer die LLM-Generierung."""
-    return f"""You are a creative writer generating secrets for a fictional character.
-
-CHARACTER: {character_name}
-
-CONTEXT:
-{context}
-
-TASK:
-Generate exactly {count} new secret(s) for {character_name}. Each secret must:
-1. Be plausible and fit the character's personality and history
-2. Create potential for conflict, tension, or interesting storylines
-3. Be specific and concrete (not vague)
-4. NOT duplicate any existing secrets listed above
-5. Be written in the character's language (match the personality text language)
-6. Be written as a direct statement to the character ("Du hast..." / "You have...")
-
-CATEGORIES: personal, relationship, location, criminal
-SEVERITY: 1=harmless, 2=embarrassing, 3=serious, 4=dangerous, 5=devastating
-
-Respond ONLY with a JSON array, no other text:
-[
-  {{
-    "content": "The secret text, addressed to the character (Du-Form / You-Form)",
-    "category": "personal|relationship|location|criminal",
-    "severity": 1-5,
-    "related_characters": ["Name1", "Name2"],
-    "related_location": "location_id or empty string",
-    "consequences_if_revealed": "What happens if others find out"
-  }}
-]"""
 
 
 def _parse_llm_response(raw: str) -> List[Dict[str, Any]]:

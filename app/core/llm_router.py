@@ -296,6 +296,49 @@ def resolve_llm(task: str, agent_name: str = "") -> Optional[LLMInstance]:
     return None
 
 
+# Substrings in error messages that indicate an upstream backend problem
+# (5xx, process crash, connection drop) — NOT a user-input error like
+# bad-request, content-policy or auth. When seen, we cooldown the provider
+# and retry through the routing fallback chain.
+_UPSTREAM_FAIL_MARKERS = (
+    "InternalServerError",
+    "upstream command",
+    "ConnectionError",
+    "ReadTimeout",
+    "BadGateway",
+    "ServiceUnavailable",
+    "Bad gateway",
+    "Service unavailable",
+    "ConnectionRefused",
+    "Connection refused",
+    "Remote end closed",
+    " 500",
+    " 502",
+    " 503",
+    " 504",
+)
+
+_UPSTREAM_COOLDOWN_SECONDS = 300.0  # 5 min — survives ~1-2 health probes
+_LLM_CALL_MAX_ATTEMPTS = 3
+
+
+def _is_upstream_failure(err: BaseException) -> bool:
+    msg = str(err)
+    return any(marker in msg for marker in _UPSTREAM_FAIL_MARKERS)
+
+
+def _cooldown_provider(provider_name: str, reason: str) -> None:
+    if not provider_name:
+        return
+    try:
+        from app.core.provider_manager import get_provider_manager
+        provider = get_provider_manager().get_provider(provider_name)
+        if provider:
+            provider.mark_unhealthy(reason, _UPSTREAM_COOLDOWN_SECONDS)
+    except Exception as e:
+        logger.debug("Cooldown set failed for %s: %s", provider_name, e)
+
+
 def llm_call(
     task: str,
     system_prompt: str,
@@ -306,36 +349,62 @@ def llm_call(
     """Zentraler LLM-Einstiegspunkt fuer Non-Stream-Calls.
 
     Resolved Provider+Model per Task, submitted ueber Queue, Logging
-    laeuft automatisch in der Queue-Worker.
+    laeuft automatisch in der Queue-Worker. Bei Upstream-Failures
+    (5xx / Connection-Reset / Backend-Crash) wird der Provider in
+    Cooldown gesetzt und der Call durch die Routing-Kette weitergeleitet
+    (max ``_LLM_CALL_MAX_ATTEMPTS`` Versuche).
 
     Returns:
         Das Response-Objekt der Queue (kompatibel mit bestehenden
         Aufrufstellen: `.content` liefert den Text).
 
     Raises:
-        RuntimeError: wenn kein LLM fuer den Task verfuegbar ist.
+        RuntimeError: wenn kein LLM fuer den Task verfuegbar ist oder
+        alle Fallback-Provider scheitern.
     """
-    instance = resolve_llm(task, agent_name=agent_name)
-    if instance is None:
-        raise RuntimeError(f"llm_call: Kein verfuegbares LLM fuer Task '{task}'")
-
     if priority is None:
         from app.core.llm_tasks import get_default_priority
         priority = get_default_priority(task)
 
-    llm = instance.create_llm()
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
 
-    logger.info("llm_call task=%s provider=%s model=%s agent=%s",
-                task, instance.provider_name, instance.model, agent_name or "-")
+    last_err: Optional[BaseException] = None
+    for attempt in range(1, _LLM_CALL_MAX_ATTEMPTS + 1):
+        instance = resolve_llm(task, agent_name=agent_name)
+        if instance is None:
+            if last_err is not None:
+                raise RuntimeError(
+                    f"llm_call: Alle Provider fuer '{task}' fehlgeschlagen — "
+                    f"letzter Fehler: {last_err}")
+            raise RuntimeError(f"llm_call: Kein verfuegbares LLM fuer Task '{task}'")
 
-    return get_llm_queue().submit(
-        task_type=task,
-        priority=priority,
-        llm=llm,
-        messages_or_prompt=messages,
-        agent_name=agent_name,
-        label=label)
+        llm = instance.create_llm()
+        logger.info("llm_call task=%s provider=%s model=%s agent=%s attempt=%d/%d",
+                    task, instance.provider_name, instance.model,
+                    agent_name or "-", attempt, _LLM_CALL_MAX_ATTEMPTS)
+
+        try:
+            return get_llm_queue().submit(
+                task_type=task,
+                priority=priority,
+                llm=llm,
+                messages_or_prompt=messages,
+                agent_name=agent_name,
+                label=label)
+        except Exception as e:
+            last_err = e
+            if not _is_upstream_failure(e):
+                # User error / non-retryable — fail fast, don't cooldown.
+                raise
+            logger.warning(
+                "llm_call upstream-fail on %s (%s): %s — cooldown + Fallback",
+                instance.provider_name, instance.model, str(e)[:200])
+            _cooldown_provider(instance.provider_name, f"upstream-fail: {str(e)[:120]}")
+            # Loop continues; resolve_llm now skips the cooled-down provider.
+
+    raise RuntimeError(
+        f"llm_call: Alle Provider fuer '{task}' fehlgeschlagen nach "
+        f"{_LLM_CALL_MAX_ATTEMPTS} Versuchen — letzter Fehler: {last_err}")

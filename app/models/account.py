@@ -84,9 +84,6 @@ def save_user_profile(profile: Dict[str, Any]):
         from app.core.log import get_logger
         get_logger("account").error("save_user_profile DB-Fehler: %s", e)
 
-    # JSON-Backup
-    get_account_path().write_text(json.dumps(profile, ensure_ascii=False, indent=2))
-
 
 def get_user_name() -> str:
     return get_user_profile().get("user_name", "")

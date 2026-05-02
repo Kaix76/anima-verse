@@ -67,7 +67,11 @@ def transaction() -> Iterator[sqlite3.Connection]:
 
 def init_schema() -> None:
     """Fuehrt alle Schema-Create-Statements aus (idempotent)."""
-    from app.core.world_db_schema import SCHEMA_STATEMENTS, SCHEMA_VERSION
+    import sqlite3
+    from app.core.world_db_schema import (
+        ALTER_MIGRATIONS, POST_MIGRATION_STATEMENTS,
+        SCHEMA_STATEMENTS, SCHEMA_VERSION,
+    )
 
     conn = get_connection()
     conn.execute(
@@ -80,6 +84,16 @@ def init_schema() -> None:
     current_version = int(current["value"]) if current else 0
 
     for stmt in SCHEMA_STATEMENTS:
+        conn.execute(stmt)
+
+    for table, column, typedef in ALTER_MIGRATIONS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+        except sqlite3.OperationalError:
+            pass
+
+    # Indizes auf migrierte Spalten erst nach ALTERs anlegen.
+    for stmt in POST_MIGRATION_STATEMENTS:
         conn.execute(stmt)
 
     conn.execute(

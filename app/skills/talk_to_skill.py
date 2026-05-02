@@ -108,8 +108,9 @@ class TalkToSkill(BaseSkill):
 
         logger.info("TalkTo %s -> %s: %s", sender_name, target_name, message[:100])
 
-        # Pending-Report anlegen wenn der Skill aus einem Chat mit jemand anderem
-        # getriggert wurde (Auftraggeber-Kette).
+        # Pending-Report: when the skill was triggered from a chat with a
+        # third party (chain of command), record that the sender owes a
+        # follow-up to whoever asked them to talk.
         initiator = ctx.get("initiator", "").strip()
         if initiator and initiator != sender_name:
             try:
@@ -123,17 +124,35 @@ class TalkToSkill(BaseSkill):
             except Exception as e:
                 logger.debug("pending_report add failed: %s", e)
 
-        # Ziel-Response via zentrale Chat-Engine
-        from app.core.chat_engine import run_chat_turn
-        reply = run_chat_turn(
-            owner_id=user_id,
-            responder=target_name,
-            speaker=sender_name,
-            incoming_message=message,
-            medium="in_person",
-            task_type="talk_to")
+        # Inbox-only: write the spoken line into both characters' chat
+        # history. Sender sees their own line as 'assistant', recipient
+        # sees it as 'user'. Recipient processes the message in their
+        # next AgentLoop turn — TalkTo no longer blocks waiting for a
+        # synchronous reply.
+        from datetime import datetime
+        from app.models.chat import save_message
+        ts = datetime.now().isoformat()
+        try:
+            save_message({
+                "role": "user", "content": message, "timestamp": ts,
+                "speaker": sender_name, "medium": "in_person",
+            }, character_name=target_name, partner_name=sender_name)
+            save_message({
+                "role": "assistant", "content": message, "timestamp": ts,
+                "speaker": sender_name, "medium": "in_person",
+            }, character_name=sender_name, partner_name=target_name)
+        except Exception as e:
+            logger.error("TalkTo: chat-history save failed: %s", e)
+            return f"Error saving message to {target_name}."
 
-        # Resolve: falls dieser TalkTo einen offenen pending_report aufloest.
+        # Bump the recipient so they react soon, not on their normal slot.
+        try:
+            from app.core.agent_loop import get_agent_loop
+            get_agent_loop().bump(target_name)
+        except Exception as e:
+            logger.debug("TalkTo: AgentLoop bump failed: %s", e)
+
+        # Resolve: if this TalkTo answers an open pending_report.
         try:
             from app.core.pending_reports import list_open, mark_resolved
             from app.models.account import get_active_character
@@ -146,9 +165,7 @@ class TalkToSkill(BaseSkill):
         except Exception as e:
             logger.debug("pending_report resolve failed: %s", e)
 
-        if not reply:
-            return f"{target_name} did not respond."
-        return f"{target_name} replied: {reply}"
+        return f"Spoke to {target_name}. They will reply when they get to it."
 
     def get_usage_instructions(self, format_name: str = "", **kwargs) -> str:
         from app.core.tool_formats import format_example

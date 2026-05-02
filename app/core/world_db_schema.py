@@ -12,7 +12,7 @@ Konventionen:
 - Foreign Keys: AN, ON DELETE CASCADE wo sinnvoll
 """
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA_STATEMENTS = [
@@ -75,6 +75,7 @@ SCHEMA_STATEMENTS = [
         current_feeling   TEXT DEFAULT '',
         location_changed_at TEXT DEFAULT '',
         activity_changed_at TEXT DEFAULT '',
+        last_thought_at   TEXT DEFAULT '',
         meta              TEXT DEFAULT '{}',
         FOREIGN KEY(character_name) REFERENCES characters(name) ON DELETE CASCADE
     )""",
@@ -400,16 +401,39 @@ SCHEMA_STATEMENTS = [
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )""",
 
-    # ── LLM Call Statistik (fuer Dauer-Schaetzung) ─────────────────────
+    # ── LLM Call Statistik (fuer Dauer-Schaetzung + Admin-Auswertung) ──
     """CREATE TABLE IF NOT EXISTS llm_call_stats (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         ts          TEXT NOT NULL,
         model       TEXT NOT NULL,
         task        TEXT NOT NULL,
         provider    TEXT DEFAULT '',
+        agent_name  TEXT DEFAULT '',
         in_tokens   INTEGER NOT NULL,
         out_tokens  INTEGER NOT NULL,
+        max_tokens  INTEGER DEFAULT 0,
         duration_s  REAL NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_llm_call_stats_lookup ON llm_call_stats (model, task, provider, ts DESC)",
+]
+
+
+# ALTER TABLE migrations — laufen nach allen CREATEs idempotent durch.
+# Pattern: pro Tabelle die fehlenden Spalten hinzufuegen, OperationalError = existiert schon.
+ALTER_MIGRATIONS = [
+    # llm_call_stats: agent_name + max_tokens fuer Admin-Stats-Tab nachgezogen
+    ("llm_call_stats", "agent_name", "TEXT DEFAULT ''"),
+    ("llm_call_stats", "max_tokens", "INTEGER DEFAULT 0"),
+    # character_state: last_thought_at fuer Agent-Loop / Inbox-Tracking
+    # Zeitpunkt der letzten verarbeiteten Gedanken-Runde — alle chat_messages
+    # mit role='user' und ts > last_thought_at gelten als "ungelesen".
+    ("character_state", "last_thought_at", "TEXT DEFAULT ''"),
+]
+
+
+# Indizes die auf migrierte Spalten zugreifen — laufen NACH ALTER_MIGRATIONS,
+# sonst schlaegt CREATE INDEX auf alten DBs fehl ("no such column: agent_name").
+POST_MIGRATION_STATEMENTS = [
+    "CREATE INDEX IF NOT EXISTS idx_llm_call_stats_agent_ts ON llm_call_stats (agent_name, ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_llm_call_stats_ts ON llm_call_stats (ts DESC)",
 ]

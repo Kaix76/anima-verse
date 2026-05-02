@@ -312,11 +312,8 @@
         </div>
         <div class="tab-content" id="tab-worlddev" style="display: none;">
             <div class="worlddev-container">
-                <!-- Pause Bar -->
-                <div class="worlddev-pause-bar">
-                    <button id="worlddev-pause-btn" class="worlddev-pause-btn" onclick="worldDevTogglePause()" title="Alle Hintergrund-Aktivitaeten pausieren">&#9654; Aktiv</button>
-                    <span id="worlddev-pause-label" class="worlddev-pause-label">Scheduler, Gedanken-Loop und Task-Queue laufen</span>
-                </div>
+                <!-- Pause-Button moved to /admin/agent-loop -->
+
                 <!-- Top Bar (3-column table) -->
                 <table class="worlddev-topbar-table">
                     <tr>
@@ -1030,18 +1027,13 @@
                                 <input type="text" id="wpc-name" class="agent-status-input" placeholder="z.B. Schwarze Lederjacke">
                                 <div style="display:flex;gap:10px;align-items:flex-start;">
                                     <div style="flex:1;min-width:0;">
-                                        <label class="wardrobe-form-label">Slot</label>
-                                        <select id="wpc-slot" class="agent-status-input" style="width:100%;">
-                                            <option value="head">Kopf</option>
-                                            <option value="neck">Hals</option>
-                                            <option value="outer" selected>Mantel & Jacke</option>
-                                            <option value="top">Oberteil</option>
-                                            <option value="underwear_top">Unterwaesche oben</option>
-                                            <option value="bottom">Unterteil</option>
-                                            <option value="underwear_bottom">Unterwaesche unten</option>
-                                            <option value="legs">Beine</option>
-                                            <option value="feet">Fuesse</option>
-                                        </select>
+                                        <label class="wardrobe-form-label" title="Slots, die das Teil physisch belegt. Single-Slot wie Bluse: nur einen Slot setzen. Multi-Slot wie Kleid (top+bottom), Jumpsuit (top+bottom+legs) oder thigh-highs (legs+feet): mehrere Slots gleichzeitig auswaehlen.">Slot(s)</label>
+                                        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;border:1px solid var(--border);border-radius:4px;padding:4px;min-height:30px;">
+                                            <div id="wpc-slots-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+                                            <select id="wpc-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
+                                                <option value="">+ hinzufuegen</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div style="flex:1;min-width:0;">
                                         <label class="wardrobe-form-label">Outfit-Typen</label>
@@ -1054,13 +1046,6 @@
                                         </div>
                                         <div id="wpc-outfit-type-tags" class="outfit-type-tags"></div>
                                     </div>
-                                </div>
-                                <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0;">
-                                    <span style="font-size:11px;color:var(--text-muted);min-width:100px;" title="Slots die das Teil zusaetzlich physisch belegt (z.B. Kleid belegt top + bottom). Blockiert weiteres Equip in diesen Slots.">Zusaetzl. belegt:</span>
-                                    <div id="wpc-additional-slots-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
-                                    <select id="wpc-additional-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
-                                        <option value="">+ hinzufuegen</option>
-                                    </select>
                                 </div>
                                 <label class="wardrobe-form-label">Prompt-Fragment (Bild-Beschreibung im Outfit)</label>
                                 <textarea id="wpc-prompt-fragment" class="agent-status-input" rows="2"
@@ -1701,17 +1686,11 @@
                                         <div id="item-edit-outfit-types-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
                                         <select id="item-edit-outfit-types-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ Outfit-Typ</option></select>
                                     </div>
-                                    <select id="item-edit-slot" class="agent-status-input">
-                                        <option value="head">Kopf</option>
-                                        <option value="neck">Hals</option>
-                                        <option value="outer" selected>Mantel &amp; Jacke</option>
-                                        <option value="top">Oberteil</option>
-                                        <option value="underwear_top">Unterwaesche oben</option>
-                                        <option value="bottom">Unterteil</option>
-                                        <option value="underwear_bottom">Unterwaesche unten</option>
-                                        <option value="legs">Beine</option>
-                                        <option value="feet">Fuesse</option>
-                                    </select>
+                                    <div style="font-size:11px;color:var(--text-muted);" title="Slots, die das Teil physisch belegt. Single-Slot wie Bluse: nur einen Slot. Multi-Slot wie Kleid (top+bottom), Jumpsuit (top+bottom+legs) oder thigh-highs (legs+feet): mehrere Slots gleichzeitig.">Slot(s):</div>
+                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;border:1px solid var(--border);border-radius:4px;padding:4px;min-height:30px;">
+                                        <div id="item-edit-slots-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                        <select id="item-edit-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
+                                    </div>
                                     <div style="font-size:11px;color:var(--text-muted);">Verdeckt komplett:</div>
                                     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
                                         <div id="item-edit-covers-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
@@ -1721,11 +1700,6 @@
                                     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
                                         <div id="item-edit-partially-covers-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
                                         <select id="item-edit-partially-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
-                                    </div>
-                                    <div style="font-size:11px;color:var(--text-muted);" title="Slots, die das Piece zusaetzlich belegt (z.B. Overall belegt top + bottom).">Belegt zusaetzlich:</div>
-                                    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-                                        <div id="item-edit-additional-slots-tags" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
-                                        <select id="item-edit-additional-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;"><option value="">+ hinzufuegen</option></select>
                                     </div>
                                 </div>
                                 <div id="item-edit-silhouette" class="outfit-silhouette" style="flex:0 0 144px;display:flex;flex-direction:column;align-items:center;"></div>

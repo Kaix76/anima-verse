@@ -86,23 +86,14 @@ class StoryArcEngine:
 
         characters_text = "\n".join(char_infos)
 
-        prompt = (
-            "Du bist ein kreativer Story-Direktor. Diese Characters leben zusammen:\n\n"
-            f"{characters_text}\n\n"
-            "Generiere eine Mini-Storyline fuer 2-3 dieser Characters:\n"
-            "- Muss aus ihren Persoenlichkeiten und aktueller Situation entstehen\n"
-            "- Soll Spannung oder Zusammenarbeit erzeugen\n"
-            "- Soll in 3-5 Interaktionen abschliessbar sein\n"
-            "- Soll KEINEN User-Input erfordern\n\n"
-            "Ausgabe als JSON (NUR das JSON, kein anderer Text):\n"
-            '{"title": "...", "participants": ["Name1", "Name2"], '
-            '"seed": "Ausgangssituation", "tension": 1, '
-            '"first_beat_hint": "Was als naechstes passieren koennte", '
-            f'"max_beats": {MAX_BEATS}}}'
-        )
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "story_arc_generation",
+            characters_text=characters_text,
+            max_beats=MAX_BEATS)
 
         # LLM-Call via Queue
-        llm_result = self._llm_call(characters[0], prompt)
+        llm_result = self._llm_call(characters[0], sys_prompt, user_prompt)
         if not llm_result:
             return None
 
@@ -148,25 +139,21 @@ class StoryArcEngine:
         beat_count = len(arc.get("beats", []))
         max_beats = arc.get("max_beats", MAX_BEATS)
 
-        prompt = (
-            f'Story Arc: "{arc["title"]}"\n'
-            f'Teilnehmer: {", ".join(arc.get("participants", []))}\n'
-            f'Ausgangslage: {arc.get("seed", "")}\n'
-            f'Aktueller Stand: {arc.get("current_state", "")}\n'
-            f'Letzte Interaktion: {interaction_summary}\n'
-            f'Beats: {beat_count}/{max_beats}, Spannung: {arc.get("tension", 1)}/5\n\n'
-            f'Was passiert als naechstes in dieser Story?\n\n'
-            f'Ausgabe als JSON (NUR das JSON):\n'
-            f'{{"new_state": "Neuer Stand der Story", '
-            f'"tension": 3, '
-            f'"next_beat_hint": "Was als naechstes passieren koennte", '
-            f'"beat_summary": "Zusammenfassung dieses Beats", '
-            f'"resolved": false}}'
-        )
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "story_arc_advancement",
+            arc_title=arc["title"],
+            participants=", ".join(arc.get("participants", [])),
+            seed=arc.get("seed", ""),
+            current_state=arc.get("current_state", ""),
+            interaction_summary=interaction_summary,
+            beat_count=beat_count,
+            max_beats=max_beats,
+            tension=arc.get("tension", 1))
 
         participants = arc.get("participants", [])
         agent = participants[0] if participants else ""
-        llm_result = self._llm_call(agent, prompt)
+        llm_result = self._llm_call(agent, sys_prompt, user_prompt)
         if not llm_result:
             return None
 
@@ -227,22 +214,16 @@ class StoryArcEngine:
             for b in arc.get("beats", [])
         )
 
-        prompt = (
-            f'Story Arc abschliessen: "{arc["title"]}"\n'
-            f'Teilnehmer: {", ".join(participants)}\n'
-            f'Verlauf:\n{beats_text}\n'
-            f'Aktueller Stand: {arc.get("current_state", "")}\n\n'
-            f'Schreibe ein Abschluss-Fazit und beschreibe fuer jeden Teilnehmer '
-            f'was er/sie aus der Story mitgenommen hat.\n\n'
-            f'Ausgabe als JSON (NUR das JSON):\n'
-            f'{{"resolution": "Abschluss-Text", '
-            f'"character_outcomes": {{"Name1": "Was Name1 gelernt hat", '
-            f'"Name2": "Was Name2 gelernt hat"}}, '
-            f'"sequel_seed": "Optionaler Ansatz fuer Folge-Story oder leer"}}'
-        )
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "story_arc_resolve",
+            arc_title=arc["title"],
+            participants=", ".join(participants),
+            beats_text=beats_text,
+            current_state=arc.get("current_state", ""))
 
         agent = participants[0] if participants else ""
-        llm_result = self._llm_call(agent, prompt)
+        llm_result = self._llm_call(agent, sys_prompt, user_prompt)
         if not llm_result:
             return None
 
@@ -298,15 +279,16 @@ class StoryArcEngine:
     # ------------------------------------------------------------------
     # Interne Hilfsmethoden
     # ------------------------------------------------------------------
-    def _llm_call(self, character_name: str, prompt: str) -> Optional[str]:
+    def _llm_call(self, character_name: str, system_prompt: str,
+                  user_prompt: str) -> Optional[str]:
         """Fuehrt einen LLM-Call via Router (Task: consolidation) durch."""
         from app.core.llm_router import llm_call
 
         try:
             response = llm_call(
                 task="consolidation",
-                system_prompt=prompt,
-                user_prompt="Generiere das JSON.",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 agent_name=character_name)
             return (response.content or "").strip()
         except Exception as e:

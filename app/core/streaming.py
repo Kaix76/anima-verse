@@ -276,7 +276,8 @@ class StreamingAgent:
         deferred_tools: Optional[set] = None,
         content_tools: Optional[set] = None,
         mode: str = "no_tools",
-        constrained_tools: bool = False):
+        constrained_tools: bool = False,
+        chat_task_id: str = ""):
         self.llm = llm
         self.tool_llm = tool_llm or llm  # Fallback auf Chat-LLM wenn kein Tool-LLM konfiguriert
         self.tool_system_content = tool_system_content  # Minimaler System-Prompt fuer Tool-LLM
@@ -285,6 +286,9 @@ class StreamingAgent:
         self.tool_executor = tool_executor
         self.agent_name = agent_name
         self.max_iterations = max_iterations
+        # chat_task_id: when set, the agent reports iteration progress back
+        # to the LLMQueue so the admin queue panel can show "iter N/M".
+        self.chat_task_id = chat_task_id
         self.user_id = ""
         # constrained_tools=True signalisiert: das tools_dict ist bewusst auf
         # eine Whitelist eingeschraenkt (z.B. forced_thought mit tool_whitelist).
@@ -697,6 +701,15 @@ class StreamingAgent:
         _active_model = get_model_name(active_llm)
         logger.info("Iteration %d (%s: %s)", iteration, llm_label, _active_model)
 
+        # Push iteration progress to the queue panel (admin sees "iter 2/3").
+        if self.chat_task_id:
+            try:
+                from app.core.llm_queue import get_llm_queue
+                get_llm_queue().register_chat_iteration(
+                    self.chat_task_id, iteration, self.max_iterations)
+            except Exception:
+                pass  # Non-fatal — display only.
+
         # Message-Liste aufbauen
         stream_messages = [{"role": "system", "content": system_content}]
         stream_messages.extend(history)
@@ -886,7 +899,7 @@ class StreamingAgent:
         for tool_name, tool_input_text in tool_matches:
             if tool_name not in self.tools_dict:
                 available = ", ".join(self.tools_dict.keys())
-                logger.error("Tool '%s' nicht gefunden (verfuegbar: %s)", tool_name, available)
+                logger.warning("Tool '%s' halluziniert (verfuegbar: %s)", tool_name, available)
                 error_msg = (
                     f"Tool '{tool_name}' is not available. "
                     f"Available tools: {available}. "

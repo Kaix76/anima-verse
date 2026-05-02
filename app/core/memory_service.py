@@ -65,50 +65,28 @@ def extract_memories_from_exchange(character_name: str,
     clean_assistant = re.sub(r'\[INTENT:[^\]]+\]', '', clean_assistant)
     clean_assistant = clean_assistant.strip()
 
-    prompt = f"""Analysiere diesen Gespraechsaustausch und extrahiere wichtige Erinnerungen.
-
-{user_display} (User): "{user_message}"
-{character_name} (Character): "{clean_assistant[:1500]}"
-
-Extrahiere als JSON-Array. Fuer jede Erinnerung:
-- memory_type: "semantic" (Fakt/Info) oder "commitment" (Versprechen/Plan)
-- content: Kurzer, kompakter Satz (max 1-2 Saetze)
-- importance: 1-5 (5=kritisch, 4=wichtig, 3=mittel, 2=nebensaechlich)
-- tags: Liste von Stichworten
-- delay: NUR bei commitment — Zeitangabe wann (z.B. "30m", "2h", "1d", "morgen", "14:00"). Leer lassen wenn kein Zeitpunkt genannt.
-
-Bereits gespeicherte Erinnerungen (NICHT wiederholen):
-{existing_summary}
-
-{"Offene Versprechen/Plaene (prüfe ob eines davon durch diesen Austausch erledigt wurde):" + chr(10) + commitments_list if commitments_list else ""}
-
-WICHTIG:
-- Extrahiere NUR Fakten (semantic) und Versprechen (commitment)
-- KEINE episodischen Erinnerungen (Erlebnisse) — diese werden automatisch aus der Chat-History konsolidiert
-- Extrahiere aus BEIDEN Seiten (User UND Character)
-- Verwende "{user_display}" statt "User" oder "Ich"
-- "commitment" braucht ENTWEDER (a) eine konkrete Zeitangabe ODER (b) eine externe Person als Adressaten ("verspricht X", "beauftragt Y", "vereinbart mit Z"). Innere Plaene ohne Zeitangabe und ohne Adressat sind KEIN commitment, sondern allenfalls semantic.
-- Bei commitments mit Zeitangabe: setze "delay" (z.B. "morgen", "um 14 Uhr", "in 2 Stunden")
-- MAXIMAL 2 commitments pro Extraktion. Wenn mehr Plaene im Text auftauchen, waehle die wichtigsten.
-- Wenn ein offenes Versprechen durch diesen Austausch erledigt wurde, gib dessen ID in "completed_ids" an
-- Ignoriere Meta-Tags, Triviales, Smalltalk
-- Wenn nichts Neues: leere Arrays []
-
-Antworte NUR mit gueltigem JSON:
-{{"memories": [
-    {{"memory_type": "...", "content": "...", "importance": N, "tags": ["..."], "delay": "..."}},
-    ...
-],
-"completed_ids": ["mem_...", ...]
-}}"""
+    commitments_block = (
+        "Open promises/plans (check if any was fulfilled by this exchange):\n"
+        + commitments_list
+    ) if commitments_list else ""
 
     try:
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
+
+        sys_prompt, user_prompt = render_task(
+            "extraction_memory",
+            user_display=user_display,
+            user_message=user_message,
+            character_name=character_name,
+            character_response=clean_assistant[:1500],
+            existing_summary=existing_summary,
+            commitments_block=commitments_block)
 
         response = llm_call(
             task="extraction",
-            system_prompt="",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name=character_name)
         content = response.content.strip() if response.content else ""
         if not content:
@@ -566,14 +544,14 @@ def run_consolidation_for_all_users():
     submit_consolidation_for_all()
 
 
-def _llm_summarize(prompt: str, character_name: str) -> str:
+def _llm_summarize(system_prompt: str, user_prompt: str, character_name: str) -> str:
     """Ruft LLM fuer eine Zusammenfassung auf. Returns leeren String bei Fehler."""
     try:
         from app.core.llm_router import llm_call
         response = llm_call(
             task="consolidation",
-            system_prompt="Du bist ein Zusammenfassungs-Assistent. Antworte NUR mit der Zusammenfassung, kein JSON, keine Erklaerung, kein Kommentar.",
-            user_prompt=prompt,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             agent_name=character_name)
         result = (response.content or "").strip() if response else ""
         # LLM-Artefakte bereinigen
@@ -638,16 +616,15 @@ def _consolidate_episodics_to_daily(character_name: str) -> int:
             continue
         existing = existing_daily.get(day_str, "")
 
-        prompt = f"""Fasse den Tag {day_str} fuer {character_name} zusammen.
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "consolidation_daily",
+            day_str=day_str,
+            character_name=character_name,
+            existing=existing,
+            contents=contents)
 
-{"Bestehende Tages-Zusammenfassung:\n" + existing + chr(10) if existing else ""}Einzelne Erinnerungen dieses Tages:
-{contents}
-
-Schreibe 3-5 kompakte Saetze aus der Perspektive von {character_name} (dritte Person).
-Fokussiere auf: Schluesselmomente, beteiligte Personen, Emotionen, Entscheidungen.
-Antworte NUR mit der Zusammenfassung."""
-
-        summary = _llm_summarize(prompt, character_name)
+        summary = _llm_summarize(sys_prompt, user_prompt, character_name)
         if summary:
             save_daily_summary(character_name, day_str, summary)
             for e in day_entries:
@@ -756,16 +733,15 @@ def _consolidate_daily_to_weekly(character_name: str) -> int:
             days_to_remove.extend(week_days.keys())
             removed_total += len(week_days)
             continue
-        prompt = f"""Fasse die Woche {week_key} fuer {character_name} zusammen.
 
-Tages-Zusammenfassungen:
-{entries_text}
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "consolidation_weekly",
+            week_key=week_key,
+            character_name=character_name,
+            entries_text=entries_text)
 
-Schreibe 5-8 kompakte Saetze aus der Perspektive von {character_name} (dritte Person).
-Fokussiere auf: Wichtigste Ereignisse der Woche, Beziehungsentwicklungen, emotionale Hoehepunkte.
-Antworte NUR mit der Zusammenfassung."""
-
-        summary = _llm_summarize(prompt, character_name)
+        summary = _llm_summarize(sys_prompt, user_prompt, character_name)
         if summary:
             save_weekly_summary(character_name, week_key, summary)
             days_to_remove.extend(week_days.keys())
@@ -860,16 +836,15 @@ def _consolidate_weekly_to_monthly(character_name: str) -> int:
         entries_text = "\n".join(
             f"- {w}: {s}" for w, s in sorted(month_weeks.items())
         )
-        prompt = f"""Fasse den Monat {month_key} fuer {character_name} zusammen.
 
-Wochen-Zusammenfassungen:
-{entries_text}
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "consolidation_monthly",
+            month_key=month_key,
+            character_name=character_name,
+            entries_text=entries_text)
 
-Schreibe 5-10 kompakte Saetze aus der Perspektive von {character_name} (dritte Person).
-Fokussiere auf: Grosse Ereignisse, Beziehungsentwicklungen, persoenliches Wachstum, Wendepunkte.
-Antworte NUR mit der Zusammenfassung."""
-
-        summary = _llm_summarize(prompt, character_name)
+        summary = _llm_summarize(sys_prompt, user_prompt, character_name)
         if summary:
             save_monthly_summary(character_name, month_key, summary)
             weeks_to_remove.extend(month_weeks.keys())

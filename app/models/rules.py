@@ -101,17 +101,6 @@ def save_rules(rules: List[Dict[str, Any]]):
     except Exception as e:
         logger.error("save_rules DB-Fehler: %s", e)
 
-    # JSON-Backup
-    try:
-        path = _get_rules_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"rules": rules}, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    except Exception:
-        pass
-
 
 def add_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
     """Fuegt eine neue Regel hinzu."""

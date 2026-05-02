@@ -605,31 +605,29 @@ class SchedulerManager:
                         except (ValueError, TypeError):
                             pass
                 if todays_episodes:
-                    memory_context += "\nHeutige Erlebnisse:\n" + "\n".join(todays_episodes[-10:])
+                    memory_context += "\nToday's experiences:\n" + "\n".join(todays_episodes[-10:])
                 if open_commitments:
-                    memory_context += "\nOffene Versprechen/Plaene:\n" + "\n".join(open_commitments[-5:])
+                    memory_context += "\nOpen promises/plans:\n" + "\n".join(open_commitments[-5:])
             except Exception as mem_err:
                 logger.debug("_llm_choose_location: Memory-Kontext Fehler: %s", mem_err)
 
-            system_prompt = (
-                f"Du bist {char_name}. {personality}\n\n"
-                f"Aktuelle Situation:\n"
-                f"- Uhrzeit: {time_str}\n"
-                f"- Aktueller Ort: {cur_loc_name}\n"
-                f"- Aktivitaet: {cur_activity}\n"
-                f"- Stimmung: {cur_feeling}\n"
-                f"{memory_context}\n\n"
-                f"Verfuegbare Orte:\n{loc_list_str}\n\n"
-                f"Waehle den Ort, an den du jetzt gehen moechtest. "
-                f"Beruecksichtige dabei deine heutigen Erlebnisse und offene Versprechen. "
-                f"Antworte NUR mit der ID des Ortes (8-stelliger Hex-Code), nichts anderes."
-            )
+            from app.core.prompt_templates import render_task
+            system_prompt, user_prompt = render_task(
+                "intent_location",
+                character_name=char_name,
+                personality=personality,
+                time_str=time_str,
+                current_location_name=cur_loc_name,
+                current_activity=cur_activity,
+                current_feeling=cur_feeling,
+                memory_context=memory_context,
+                location_list=loc_list_str)
 
             try:
                 result = llm_call(
                     task="intent_location",
                     system_prompt=system_prompt,
-                    user_prompt="Wohin moechtest du jetzt gehen?",
+                    user_prompt=user_prompt,
                     agent_name=character)
             except RuntimeError:
                 logger.warning("_llm_choose_location: Kein LLM fuer %s", character)
@@ -1517,20 +1515,19 @@ class SchedulerManager:
             return {"success": True, "action": "daily_schedule", "skipped": True,
                     "reason": f"Kein Slot fuer Stunde {current_hour}"}
 
-        # Sleep-Slot: Character schlaeft — Aktivitaet setzen, Home-Location zuweisen
-        if current_slot.get("activity") == "__sleep__":
-            logger.info("Tagesablauf %s: Stunde %d -> Schlaeft (alle Aktivitaeten pausiert)", character, current_hour)
+        # Sleep-Slot detection: prefer the explicit sleep flag but fall back
+        # to the legacy activity == "__sleep__" sentinel for old schedules.
+        is_sleep_slot = bool(current_slot.get("sleep")) or \
+            current_slot.get("activity") == "__sleep__" or \
+            current_slot.get("location") == "__sleep__"
+
+        if is_sleep_slot:
+            logger.info("Tagesablauf %s: Stunde %d -> Schlaeft", character, current_hour)
             from app.models.character import (
                 save_character_current_activity, get_character_config,
                 save_character_current_location, save_character_current_room)
-            # Sleep-Aktivitaet aus Bibliothek
             cfg = get_character_config(character)
             save_character_current_activity(character, "Sleeping")
-            # Home-Location/Room aus Config setzen.
-            # Sentinel "__offmap__" = Character schlaeft ausserhalb der Welt
-            # (kein Ort in der Karte). Location wird auf "" gesetzt → Character
-            # erscheint im "Ohne Ort"-Tray, Activity bleibt "Sleeping" → UI
-            # kennzeichnet ihn als schlafend ausserhalb.
             home_loc = cfg.get("home_location", "")
             home_room = cfg.get("home_room", "")
             if home_loc == OFFMAP_SLEEP_SENTINEL:
@@ -1544,29 +1541,6 @@ class SchedulerManager:
             return {"success": True, "action": "daily_schedule", "sleeping": True}
 
         location = current_slot.get("location", "")
-        activity = current_slot.get("activity", "")
-
-        # __sleep__ ist ein Activity-Sentinel — als Location ist er ungueltig
-        # (kam z.B. durch fehlerhafte Slot-Eingabe zustande). Behandle wie
-        # Sleep-Slot.
-        if location == "__sleep__":
-            logger.info("Tagesablauf %s: Stunde %d -> Sleep-Sentinel in location, behandle als Schlaf", character, current_hour)
-            from app.models.character import (
-                save_character_current_activity, get_character_config,
-                save_character_current_location, save_character_current_room)
-            cfg = get_character_config(character)
-            save_character_current_activity(character, "Sleeping")
-            home_loc = cfg.get("home_location", "")
-            home_room = cfg.get("home_room", "")
-            if home_loc == OFFMAP_SLEEP_SENTINEL:
-                save_character_current_location(character, "")
-                save_character_current_room(character, "")
-            else:
-                if home_loc:
-                    save_character_current_location(character, home_loc)
-                if home_room:
-                    save_character_current_room(character, home_room)
-            return {"success": True, "action": "daily_schedule", "sleeping": True}
 
         # __llm_choice__: Character waehlt per LLM selbst wo er hin will
         if location == "__llm_choice__":
@@ -1582,11 +1556,23 @@ class SchedulerManager:
         if not location:
             return {"success": False, "error": "Slot ohne Location"}
 
-        logger.info("Tagesablauf %s: Stunde %d -> Location=%s, Activity=%s",
-                     character, current_hour, location, activity)
+        # The slot may also pin an activity. If set, apply it; if not, the
+        # AgentLoop's next thought turn decides what the character does.
+        activity = (current_slot.get("activity") or "").strip()
+        # Reject the legacy __sleep__ sentinel as activity (already handled
+        # above as is_sleep_slot). Other __sentinels__ are user input bugs;
+        # ignore them so the agent decides.
+        if activity.startswith("__"):
+            activity = ""
 
-        return self._action_set_status(
-            {"location": location, "activity": activity}, character)
+        logger.info("Tagesablauf %s: Stunde %d -> Location=%s%s",
+                     character, current_hour, location,
+                     f", Activity={activity}" if activity else "")
+
+        status = {"location": location}
+        if activity:
+            status["activity"] = activity
+        return self._action_set_status(status, character)
 
     def toggle_job(self, job_id: str) -> Dict[str, Any]:
         """Aktiviert/Deaktiviert einen Job"""

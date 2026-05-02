@@ -347,6 +347,7 @@ a:hover { text-decoration: underline; }
     </div>
     <div class="header-links">
         <a href="/">Chat</a>
+        <a href="/admin/llm-stats">LLM Stats</a>
         <a href="/logs/llm">LLM Logs</a>
         <a href="/logs/image-prompts">Image Logs</a>
     </div>

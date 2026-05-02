@@ -91,7 +91,7 @@ def load_feed() -> List[Dict[str, Any]]:
 
 
 def save_feed(feed: List[Dict[str, Any]]):
-    """Speichert den unified Feed in die DB (Upsert) + JSON-Backup.
+    """Speichert den unified Feed in die DB (Upsert).
 
     Instagram-Posts werden in der events-Tabelle mit kind='instagram_post' gespeichert.
     Lookup fuer Updates: post_id ist in payload["id"].
@@ -141,16 +141,6 @@ def save_feed(feed: List[Dict[str, Any]]):
                     )
     except Exception as e:
         logger.error("save_feed DB-Fehler: %s", e)
-
-    # JSON-Backup
-    try:
-        feed_path = get_feed_path()
-        feed_path.write_text(
-            json.dumps(feed, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    except Exception:
-        pass
 
 
 def create_post(character_name: str,

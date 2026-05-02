@@ -381,20 +381,25 @@ def _content_to_lines(content: str) -> List[str]:
 
 
 def _append_evolution_history(character_name: str, entry: Dict[str, Any]):
-    """Append entry to character_evolution_history.json (capped)."""
+    """Append entry to evolution_history-Tabelle (capped auf 100 Eintraege)."""
     try:
-        from app.models.character import get_character_dir
-        path = get_character_dir(character_name) / "character_evolution_history.json"
-        history = []
-        if path.exists():
-            try:
-                history = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                history = []
-        history.append(entry)
-        if len(history) > 100:
-            history = history[-100:]
-        path.write_text(json.dumps(history, indent=2, ensure_ascii=False) + "\n",
-                        encoding="utf-8")
+        from app.core.db import transaction
+        ts = entry.get("timestamp", "")
+        field = entry.get("section", "")
+        new_value = json.dumps(entry, ensure_ascii=False)
+        reason = entry.get("reason", "") or entry.get("trigger", "")
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO evolution_history (character_name, ts, field, "
+                "old_value, new_value, reason) VALUES (?, ?, ?, '', ?, ?)",
+                (character_name, ts, field, new_value, reason),
+            )
+            # Cap auf 100 — aelteste loeschen
+            conn.execute(
+                "DELETE FROM evolution_history WHERE id IN ("
+                "SELECT id FROM evolution_history WHERE character_name=? "
+                "ORDER BY id DESC LIMIT -1 OFFSET 100)",
+                (character_name,),
+            )
     except Exception as e:
         logger.debug("evolution_history append failed: %s", e)

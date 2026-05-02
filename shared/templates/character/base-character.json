@@ -538,34 +538,31 @@
           "hint_de": "Wenn aktiv, denkt der Character periodisch nach und kann autonom handeln (reden, Nachrichten senden, Aktivitaet aendern, etc.)"
         },
         {
-          "key": "thoughts_probability",
-          "label": "Probability",
-          "label_de": "Wahrscheinlichkeit",
-          "type": "text",
+          "key": "importance",
+          "label": "Importance",
+          "label_de": "Wichtigkeit",
+          "type": "select",
+          "options": [
+            {
+              "value": 1,
+              "label": "Low",
+              "label_de": "Niedrig"
+            },
+            {
+              "value": 2,
+              "label": "Medium",
+              "label_de": "Mittel"
+            },
+            {
+              "value": 3,
+              "label": "High",
+              "label_de": "Hoch"
+            }
+          ],
           "store": "config",
-          "default": "0.3",
-          "hint": "Probability per check (0.0 - 1.0). Higher = more frequent thoughts",
-          "hint_de": "Wahrscheinlichkeit pro Pruefung (0.0 - 1.0). Hoeher = haeufigere Gedanken"
-        },
-        {
-          "key": "thoughts_max_daily",
-          "label": "Max per day",
-          "label_de": "Max pro Tag",
-          "type": "text",
-          "store": "config",
-          "default": "5",
-          "hint": "Maximum number of non-forced thoughts per day",
-          "hint_de": "Maximale Anzahl nicht-forcierter Gedanken pro Tag"
-        },
-        {
-          "key": "thoughts_cooldown_minutes",
-          "label": "Cooldown (min)",
-          "label_de": "Cooldown (Min)",
-          "type": "text",
-          "store": "config",
-          "default": "60",
-          "hint": "Minimum minutes between two non-forced thoughts",
-          "hint_de": "Mindestabstand in Minuten zwischen zwei nicht-forcierten Gedanken"
+          "default": 1,
+          "hint": "How often this character gets to think relative to others. High = 3x as often as Low.",
+          "hint_de": "Wie oft dieser Character im Vergleich zu anderen denken darf. Hoch = 3x so oft wie Niedrig."
         }
       ]
     },

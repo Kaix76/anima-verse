@@ -1,25 +1,17 @@
 """Notification storage and CRUD operations.
 
-Notifications are stored per-user in:
-    storage/users/{user_id}/notifications.json
-
+Notifications are stored per-world in der DB-Tabelle `notifications`.
 Each notification has: id, character, content, timestamp, read, type, metadata.
-A sliding window keeps the file size bounded (max MAX_NOTIFICATIONS entries).
+A sliding window keeps the row count bounded (max MAX_NOTIFICATIONS entries).
 """
 import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 MAX_NOTIFICATIONS = 200
 
-from app.core.paths import get_storage_dir
 from app.core.db import get_connection, transaction
-
-
-def _get_file() -> Path:
-    return get_storage_dir() / "notifications.json"
 
 
 def _row_to_notification(row) -> Dict[str, Any]:
@@ -53,24 +45,8 @@ def _load() -> List[Dict[str, Any]]:
             (MAX_NOTIFICATIONS,),
         ).fetchall()
         return [_row_to_notification(r) for r in rows]
-    except Exception as e:
-        # Fallback: JSON-Datei
-        f = _get_file()
-        if f.exists():
-            try:
-                return json.loads(f.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+    except Exception:
         return []
-
-
-def _save(data: List[Dict[str, Any]]) -> None:
-    """Speichert Notifications-Liste (nur fuer JSON-Backup; DB-Schreibungen sind direkt)."""
-    f = _get_file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    # Entferne interne Felder fuer das Backup
-    clean = [{k: v for k, v in n.items() if k != "_db_id"} for n in data]
-    f.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def create_notification(character: str,
@@ -99,22 +75,8 @@ def create_notification(character: str,
                 ")",
                 (MAX_NOTIFICATIONS,),
             )
-    except Exception as e:
-        # Fallback: JSON-Datei
-        entry = {
-            "id": nid,
-            "character": character,
-            "content": content,
-            "timestamp": now,
-            "read": False,
-            "type": notification_type,
-            "metadata": metadata or {},
-        }
-        data = _load()
-        data.insert(0, entry)
-        if len(data) > MAX_NOTIFICATIONS:
-            data = data[:MAX_NOTIFICATIONS]
-        _save(data)
+    except Exception:
+        pass
     return nid
 
 
@@ -169,13 +131,7 @@ def get_notifications(limit: int = 50,
             items = [n for n in items if _visible_to(n, allowed)]
         return items[:limit]
     except Exception:
-        data = _load()
-        if unread_only:
-            data = [n for n in data if not n.get("read", False)]
-        if character_whitelist is not None:
-            allowed = set(character_whitelist)
-            data = [n for n in data if _visible_to(n, allowed)]
-        return data[offset : offset + limit]
+        return []
 
 
 def get_unread_count(character_whitelist: Optional[List[str]] = None) -> int:
@@ -207,8 +163,7 @@ def get_unread_count(character_whitelist: Optional[List[str]] = None) -> int:
                 count += 1
         return count
     except Exception:
-        data = _load()
-        return sum(1 for n in data if not n.get("read", False))
+        return 0
 
 
 def mark_read(notification_id: str) -> bool:
@@ -233,13 +188,6 @@ def mark_read(notification_id: str) -> bool:
                     pass
     except Exception:
         pass
-    # Fallback: JSON
-    data = _load()
-    for n in data:
-        if n.get("id") == notification_id:
-            n["read"] = True
-            _save(data)
-            return True
     return False
 
 
@@ -255,15 +203,7 @@ def mark_all_read() -> int:
                 conn.execute("UPDATE notifications SET read=1 WHERE read=0")
             return count
     except Exception:
-        data = _load()
-        count = 0
-        for n in data:
-            if not n.get("read", False):
-                n["read"] = True
-                count += 1
-        if count:
-            _save(data)
-        return count
+        return 0
 
 
 def delete_notification(notification_id: str) -> bool:
@@ -286,11 +226,4 @@ def delete_notification(notification_id: str) -> bool:
                     pass
     except Exception:
         pass
-    # Fallback: JSON
-    data = _load()
-    before = len(data)
-    data = [n for n in data if n.get("id") != notification_id]
-    if len(data) < before:
-        _save(data)
-        return True
     return False

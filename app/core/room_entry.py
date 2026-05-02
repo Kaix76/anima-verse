@@ -209,34 +209,20 @@ def on_avatar_room_entry(avatar_name: str,
                      avatar_name, len(candidates), len(silent))
         return result
 
-    label = (room_label or location_label or "den Raum").strip() or "den Raum"
-    hint = (
-        f"{avatar_name} ist gerade in {label} reingekommen. "
-        f"Du bist auch hier. Begruesse {avatar_name} kurz wenn es zu dir passt — "
-        f"oder ignoriere die Person falls du gerade nicht in Stimmung bist."
-    )
+    label = (room_label or location_label or "the room").strip() or "the room"
 
     try:
-        from app.core.background_queue import get_background_queue
-        get_background_queue().submit("forced_thought", {
-            "user_id": "",
-            "character_name": reactor,
-            "context_hint": hint,
-            # Sinnvolle Reaktionen auf Avatar-Eintritt:
-            # - TalkTo: Begruessung
-            # - ChangeOutfit: schnell anziehen wenn nicht mehr allein
-            # - SetActivity: Activity wechseln (wegen Anwesenheit)
-            # - SetLocation: in anderen Raum fliehen / Privatsphaere geben
-            "tool_whitelist": ["TalkTo", "ChangeOutfit", "SetActivity", "SetLocation"],
-            # Eigener LLM-Task: per Admin-UI separat zuweisbar (faellt automatisch
-            # auf "thought" zurueck wenn nicht geroutet).
-            "llm_task": "thought_greeting",
-        })
+        # AgentLoop bump: reactor processes the entry on their next slot.
+        # The presence block in agent_thought.md will show the avatar in
+        # the location list, so the agent has full context without us
+        # having to inject a context_hint here.
+        from app.core.agent_loop import get_agent_loop
+        get_agent_loop().bump(reactor)
         _record_greeting(reactor, avatar_name, label)
-        logger.info("Avatar-Eintritt: %s reagiert auf %s in '%s'",
+        logger.info("Avatar entry: %s bumped to react to %s in '%s'",
                     reactor, avatar_name, label)
         result["reactor"] = reactor
         return result
     except Exception as e:
-        logger.warning("on_avatar_room_entry: forced_thought submit failed: %s", e)
+        logger.warning("on_avatar_room_entry: bump failed: %s", e)
         return result

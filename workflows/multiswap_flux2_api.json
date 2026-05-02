@@ -162,7 +162,7 @@
   },
   "320": {
     "inputs": {
-      "image": "Diego_1772140790_c3aeaaaf_1.png",
+      "image": "",
       "resize": true,
       "width": [
         "325",
@@ -180,7 +180,7 @@
     },
     "class_type": "LoadAndResizeImage",
     "_meta": {
-      "title": "input_reference_image1"
+      "title": "input_reference_image_1"
     }
   },
   "321": {
@@ -227,7 +227,7 @@
   },
   "326": {
     "inputs": {
-      "image": "Vallerie_1775997705_d8e7e0b2_1.png"
+      "image": ""
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -260,7 +260,7 @@
     },
     "class_type": "Switch any [Crystools]",
     "_meta": {
-      "title": "input_reference_image1_use"
+      "title": "input_reference_image_1_use"
     }
   },
   "333": {
@@ -274,7 +274,7 @@
   },
   "334": {
     "inputs": {
-      "gguf_name": "Flux.2-9B-Q8.gguf"
+      "gguf_name": ""
     },
     "class_type": "LoaderGGUF",
     "_meta": {
@@ -283,7 +283,7 @@
   },
   "335": {
     "inputs": {
-      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "clip_name": "",
       "type": "flux2",
       "device": "default"
     },
@@ -294,7 +294,7 @@
   },
   "336": {
     "inputs": {
-      "image": "Kira_1771187718.png",
+      "image": "",
       "resize": true,
       "width": [
         "325",
@@ -312,7 +312,7 @@
     },
     "class_type": "LoadAndResizeImage",
     "_meta": {
-      "title": "input_reference_image2"
+      "title": "input_reference_image_2"
     }
   },
   "338": {
@@ -344,7 +344,7 @@
     },
     "class_type": "Switch any [Crystools]",
     "_meta": {
-      "title": "input_reference_image2_use"
+      "title": "input_reference_image_2_use"
     }
   },
   "319:119": {

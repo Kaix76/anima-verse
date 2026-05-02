@@ -97,13 +97,17 @@ class OutfitChangeSkill(BaseSkill):
                 logger.debug("Dress-Code-Override pruefen fehlgeschlagen: %s", _err)
 
             picks = self._pick_pieces_by_type(character_name, ttype)
-            for slot, iid in picks.items():
+            # Multi-Slot-Pieces tauchen in picks unter mehreren Slots auf —
+            # pro item_id nur einmal equip_piece aufrufen (das raeumt die
+            # Mirror-Slots eigenstaendig).
+            for iid in dict.fromkeys(picks.values()):
                 r = equip_piece(character_name, iid)
                 if r.get("status") == "ok":
                     nm = self._item_label(iid)
-                    results.append(f"'{nm}' angelegt (Slot {slot})")
+                    slots_str = "+".join(r.get("slots") or [])
+                    results.append(f"'{nm}' angelegt (Slot {slots_str})")
                 else:
-                    errors.append(f"Slot '{slot}': {r.get('reason', 'equip fehlgeschlagen')}")
+                    errors.append(f"'{self._item_label(iid)}': {r.get('reason', 'equip fehlgeschlagen')}")
             if not picks:
                 errors.append(f"Keine passenden Pieces fuer Typ '{ttype}' im Inventar.")
 
@@ -144,9 +148,11 @@ class OutfitChangeSkill(BaseSkill):
             if it.get("category") == "outfit_piece":
                 r = equip_piece(character_name, iid)
                 if r.get("status") == "ok":
-                    msg = f"'{it.get('name', iid)}' angelegt (Slot {r.get('slot')})"
-                    if r.get("replaced"):
-                        msg += f", ersetzt '{self._item_label(r['replaced'])}'"
+                    slots_str = "+".join(r.get("slots") or [])
+                    msg = f"'{it.get('name', iid)}' angelegt (Slot {slots_str})"
+                    if r.get("displaced"):
+                        labels = ", ".join(self._item_label(d) for d in r["displaced"])
+                        msg += f", ersetzt '{labels}'"
                     results.append(msg)
                 else:
                     errors.append(f"'{token}': {r.get('reason', 'equip fehlgeschlagen')}")
@@ -168,24 +174,36 @@ class OutfitChangeSkill(BaseSkill):
                 from app.models.inventory import get_equipped_pieces
                 already_equipped = get_equipped_pieces(character_name) or {}
                 loc_picks = self._pick_pieces_by_type(character_name, loc_type)
+                # Pro distinct item_id einmal equip_piece — und nur wenn KEINER
+                # der Slots, die das Piece belegen wuerde, schon besetzt ist.
+                # Sonst wuerde ein Multi-Slot-Kleid einen bereits angezogenen
+                # Top/Skirt verdraengen, was im Auto-Fill nicht gewollt ist.
+                seen_iids: set = set()
                 for slot, iid in loc_picks.items():
-                    if already_equipped.get(slot):
+                    if iid in seen_iids:
+                        continue
+                    seen_iids.add(iid)
+                    item_def = get_item(iid) or {}
+                    item_slots = (item_def.get("outfit_piece") or {}).get("slots") or []
+                    if any(already_equipped.get(s) for s in item_slots):
                         continue
                     r = equip_piece(character_name, iid)
                     if r.get("status") == "ok":
                         nm = self._item_label(iid)
-                        results.append(f"'{nm}' angelegt (Slot {slot}, Location-Match {loc_type})")
+                        slots_str = "+".join(r.get("slots") or [])
+                        results.append(f"'{nm}' angelegt (Slot {slots_str}, Location-Match {loc_type})")
             except Exception as _e:
                 logger.debug("Location-Auffuellung fehlgeschlagen: %s", _e)
 
-        # 6) Pflicht-Slots-Check: wenn weder Top noch Full-Body vorhanden,
-        # ist das Outfit unvollstaendig — OutfitCreation ergaenzen.
+        # 6) Pflicht-Slot-Check: ohne top ist das Outfit unvollstaendig.
+        # (Multi-Slot-Pieces wie Kleid/Jumpsuit setzen top mit, also reicht
+        # die Pruefung auf top.) Triggert OutfitCreation als Fallback.
         try:
             from app.models.inventory import get_equipped_pieces
             final_eq = get_equipped_pieces(character_name) or {}
         except Exception:
             final_eq = {}
-        missing_essential = not (final_eq.get("top") or final_eq.get("full_body") or final_eq.get("dress"))
+        missing_essential = not final_eq.get("top")
 
         # Ergebnis zusammenfassen
         out_parts: List[str] = []
@@ -385,23 +403,36 @@ class OutfitChangeSkill(BaseSkill):
         damit neutrale Schuhe/Guertel nicht unnoetig getauscht werden.
         """
         inv = self._inventory_item_index(character_name)
-        # Pro Slot die Kandidaten einsammeln; gefolgt von einer Rangfolge
-        by_slot_strict: Dict[str, str] = {}
+        # Multi-Slot-Pieces zuerst behandeln, damit sie alle ihre Slots
+        # reservieren bevor Single-Slot-Kandidaten reinrutschen — sonst
+        # wuerde z.B. ein Skirt fuer 'bottom' gepickt, dann wuerde ein
+        # spaeter equippter Kleid (top+bottom) den Skirt verdraengen.
         tlow = target_type.strip().lower()
+        candidates: List[tuple] = []  # (slot_count_desc, iid, slots_list)
         for entry in inv:
             if entry.get("item_category") != "outfit_piece":
                 continue
             op = entry.get("outfit_piece") or {}
-            slot = (op.get("slot") or "").strip()
-            if not slot:
+            slots = [str(s or "").strip().lower() for s in (op.get("slots") or []) if s]
+            slots = [s for s in slots if s]
+            if not slots:
                 continue
-            if slot in by_slot_strict:
-                continue  # ersten Treffer pro Slot nehmen
             types = [str(t).strip().lower() for t in (op.get("outfit_types") or [])]
-            if tlow in types:
-                iid = entry.get("item_id") or ""
-                if iid:
-                    by_slot_strict[slot] = iid
+            if tlow not in types:
+                continue
+            iid = entry.get("item_id") or ""
+            if not iid:
+                continue
+            candidates.append((len(slots), iid, slots))
+        # Multi-Slot-Pieces (mehr Slots) zuerst, dann Single-Slot.
+        candidates.sort(key=lambda c: -c[0])
+        by_slot_strict: Dict[str, str] = {}
+        for _count, iid, slots in candidates:
+            # Nur uebernehmen wenn KEINER der Slots schon belegt ist.
+            if any(s in by_slot_strict for s in slots):
+                continue
+            for slot in slots:
+                by_slot_strict[slot] = iid
         return by_slot_strict
 
     # ------------------------------------------------------------------

@@ -90,7 +90,7 @@ def load_sessions() -> List[Dict[str, Any]]:
 
 
 def save_sessions(sessions: List[Dict[str, Any]]):
-    """Speichert alle Sessions in die DB (Upsert) und JSON-Backup."""
+    """Speichert alle Sessions in die DB (Upsert)."""
     now = _now_iso()
     try:
         with transaction() as conn:
@@ -127,15 +127,6 @@ def save_sessions(sessions: List[Dict[str, Any]]):
                 ))
     except Exception as e:
         logger.error("save_sessions DB-Fehler: %s", e)
-
-    # JSON-Backup
-    try:
-        path = _sessions_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"sessions": sessions, "last_updated": now}
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def get_active_session(location_id: str) -> Optional[Dict[str, Any]]:

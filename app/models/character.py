@@ -383,7 +383,7 @@ _RESERVED_NAMES = {"user", "admin", "system", "default", "player", ""}
 
 
 def save_character_profile(character_name: str, profile: Dict[str, Any]):
-    """Speichert das Profil eines Characters in der DB (und als JSON-Backup).
+    """Speichert das Profil eines Characters in der DB.
 
     Stellt sicher dass die Soul-MD-Dateien gemaess Template existieren
     (legt fehlende aus shared/templates/soul/ an).
@@ -510,8 +510,6 @@ def save_character_profile(character_name: str, profile: Dict[str, Any]):
     except Exception as e:
         logger.error("save_character_profile DB-Fehler fuer %s: %s", character_name, e)
 
-    # JSON-Backup: persistiertes (gestripptes) Profil auf Disk
-    profile_path.write_text(json.dumps(profile_to_store, ensure_ascii=False, indent=2))
     # Caller erwartet dass der uebergebene Dict weiterhin die Runtime-Keys hat
     profile.update(state_values)
     for k, v in state_meta.items():
@@ -528,15 +526,11 @@ def save_character_profile(character_name: str, profile: Dict[str, Any]):
         from app.models.character_template import get_template as _gt
         _tmpl = _gt(profile.get("template", ""))
         if _tmpl:
-            _changed = False
             for _section in _tmpl.get("sections", []):
                 for _field in _section.get("fields", []):
                     _key = _field.get("key", "")
                     if _key and _field.get("source_file") and _key in profile:
                         del profile[_key]
-                        _changed = True
-            if _changed:
-                profile_path.write_text(json.dumps(profile, ensure_ascii=False, indent=2))
     except Exception as _se:
         logger.debug("ensure/populate soul files failed for %s: %s", character_name, _se)
 
@@ -585,6 +579,9 @@ def _get_character_defaults() -> Dict[str, Any]:
         "tts_voice": "",
         "tts_speaker_wav": "",
         "tool_format": "auto",
+        # Agent-Loop scheduling weight: 1=Low, 2=Medium, 3=High. High agents
+        # get picked 3x as often as Low. See app/core/agent_loop.py.
+        "importance": 1,
     }
 
 
@@ -596,6 +593,13 @@ def get_character_config(character_name: str) -> Dict[str, Any]:
     """
     if not character_name:
         return {}
+
+    # Reserved names (system, admin, user, ...) are not real characters;
+    # return defaults without writing anything to disk. Without this guard
+    # the auto-create branch below would call save_character_config which
+    # rightly skips and emits a warning per call.
+    if character_name.lower() in _RESERVED_NAMES:
+        return dict(_get_character_defaults(), name=character_name)
 
     config = None
 
@@ -624,6 +628,11 @@ def get_character_config(character_name: str) -> Dict[str, Any]:
         config = _get_character_defaults()
         save_character_config(character_name, config)
         logger.info("Auto-Config fuer %s erstellt", character_name)
+    else:
+        # Fill in fields that have a default but are missing in the stored
+        # config — keeps existing characters in sync when new fields ship.
+        for _key, _default in _get_character_defaults().items():
+            config.setdefault(_key, _default)
 
     # Name injizieren (fuer TTS etc.)
     config["name"] = character_name
@@ -637,7 +646,7 @@ def get_character_config(character_name: str) -> Dict[str, Any]:
 
 
 def save_character_config(character_name: str, config: Dict[str, Any]):
-    """Speichert die per-Character Konfiguration in DB und als JSON-Backup."""
+    """Speichert die per-Character Konfiguration in DB."""
     if character_name.lower() in _RESERVED_NAMES:
         logger.warning("save_character_config: reservierter Name '%s' uebersprungen",
                        character_name)
@@ -661,12 +670,6 @@ def save_character_config(character_name: str, config: Dict[str, Any]):
             ))
     except Exception as e:
         logger.error("save_character_config DB-Fehler fuer %s: %s", character_name, e)
-
-    # JSON-Backup
-    config_path = _get_character_config_path(character_name)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
 
 
 def get_character_appearance(character_name: str) -> str:
@@ -1400,33 +1403,82 @@ def ensure_soul_files(character_name: str) -> int:
     return created
 
 
-def _get_outfits_json_path(character_name: str) -> Path:
-    """Pfad zur outfits.json (Liste der Outfit-Definitionen, ohne image_meta)."""
-    return get_character_dir(character_name) / "outfits.json"
+_OUTFIT_COLUMNS = ("id", "name", "pieces", "image", "created_at")
 
 
 def _load_outfits_file(character_name: str) -> List[Dict]:
-    """Laedt outfits.json. Fallback: profile['outfits'] (vor Migration)."""
-    p = _get_outfits_json_path(character_name)
-    if p.exists():
+    """Laedt Outfit-Definitionen aus outfits_sets-Tabelle."""
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT id, name, pieces, image, meta, created_at FROM outfits_sets "
+            "WHERE character_name=? ORDER BY created_at ASC",
+            (character_name,),
+        ).fetchall()
+    except Exception as e:
+        logger.warning("_load_outfits_file DB-Fehler fuer %s: %s", character_name, e)
+        return []
+    outfits = []
+    for r in rows:
         try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            return data.get("outfits", []) or []
+            pieces = json.loads(r[2] or "[]")
         except Exception:
-            return []
-    # Fallback: alte embedded Liste (sollte nach Migration nicht mehr greifen)
-    return get_character_profile(character_name).get("outfits", []) or []
+            pieces = []
+        try:
+            meta = json.loads(r[4] or "{}")
+        except Exception:
+            meta = {}
+        outfit = {
+            "id": r[0],
+            "name": r[1] or "",
+            "image": r[3] or "",
+            "created_at": r[5] or "",
+            "pieces": pieces,
+        }
+        outfit.update(meta)
+        outfits.append(outfit)
+    return outfits
 
 
 def _save_outfits_file(character_name: str, outfits: List[Dict]):
-    """Schreibt outfits.json (KEIN image_meta-Feld — das geht in Sidecar)."""
-    p = _get_outfits_json_path(character_name)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    # image_meta vor dem Schreiben rausziehen (sollte ohnehin nicht da sein)
-    clean = [{k: v for k, v in o.items() if k != "image_meta"} for o in outfits]
-    p.write_text(
-        json.dumps({"outfits": clean}, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8")
+    """Schreibt Outfit-Definitionen in outfits_sets-Tabelle (KEIN image_meta)."""
+    now = datetime.now().isoformat()
+    new_ids = {o.get("id") for o in outfits if o.get("id")}
+    try:
+        with transaction() as conn:
+            existing_ids = {r[0] for r in conn.execute(
+                "SELECT id FROM outfits_sets WHERE character_name=?",
+                (character_name,),
+            ).fetchall()}
+            for oid in existing_ids - new_ids:
+                conn.execute("DELETE FROM outfits_sets WHERE id=?", (oid,))
+            for outfit in outfits:
+                oid = outfit.get("id")
+                if not oid:
+                    continue
+                pieces = outfit.get("pieces", [])
+                meta = {k: v for k, v in outfit.items()
+                        if k not in _OUTFIT_COLUMNS and k != "image_meta"}
+                conn.execute("""
+                    INSERT INTO outfits_sets (id, character_name, name, pieces,
+                        image, meta, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name=excluded.name,
+                        pieces=excluded.pieces,
+                        image=excluded.image,
+                        meta=excluded.meta
+                """, (
+                    oid,
+                    character_name,
+                    outfit.get("name", ""),
+                    json.dumps(pieces, ensure_ascii=False),
+                    outfit.get("image", ""),
+                    json.dumps(meta, ensure_ascii=False),
+                    outfit.get("created_at", now),
+                ))
+    except Exception as e:
+        logger.error("_save_outfits_file DB-Fehler fuer %s: %s", character_name, e)
 
 
 def _get_outfit_sidecar_path(character_name: str, image_filename: str) -> Path:
@@ -1445,7 +1497,7 @@ def save_outfit_image_meta(character_name: str, image_filename: str, meta: Dict[
 
 
 def get_character_outfits(character_name: str) -> List[Dict]:
-    """Gibt alle definierten Outfits zurueck (aus outfits.json).
+    """Gibt alle definierten Outfits zurueck (aus outfits_sets-Tabelle).
 
     Migriert automatisch alte Felder (locations: str→list).
     Embedded image_meta aus alten Profilen wird ignoriert — Sidecar ist Quelle.
@@ -1473,9 +1525,9 @@ def find_outfit_by_image(character_name: str, image_filename: str) -> Optional[D
 
 
 def save_character_outfits(character_name: str, outfits: List[Dict]):
-    """Speichert die Outfit-Konfigurationen in outfits.json (KEIN image_meta).
+    """Speichert die Outfit-Konfigurationen in der DB (KEIN image_meta).
 
-    image_meta gehoert in die Sidecar-JSON neben dem PNG, nicht in outfits.json.
+    image_meta gehoert in die Sidecar-JSON neben dem PNG, nicht in der DB.
     """
     for outfit in outfits:
         if not outfit.get("name", "").strip():
@@ -1809,10 +1861,15 @@ def build_equipped_outfit_prompt(character_name: str,
     covered_slots = _collect_covered_slots(pieces)
 
     # Teilverdeckte Slots: {slot → (covering_fragment, covering_slot)}
+    # Multi-Slot-Pieces nur einmal verarbeiten — der Render-Slot (erster Slot
+    # in VALID_PIECE_SLOTS-Reihenfolge) traegt die partially_covers-Beziehung.
     partially_covered: Dict[str, tuple] = {}
-    for _slot, _iid in pieces.items():
-        if not _iid:
+    seen_items: set = set()
+    for _slot in VALID_PIECE_SLOTS:
+        _iid = pieces.get(_slot)
+        if not _iid or _iid in seen_items:
             continue
+        seen_items.add(_iid)
         _it = get_item(_iid)
         if not _it:
             continue
@@ -1834,9 +1891,11 @@ def build_equipped_outfit_prompt(character_name: str,
         if pieces.get(_target):
             suppressed_slots.add(_cslot)
 
-    # Pieces in fester Slot-Reihenfolge sammeln (abgedeckte + unterdrueckte Slots ueberspringen)
+    # Pieces in fester Slot-Reihenfolge sammeln (abgedeckte + unterdrueckte Slots ueberspringen).
+    # Multi-Slot-Pieces werden nur EINMAL gerendert — im ersten ihrer slots, der in
+    # VALID_PIECE_SLOTS-Reihenfolge auftaucht (Render-Slot).
     piece_fragments: List[str] = []
-    rendered_items: set = set()  # Multi-Slot-Pieces nur einmal rendern
+    rendered_items: set = set()
     for slot in VALID_PIECE_SLOTS:
         if slot in covered_slots:
             continue
@@ -1845,15 +1904,10 @@ def build_equipped_outfit_prompt(character_name: str,
         iid = pieces.get(slot)
         if not iid:
             continue
+        if iid in rendered_items:
+            continue  # Mirror-Slot eines bereits gerenderten Multi-Slot-Pieces
         it = get_item(iid)
         if not it:
-            continue
-        # Multi-Slot-Piece: nur im Primary-Slot rendern
-        _op = it.get("outfit_piece") or {}
-        _primary = (_op.get("slot") or "").strip().lower()
-        if _primary and _primary != slot:
-            continue
-        if iid in rendered_items:
             continue
         rendered_items.add(iid)
         frag = (it.get("prompt_fragment") or "").strip()
@@ -2012,17 +2066,29 @@ def generate_random_appearance() -> str:
 def list_available_characters() -> List[str]:
     """Listet alle verfuegbaren Characters aus der DB (Fallback: Dateisystem).
 
-    Namen mit fuehrendem Underscore (_messaging_frame, _system, etc.) sind
-    interne System-Characters und werden ausgefiltert — sie tauchen nicht in
-    Galerie, Roster, Chat-Auswahl etc. auf.
+    Filterung:
+      - Namen mit fuehrendem Underscore (_messaging_frame, _system) sind
+        interne System-Characters
+      - Reservierte Namen (admin, user, system, default, player, "") sind
+        keine spielbaren Characters — sie repraesentieren Login-Accounts
+        oder Sentinels und sollen niemals in Galerie/Roster/Chat-Auswahl
+        auftauchen, auch wenn sie versehentlich als Row in der ``characters``
+        Tabelle landen
     """
+    def _is_real_character(name: str) -> bool:
+        if not name or name.startswith("_"):
+            return False
+        if name.lower() in _RESERVED_NAMES:
+            return False
+        return True
+
     try:
         conn = get_connection()
         rows = conn.execute(
             "SELECT name FROM characters ORDER BY name ASC"
         ).fetchall()
         if rows:
-            return [r[0] for r in rows if not r[0].startswith("_")]
+            return [r[0] for r in rows if _is_real_character(r[0])]
     except Exception as e:
         logger.debug("list_available_characters DB-Fehler: %s", e)
 
@@ -2033,8 +2099,8 @@ def list_available_characters() -> List[str]:
         for character_dir in characters_dir.iterdir():
             if not character_dir.is_dir():
                 continue
-            if character_dir.name.startswith("_"):
-                continue  # Internal-System-Character (z.B. _messaging_frame)
+            if not _is_real_character(character_dir.name):
+                continue
             profile_path = character_dir / "character_profile.json"
             old_path = character_dir / "profile.json"
             if not profile_path.exists() and old_path.exists():
@@ -2371,7 +2437,7 @@ def get_character_scheduler_jobs(character_name: str) -> List[Dict[str, Any]]:
 
 
 def save_character_scheduler_jobs(character_name: str, jobs: List[Dict[str, Any]]):
-    """Speichert Scheduler-Jobs fuer einen Character in die DB (Upsert) + JSON-Backup."""
+    """Speichert Scheduler-Jobs fuer einen Character in die DB (Upsert)."""
     now = datetime.now().isoformat()
     try:
         from app.core.db import transaction as _transaction
@@ -2413,21 +2479,6 @@ def save_character_scheduler_jobs(character_name: str, jobs: List[Dict[str, Any]
     except Exception as e:
         get_logger("character").error("save_character_scheduler_jobs DB-Fehler fuer %s: %s", character_name, e)
 
-    # JSON-Backup
-    try:
-        scheduler_dir = get_character_scheduler_dir(character_name)
-        jobs_path = scheduler_dir / "jobs.json"
-        data = {
-            "jobs": jobs,
-            "metadata": {
-                "last_updated": now,
-                "total_jobs": len(jobs)
-            }
-        }
-        jobs_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
 
 def get_character_scheduler_logs(character_name: str) -> List[Dict[str, Any]]:
     """Laedt Scheduler-Logs fuer einen Character aus der DB."""
@@ -2462,7 +2513,7 @@ def get_character_scheduler_logs(character_name: str) -> List[Dict[str, Any]]:
 
 
 def save_character_scheduler_logs(character_name: str, logs: List[Dict[str, Any]]):
-    """Speichert Scheduler-Logs fuer einen Character in die DB + JSON-Backup."""
+    """Speichert Scheduler-Logs fuer einen Character in die DB."""
     try:
         from app.core.db import transaction as _transaction
         with _transaction() as conn:
@@ -2492,14 +2543,6 @@ def save_character_scheduler_logs(character_name: str, logs: List[Dict[str, Any]
                 )
     except Exception as e:
         get_logger("character").error("save_character_scheduler_logs DB-Fehler fuer %s: %s", character_name, e)
-
-    # JSON-Backup
-    try:
-        scheduler_dir = get_character_scheduler_dir(character_name)
-        logs_path = scheduler_dir / "job_logs.json"
-        logs_path.write_text(json.dumps(logs, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def get_character_daily_schedule(character_name: str) -> Dict[str, Any]:
@@ -2540,7 +2583,7 @@ def get_character_daily_schedule(character_name: str) -> Dict[str, Any]:
 
 
 def save_character_daily_schedule(character_name: str, schedule: Dict[str, Any]):
-    """Speichert den Tagesablauf fuer einen Character in die DB + JSON-Backup."""
+    """Speichert den Tagesablauf fuer einen Character in die DB."""
     now = datetime.now().isoformat()
     schedule["last_updated"] = now
     try:
@@ -2562,13 +2605,6 @@ def save_character_daily_schedule(character_name: str, schedule: Dict[str, Any])
     except Exception as e:
         get_logger("character").error("save_character_daily_schedule DB-Fehler fuer %s: %s", character_name, e)
 
-    # JSON-Backup
-    try:
-        path = get_character_scheduler_dir(character_name) / "daily_schedule.json"
-        path.write_text(json.dumps(schedule, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
 
 def is_character_sleeping(character_name: str) -> bool:
     """Prueft ob der Character laut Tagesablauf gerade schlaeft (__sleep__ Slot).
@@ -2582,9 +2618,14 @@ def is_character_sleeping(character_name: str) -> bool:
     current_hour = datetime.now().hour
     is_sleep_slot = False
     for slot in schedule.get("slots", []):
-        if slot.get("hour") == current_hour and slot.get("activity") == "__sleep__":
+        if slot.get("hour") != current_hour:
+            continue
+        # Prefer the explicit sleep flag; fall back to legacy sentinels.
+        if (slot.get("sleep")
+                or slot.get("activity") == "__sleep__"
+                or slot.get("location") == "__sleep__"):
             is_sleep_slot = True
-            break
+        break
     if not is_sleep_slot:
         return False
 

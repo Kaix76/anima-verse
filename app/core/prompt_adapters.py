@@ -382,38 +382,19 @@ def maybe_enhance_via_llm(
     if not prompt_instruction.strip():
         return template_prompt, "template"
 
-    # System-Prompt-Template aus Admin-UI Config (mit Platzhaltern), Fallback auf Default
-    _default_template = (
-        "You are an image prompt enhancer for the {target_model} image model. "
-        "{prompt_instruction} "
-        "Rewrite the following prompt in the style requested, keeping ALL factual content "
-        "(persons, outfits, pose, expression, scene, location, mood). "
-        "Do NOT add new visual elements, do NOT remove any. "
-        "Respond with ONLY the rewritten prompt, no preamble, no commentary."
-    )
-    template = os.environ.get("REBUILD_LLM_SYSTEM_TEMPLATE", "").strip() or _default_template
-    try:
-        system = template.format(
-            target_model=target_model,
-            prompt_instruction=prompt_instruction.strip())
-    except (KeyError, IndexError, ValueError) as _fmt_err:
-        # Bei kaputtem Template-Format Fallback auf Default
-        logger.warning("REBUILD_LLM_SYSTEM_TEMPLATE Format-Fehler: %s — nutze Default", _fmt_err)
-        system = _default_template.format(
-            target_model=target_model,
-            prompt_instruction=prompt_instruction.strip())
-
-    # Diagnose-Log: welches Target-Modell wurde gewaehlt? Damit im Live-Log
-    # sofort sichtbar ist, ob die Auswahl korrekt war (z.B. qwen fuer
-    # Together-Qwen, flux fuer Together-Flux). Gleicher Wert landet auch im
-    # System-Prompt-Template (Platzhalter {target_model}).
     logger.info("prompt_enhance: target_model=%s", target_model)
     try:
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
+        system, user = render_task(
+            "image_prompt_enhance",
+            target_model=target_model,
+            prompt_instruction=prompt_instruction.strip(),
+            template_prompt=template_prompt)
         response = llm_call(
             task="image_prompt",
             system_prompt=system,
-            user_prompt=template_prompt)
+            user_prompt=user)
         enhanced = (response.content or "").strip()
         if not enhanced:
             return template_prompt, "template"

@@ -753,13 +753,16 @@ async def apply_outfit_set_route(character_name: str, request: Request) -> Dict[
     if not target:
         raise HTTPException(status_code=404, detail="outfit not found")
 
-    # Preset-Pieces (Liste von item_ids) in slot->id mappen.
+    # Preset-Pieces (Liste von item_ids) in slot->id mappen. Wir geben jedem
+    # Piece nur einen Slot mit (irgendeinen aus seiner slots-Liste) — die
+    # tatsaechliche Mirror-Belegung uebernimmt apply_equipped_pieces() ueber
+    # die Item-Definition.
     pieces_by_slot: Dict[str, str] = {}
     for pid in (target.get("pieces") or []):
         it = get_item(pid) or {}
-        slot = ((it.get("outfit_piece") or {}).get("slot") or "").strip()
-        if slot:
-            pieces_by_slot[slot] = pid
+        slots = ((it.get("outfit_piece") or {}).get("slots") or [])
+        if slots:
+            pieces_by_slot[slots[0]] = pid
 
     # Gespeicherte Farben pro Slot in pieces_meta uebersetzen
     saved_colors = target.get("pieces_colors") or {}

@@ -1,24 +1,26 @@
-"""Zentraler System-Prompt-Builder fuer LLM-Aufrufe.
+"""System prompt data loader (slim).
 
-Baut den System-Prompt aus einzelnen Sektionen zusammen. Jede Sektion
-kann per ``sections``-Set aktiviert oder deaktiviert werden.
+The original ``build_system_prompt`` + ``THOUGHT_FULL/REACTION`` template
+composer has been removed — the AgentLoop builds its slim prompt via
+``app/core/thought_context.py`` and ``chat/agent_thought.md`` instead.
 
-Verwendung::
+This module now only provides:
 
-    from app.core.system_prompt_builder import (
-        build_system_prompt, THOUGHT_FULL, THOUGHT_REACTION)
+- ``load_prompt_data(character_name, sections)`` — collects the heavy
+  per-character context (personality, location, presence, events,
+  memory, relationships, ...) as ready-to-render strings. Used by the
+  rp_first dual-LLM tool-system context in ``thoughts.py``.
 
-    # Voller Thought-Prompt (alle Sektionen)
-    prompt = build_system_prompt(name, sections=THOUGHT_FULL)
+- ``build_recent_activity_section(...)`` — bullet list of what the
+  character recently did, queried from ``state_history``. Used by the
+  chat_stream prompt and the rp_first tool-system context.
 
-    # Minimaler Prompt fuer Forced-Reactions (z.B. Instagram-Kommentar)
-    prompt = build_system_prompt(name,
-        sections=THOUGHT_REACTION,
-        context_hint="Du siehst einen neuen Post...",
-        tool_whitelist=["InstagramComment"])
+- The ``IDENTITY / SITUATION / ...`` section sentinels are kept as
+  string constants because callers pass them as a ``Set[str]`` to
+  ``load_prompt_data`` to opt into specific data loads.
 """
 from datetime import datetime
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Set
 
 from app.core.log import get_logger
 
@@ -26,126 +28,33 @@ logger = get_logger("system_prompt_builder")
 
 
 # ============================================================================
-# Section-Konstanten
+# Section labels — used by load_prompt_data() to opt into data loads.
 # ============================================================================
+IDENTITY = "identity"
+TASK = "task"
+ASSIGNMENTS = "assignments"
+PENDING = "pending"
+SITUATION = "situation"
+PRESENCE = "presence"
+EVENTS = "events"
+MEMORY = "memory"
+ARCS = "arcs"
+RELATIONSHIPS = "relationships"
+RULES_PRESENCE = "rules_presence"
+INTENT = "intent"
+RESPONSE_RULES = "response_rules"
+RECENT_ACTIVITY = "recent_activity"
 
-IDENTITY = "identity"              # Name, Persoenlichkeit
-TASK = "task"                      # character_task
-ASSIGNMENTS = "assignments"        # Aktive temporaere Aufgaben
-PENDING = "pending"                # Offene Rueckmeldungen
-SITUATION = "situation"            # Ort, Aktivitaet, Stimmung, Uhrzeit
-PRESENCE = "presence"              # Anwesende am Ort + Abwesenheits-Warnungen
-EVENTS = "events"                  # Ereignisse am Ort
-MEMORY = "memory"                  # Langzeit-Erinnerungen
-ARCS = "arcs"                      # Story-Arc-Kontext
-RELATIONSHIPS = "relationships"    # Beziehungen zu relevanten Characters
-RULES_PRESENCE = "rules_presence"  # Strikte Anti-Halluzinations-Regeln
-INTENT = "intent"                  # Intent-Tracking-Instruktionen
-RESPONSE_RULES = "response_rules"  # "WICHTIG fuer deine Antwort"
-RECENT_ACTIVITY = "recent_activity"  # Was der Character in den letzten Stunden tat
-
-# ============================================================================
-# Presets
-# ============================================================================
-
+# Convenience: load everything (used by the rp_first tool-system builder).
 THOUGHT_FULL: Set[str] = {
     IDENTITY, TASK, ASSIGNMENTS, PENDING, SITUATION, PRESENCE,
     EVENTS, MEMORY, ARCS, RULES_PRESENCE, INTENT, RESPONSE_RULES,
     RECENT_ACTIVITY,
 }
 
-THOUGHT_REACTION: Set[str] = {
-    IDENTITY, SITUATION, RELATIONSHIPS, RESPONSE_RULES,
-}
-
 
 # ============================================================================
-# Builder
-# ============================================================================
-
-def build_system_prompt(character_name: str,
-    *,
-    sections: Optional[Set[str]] = None,
-    context_hint: str = "",
-    tool_whitelist: Optional[list] = None,
-    tools_hint: str = "",
-    medium: Optional[str] = None) -> str:
-    """Baut einen System-Prompt aus den angeforderten Sektionen zusammen.
-
-    Args:
-        character_name: Name des Characters
-        sections: Set der gewuenschten Sektionen (None = THOUGHT_FULL)
-        context_hint: Dringender Kontext fuer forcierte Gedanken
-        tool_whitelist: Erlaubte Tool-Namen (fuer Hint-Section)
-        tools_hint: Tool-Verfuegbarkeits-Hinweis (Single-Modus)
-        medium: Kommunikations-Kontext fuer die SITUATION-Section —
-            "in_person" (face-to-face), "messaging", "telegram", "instagram".
-            None = kein Medium-Hinweis (freier Gedanke, keine laufende
-            Kommunikation). Beeinflusst Stil-Erwartung bei talk_to/send_message.
-    """
-    if sections is None:
-        sections = THOUGHT_FULL
-
-    data = load_prompt_data(character_name, sections)
-    parts: list = []
-
-    # Context-Hint (forcierte Gedanken) — immer am Anfang wenn vorhanden
-    if context_hint:
-        parts.append(_build_hint_section(context_hint, tool_whitelist))
-
-    if IDENTITY in sections:
-        parts.append(_build_identity(character_name, data.get("personality", "")))
-
-    if PENDING in sections and data.get("pending_section"):
-        parts.append(data["pending_section"])
-
-    if ASSIGNMENTS in sections and data.get("assignment_section"):
-        parts.append(data["assignment_section"])
-
-    if TASK in sections and data.get("task"):
-        parts.append(f"Deine Aufgabe: {data['task']}")
-
-    if SITUATION in sections:
-        parts.append(_build_situation(data, medium=medium))
-
-    if PRESENCE in sections and data.get("nearby_hint"):
-        parts.append(data["nearby_hint"])
-
-    if EVENTS in sections and data.get("events_section"):
-        parts.append(data["events_section"])
-
-    if RECENT_ACTIVITY in sections:
-        _rec = build_recent_activity_section(character_name)
-        if _rec:
-            parts.append(_rec)
-
-    if MEMORY in sections and data.get("memory_section"):
-        parts.append(data["memory_section"])
-
-    if ARCS in sections and data.get("arc_context"):
-        parts.append(data["arc_context"])
-
-    if RELATIONSHIPS in sections and data.get("relationships_section"):
-        parts.append(data["relationships_section"])
-
-    if RULES_PRESENCE in sections:
-        parts.append(_build_rules(data.get("location_name", "Unbekannt")))
-
-    # Entscheidungs-Prompt
-    parts.append(_build_decision_prompt(tools_hint=tools_hint))
-
-    if INTENT in sections:
-        parts.append(_build_intent_section())
-
-    if RESPONSE_RULES in sections:
-        _has_assignments = bool(ASSIGNMENTS in sections and data.get("assignment_section"))
-        parts.append(_build_response_rules(has_assignments=_has_assignments))
-
-    return "\n\n".join(p for p in parts if p and p.strip())
-
-
-# ============================================================================
-# Daten-Loader (laedt nur was gebraucht wird)
+# Data loader (loads only what's needed for the requested sections)
 # ============================================================================
 
 def load_prompt_data(character_name: str, sections: Set[str]) -> Dict[str, Any]:
@@ -162,13 +71,21 @@ def load_prompt_data(character_name: str, sections: Set[str]) -> Dict[str, Any]:
 
     location_id = profile.get("current_location", "")
     data["location_id"] = location_id
-    data["location_name"] = get_location_name(location_id) if location_id else "Unbekannt"
-    data["activity"] = profile.get("current_activity", "") or "Keine"
+    data["location_name"] = get_location_name(location_id) if location_id else "Unknown"
+    data["activity"] = profile.get("current_activity", "") or "None"
     data["feeling"] = profile.get("current_feeling", "") or "Neutral"
     data["time_of_day"] = datetime.now().strftime("%H:%M")
 
     if PRESENCE in sections:
-        data["nearby_hint"] = _build_presence(character_name, location_id, data["location_name"])
+        presence_lines, anyone_nearby = _load_presence(
+            character_name, location_id)
+        data["presence_lines"] = presence_lines
+        data["anyone_nearby"] = anyone_nearby
+        # Pre-rendered text block for callers that want a single string
+        # (rp_first tool-system content in thoughts.py).
+        data["nearby_hint"] = _format_presence_block(
+            data["location_name"], presence_lines, anyone_nearby
+        ) if presence_lines else ""
 
     if EVENTS in sections:
         data["events_section"] = _load_events(location_id)
@@ -191,58 +108,28 @@ def load_prompt_data(character_name: str, sections: Set[str]) -> Dict[str, Any]:
     return data
 
 
-# ============================================================================
-# Section-Builder
-# ============================================================================
-
-def _build_hint_section(context_hint: str, tool_whitelist: Optional[list]) -> str:
-    if tool_whitelist:
-        return (
-            f"# DRINGENDER KONTEXT FUER DIESEN GEDANKEN\n"
-            f"{context_hint}\n"
-            f"-> Die EINZIG erlaubte Aktion ist ein Aufruf von: "
-            f"{', '.join(tool_whitelist)}.\n"
-            f"-> Erzeuge KEINE Chat-Nachricht, KEINEN Monolog, KEINEN neuen Post. "
-            f"Wenn du nichts beitragen willst, antworte nur mit: SKIP."
-        )
-    return (
-        f"# DRINGENDER KONTEXT FUER DIESEN GEDANKEN\n"
-        f"{context_hint}\n"
-        f"-> Reagiere DIREKT auf diesen Kontext. Nutze die passenden Tools "
-        f"(z.B. SendMessage / TalkTo) um die offenen Rueckmeldungen zu erledigen."
-    )
+def _format_presence_block(location_name: str, presence_lines: list,
+                            anyone_nearby: bool) -> str:
+    """Plain-text presence block (replaces former sections/presence.md)."""
+    parts = [f"Present at '{location_name}':"]
+    parts.extend(presence_lines)
+    if anyone_nearby:
+        parts.append("You can interact with present characters (TalkTo).")
+        parts.append(
+            "IMPORTANT: ONLY the people listed above are here. "
+            "Do NOT invent further attendees.")
+    else:
+        parts.append("You are otherwise ALONE. NO other characters are here.")
+        parts.append("Do NOT invent interactions with absent persons.")
+    return "\n".join(parts)
 
 
-def _build_identity(character_name: str, personality: str) -> str:
-    lines = [f"Du bist {character_name}."]
-    if personality:
-        lines.append(f"Persoenlichkeit: {personality}")
-    return "\n".join(lines)
+def _load_presence(character_name: str, location_id: str) -> tuple:
+    """Build ``presence_lines`` (list of bullet strings) and ``anyone_nearby``
+    flag for the active world. Returns ([], False) when no location."""
+    if not location_id:
+        return [], False
 
-
-_MEDIUM_LABEL = {
-    "in_person": "face-to-face (am gleichen Ort)",
-    "messaging": "per Chat-Nachricht (nicht vor Ort)",
-    "telegram": "per Telegram (nicht vor Ort)",
-    "instagram": "via Instagram-Kommentar",
-}
-
-
-def _build_situation(data: Dict[str, Any], medium: Optional[str] = None) -> str:
-    lines = [
-        "Aktuelle Situation:",
-        f"- Ort: {data.get('location_name', 'Unbekannt')}",
-        f"- Aktivitaet: {data.get('activity', 'Keine')}",
-        f"- Stimmung: {data.get('feeling', 'Neutral')}",
-        f"- Uhrzeit: {data.get('time_of_day', '--:--')}",
-    ]
-    if medium:
-        label = _MEDIUM_LABEL.get(medium, medium)
-        lines.append(f"- Kommunikations-Kontext: {label}")
-    return "\n".join(lines)
-
-
-def _build_presence(character_name: str, location_id: str, location_name: str) -> str:
     from app.models.character import (
         list_available_characters,
         get_character_current_location,
@@ -250,105 +137,34 @@ def _build_presence(character_name: str, location_id: str, location_name: str) -
     from app.models.account import get_active_character
 
     nearby = []
-    if location_id:
-        for other in list_available_characters():
-            if other == character_name:
-                continue
-            other_loc = get_character_current_location(other)
-            if other_loc and other_loc == location_id:
-                nearby.append(other)
+    for other in list_available_characters():
+        if other == character_name:
+            continue
+        other_loc = get_character_current_location(other)
+        if other_loc and other_loc == location_id:
+            nearby.append(other)
 
     player_char = get_active_character()
     player_loc = get_character_current_location(player_char) if player_char else ""
     player_is_here = bool(player_loc and player_loc == location_id)
 
-    presence_lines = []
+    lines: list = []
     if player_char and player_is_here:
-        presence_lines.append(f"- {player_char} ist anwesend")
+        lines.append(f"- {player_char} is present")
     elif player_char:
-        presence_lines.append(
-            f"- {player_char} ist NICHT hier "
-            f"(reagiere NICHT so als waere {player_char} anwesend, "
-            f"stelle dir KEINE Interaktion mit {player_char} vor)"
+        lines.append(
+            f"- {player_char} is NOT here "
+            f"(do NOT react as if {player_char} were present, "
+            f"do NOT imagine an interaction with {player_char})"
         )
 
     for other in nearby:
         other_act = get_character_current_activity(other) or ""
         suffix = f" ({other_act})" if other_act else ""
-        presence_lines.append(f"- {other} ist hier{suffix}")
+        lines.append(f"- {other} is here{suffix}")
 
-    if nearby:
-        return (
-            f"Anwesende am Ort '{location_name}':\n"
-            + "\n".join(presence_lines) + "\n"
-            f"Du kannst mit anwesenden Characters interagieren (TalkTo).\n"
-            f"WICHTIG: NUR die oben genannten Personen sind hier. "
-            f"Erfinde KEINE weiteren Anwesenden."
-        )
-    return (
-        f"Anwesende am Ort '{location_name}':\n"
-        + "\n".join(presence_lines) + "\n"
-        f"Du bist ansonsten ALLEIN. Es sind KEINE weiteren Characters hier.\n"
-        f"Erfinde KEINE Interaktionen mit abwesenden Personen."
-    )
+    return lines, bool(nearby)
 
-
-def _build_rules(location_name: str) -> str:
-    return (
-        f"STRIKTE REGELN:\n"
-        f"1. Deine Nachricht MUSS zur aktuellen Umgebung und dem Ort '{location_name}' passen.\n"
-        f"2. Erwaehne oder interagiere NUR mit Personen die oben als 'anwesend' aufgelistet sind.\n"
-        f"3. Wenn du allein bist, beschreibe deine eigenen Gedanken, Aktivitaeten oder Beobachtungen.\n"
-        f"4. Erfinde KEINE Dialoge oder Reaktionen von abwesenden Personen.\n"
-        f"5. Auch wenn du dich an andere Characters ERINNERST — sie sind NICHT hier, "
-        f"es sei denn sie stehen in der Anwesendenliste."
-    )
-
-
-def _build_decision_prompt(tools_hint: str = "") -> str:
-    lines = [
-        "Entscheide basierend auf deiner Aufgabe und Situation: Gibt es etwas, "
-        "das du jetzt tun moechtest? Wenn andere Characters in der Naehe sind, "
-        "ueberlege ob du mit ihnen interagieren moechtest."
-    ]
-    if tools_hint:
-        lines.append(tools_hint)
-    return "\n".join(lines)
-
-
-def _build_intent_section() -> str:
-    return (
-        "Intent tracking: If you commit to a concrete real-world action (posting something, "
-        "sending a message, doing something at a specific time), add this marker at the END "
-        "of your response on a new line:\n"
-        "[INTENT: <type> | delay=<0/30m/2h/1d> | key=value]\n"
-        "Types: instagram_post, send_message, remind, execute_tool\n"
-        "Delay: 0=now, 30m, 2h, 1d, or 14:00 (time of day)\n"
-        "Only add this when genuinely committing to a specific action. "
-        "Do NOT add for hypothetical, past, or uncertain actions."
-    )
-
-
-def _build_response_rules(has_assignments: bool = False) -> str:
-    lines = [
-        "WICHTIG fuer deine Antwort:",
-        "- Schreibe NUR narrativen Text (was du denkst, fuehlst, beobachtest)",
-        "- Schreibe KEINE Tool-Namen, Befehle oder [ToolName](...) in deinen Text",
-        "- Tool-Aufrufe passieren automatisch im Hintergrund, nicht in deiner Antwort",
-    ]
-    if has_assignments:
-        lines.append(
-            "- Du hast AKTIVE AUFGABEN — nutze deine Tools um sie zu erfuellen! "
-            "Fotos machen = ImageGeneration benutzen, Recherche = WebSearch benutzen. "
-            "Beschreibe nicht nur was du tust, FUEHRE ES AUS!"
-        )
-    lines.append("- Wenn es nichts Relevantes gibt, antworte nur mit: SKIP")
-    return "\n".join(lines)
-
-
-# ============================================================================
-# Daten-Loader (mit Fehlerbehandlung)
-# ============================================================================
 
 def _load_events(location_id: str) -> str:
     if not location_id:
@@ -407,7 +223,7 @@ def _load_relationships(character_name: str) -> str:
 
 
 # ============================================================================
-# Recent Activity — was hat der Character in den letzten Stunden getan
+# Recent Activity — rendered as a self-contained block (no template needed)
 # ============================================================================
 
 _RECENT_WINDOW_HOURS = 6
@@ -415,7 +231,7 @@ _RECENT_MAX_ENTRIES = 24
 
 
 def _time_str(ts: str) -> str:
-    """'HH:MM' aus ISO-String, leer bei Fehler."""
+    """'HH:MM' from ISO string, empty on error."""
     try:
         return ts[11:16]
     except Exception:
@@ -438,18 +254,9 @@ def _resolve_location_name(loc_id: str) -> str:
 def build_recent_activity_section(character_name: str,
                                    hours: int = _RECENT_WINDOW_HOURS,
                                    max_entries: int = _RECENT_MAX_ENTRIES) -> str:
-    """Baut "## Kuerzlich erlebt"-Block aus state_history.
-
-    Aggregationsregeln:
-    - effects-Eintraege werden ignoriert (interne Status-Ticks)
-    - Adjacente identische Activities zusammenfassen (Start-Ende-Range)
-    - Adjacente access_denied auf gleiche Location zusammenfassen
-    - Location-IDs → Namen
-    - Partner (aus metadata.partner) wird angehaengt
-    - Output: prose-nahe Bullet-Liste, deutsch
-    """
+    """Build the "## Recently experienced" block from state_history."""
     try:
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         from app.core.db import get_connection
         import json as _json
 
@@ -463,7 +270,7 @@ def build_recent_activity_section(character_name: str,
         if not rows:
             return ""
 
-        events: list = []  # {ts, type, value, partner, reason, location_name}
+        events: list = []
         for (sj,) in rows:
             try:
                 d = _json.loads(sj or "{}")
@@ -471,7 +278,7 @@ def build_recent_activity_section(character_name: str,
                 continue
             t = d.get("type") or ""
             if t == "effects":
-                continue  # Rauschen aus Zeit-Ticks
+                continue
             val = (d.get("value") or "").strip()
             if not val:
                 continue
@@ -486,7 +293,6 @@ def build_recent_activity_section(character_name: str,
             if t == "location":
                 entry["value_display"] = _resolve_location_name(val)
             elif t == "access_denied":
-                # value ist bereits Location-Name laut record_access_denied
                 entry["value_display"] = val
             else:
                 entry["value_display"] = val
@@ -495,24 +301,20 @@ def build_recent_activity_section(character_name: str,
         if not events:
             return ""
 
-        # Aggregation: adjacente Duplikate zusammenfassen
-        # (same type+value → Endzeit aktualisieren statt neu)
+        # Aggregation: collapse adjacent duplicates
         collapsed: list = []
         for e in events:
             if collapsed:
                 last = collapsed[-1]
                 if last["type"] == e["type"] and last["value"] == e["value"]:
                     last["end_ts"] = e["ts"]
-                    # Wenn partner beim spaeteren Eintrag gesetzt ist, uebernehmen
                     if e.get("partner") and not last.get("partner"):
                         last["partner"] = e["partner"]
                     continue
             collapsed.append(dict(e, end_ts=e["ts"]))
 
-        # Letzte N Eintraege behalten
         collapsed = collapsed[-max_entries:]
 
-        # Rendering — Bullet-Liste mit Zeitangaben
         lines: list = []
         for e in collapsed:
             start = _time_str(e["ts"])
@@ -526,23 +328,22 @@ def build_recent_activity_section(character_name: str,
             if t == "location":
                 lines.append(f"• {time_str}  → {val}")
             elif t == "activity":
-                suffix = f" (mit {e['partner']})" if e.get("partner") else ""
+                suffix = f" (with {e['partner']})" if e.get("partner") else ""
                 if e.get("detail"):
                     suffix += f" — {e['detail'][:60]}"
                 lines.append(f"• {time_str}  {val}{suffix}")
             elif t == "access_denied":
                 reason_raw = (e.get("reason") or "").strip().rstrip(".")
-                # Default-Reason "Zugang verweigert" nicht doppelt anhaengen
-                default_reason = reason_raw.lower() in ("", "zugang verweigert")
+                default_reason = reason_raw.lower() in ("", "zugang verweigert", "access denied")
                 reason = "" if default_reason else f" — {reason_raw}"
-                lines.append(f"• {time_str}  Wolltest zu {val}, Zugang verweigert{reason}")
+                lines.append(f"• {time_str}  Wanted to go to {val}, access denied{reason}")
             else:
                 lines.append(f"• {time_str}  {t}: {val}")
 
         if not lines:
             return ""
 
-        header = f"## Kuerzlich erlebt (letzte {hours}h):"
+        header = f"## Recently experienced (last {hours}h):"
         return header + "\n" + "\n".join(lines)
     except Exception as e:
         logger.debug("build_recent_activity_section fehlgeschlagen: %s", e)

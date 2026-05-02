@@ -139,41 +139,17 @@ def _handle_instagram_reaction(payload: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 _pop_line = f"{poster_name} ist eher unbekannt — wenig Reichweite, aber authentisch."
 
-            context_hint = (
-                f"Du siehst einen neuen Instagram-Post, den {poster_name} "
-                f"veroeffentlicht hat (post_id={post_id}).\n"
-                f"{_pop_line}\n"
-                f"Caption (geschrieben von {poster_name}): \"{caption[:200]}\"{_img_part}\n"
-                f"\nWICHTIG: Du bist nur Betrachterin dieses Posts. "
-                f"DU hast diesen Post NICHT erstellt, und die Caption ist NICHT deine.\n"
-                f"\nSCHREIBE EINEN KURZEN KOMMENTAR (1-2 Saetze, in deiner "
-                f"Persoenlichkeit) via Tool InstagramComment im Format "
-                f"'post_id: dein Kommentar'. Kommentiere zum Bild, zur "
-                f"Caption, zu {poster_name} oder zur Situation. Emojis und "
-                f"lockerer Tonfall sind erlaubt.\n"
-                f"Nur in Ausnahmefaellen SKIP (du bist voellig unbeteiligt "
-                f"UND hast keine Meinung dazu). Default ist: Kommentieren."
-            )
-            get_background_queue().submit("forced_thought", {
-                "user_id": "",
-                "character_name": char_name,
-                "context_hint": context_hint,
-                # Kurzreaktion → Tool-LLM statt Chat-LLM (deutlich schneller).
-                "fast": True,
-                # Nur InstagramComment erlaubt — andere Skills haetten hier
-                # keine sinnvolle Funktion und wuerden Rollenkonfusion oder
-                # Halluzinationen beguenstigen (z.B. "Kira postet Lunas
-                # Angebot nach").
-                "tool_whitelist": ["InstagramComment"],
-                # Narrativ-Text nicht als Chat/Notification speichern —
-                # der Hint enthaelt fremden Content, der nicht als Gedanke
-                # in die History leaken darf.
-                "suppress_notification": True,
-            })
-            reactions.append({"character": char_name, "delegated": True})
-            logger.debug("  -> forced_thought eingestellt fuer %s", char_name)
+            # AgentLoop bump: reactor processes the new post on their next
+            # slot. The instagram_pending_block in thought_context surfaces
+            # recent posts (within ``skills.instagram.pending_window_hours``)
+            # so the agent has full context (post_id, caption, image
+            # description) when it decides whether to call InstagramComment.
+            from app.core.agent_loop import get_agent_loop
+            get_agent_loop().bump(char_name)
+            reactions.append({"character": char_name, "bumped": True})
+            logger.debug("  -> AgentLoop bump fuer %s (post=%s)", char_name, post_id)
         except Exception as e:
-            logger.error("  Forced-Thought Fehler bei %s: %s", char_name, e)
+            logger.error("  Bump fehlgeschlagen bei %s: %s", char_name, e)
 
     logger.info("Fertig: %d Reaktionen, %d Likes", len(reactions), len(likes))
 
@@ -272,32 +248,15 @@ def _handle_user_comment_reaction(payload: Dict[str, Any]) -> Dict[str, Any]:
         meta = load_image_meta(image_filename)
         image_description = meta.get("image_analysis", "") if meta else ""
 
-    _img_part = f"\nBildbeschreibung: {image_description[:200]}" if image_description else ""
-    context_hint = (
-        f"{commenter_name} hat einen Kommentar zu DEINEM Instagram-Post "
-        f"(post_id={post_id}) hinterlassen.\n"
-        f"Deine Caption: \"{caption[:200]}\"{_img_part}\n"
-        f"Kommentar von {commenter_name}: \"{comment_text}\"\n"
-        f"\nFalls du antworten willst, rufe ausschliesslich das Tool "
-        f"InstagramReply mit Format '{post_id} @{commenter_name}: dein Antworttext' auf."
-    )
-
     try:
-        get_background_queue().submit("forced_thought", {
-            "user_id": "",
-            "character_name": character_name,
-            "context_hint": context_hint,
-            # Kurzreaktion (InstagramReply) → Tool-LLM statt Chat-LLM.
-            "fast": True,
-            # Nur InstagramReply erlaubt — siehe Kommentar im
-            # instagram_reaction Handler.
-            "tool_whitelist": ["InstagramReply"],
-            # Narrativ-Text nicht in Chat-History persistieren.
-            "suppress_notification": True,
-        })
-        return {"success": True, "delegated_to": "forced_thought"}
+        # AgentLoop bump: poster sees the new comment on next slot. The
+        # instagram_pending_block in thought_context surfaces recent
+        # posts/comments within the configured window.
+        from app.core.agent_loop import get_agent_loop
+        get_agent_loop().bump(character_name)
+        return {"success": True, "bumped": character_name}
     except Exception as e:
-        logger.error("User-Kommentar Trigger fehlgeschlagen: %s", e)
+        logger.error("User-Kommentar Bump fehlgeschlagen: %s", e)
         return {"error": str(e)}
 
 

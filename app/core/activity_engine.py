@@ -1173,20 +1173,17 @@ def classify_activity_background(character_name: str, raw_activity: str):
                     known_lines.append(f"- {name}")
             known_list = "\n".join(known_lines) if known_lines else "(none)"
 
-            prompt = (
-                f"The character is doing: \"{raw_activity}\"\n\n"
-                f"Known activities at this location:\n{known_list}\n\n"
-                f"Reply with ONLY the activity name that best matches what the character is doing.\n"
-                f"IMPORTANT: Use the EXACT name from the list. The description helps you choose correctly.\n"
-                f"If no match, give a short generic label IN THE SAME LANGUAGE as the known activities.\n"
-                f"Reply with ONLY the name, nothing else."
-            )
+            from app.core.prompt_templates import render_task
+            sys_prompt, user_prompt = render_task(
+                "intent_activity",
+                raw_activity=raw_activity,
+                known_list=known_list)
 
             try:
                 response = llm_call(
                     task="intent_activity",
-                    system_prompt=prompt,
-                    user_prompt=raw_activity,
+                    system_prompt=sys_prompt,
+                    user_prompt=user_prompt,
                     agent_name=character_name)
             except RuntimeError:
                 _trigger_expression(raw_activity)

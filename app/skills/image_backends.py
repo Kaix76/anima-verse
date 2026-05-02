@@ -1449,8 +1449,8 @@ class ComfyUIBackend(ImageBackend):
             node_overrides: Dict von node_id -> {input_key: value} zum Ueberschreiben
                            von Workflow-Inputs (z.B. MultiSwap Mask-Flags).
             reference_image_paths: Dict node_title -> file_path fuer Multi-Slot-
-                                   Workflows (z.B. {"input_reference_image1": p1,
-                                   "input_reference_image2": p2}). Slots ohne
+                                   Workflows (z.B. {"input_reference_image_1": p1,
+                                   "input_reference_image_2": p2}). Slots ohne
                                    Eintrag werden ueber den zugehoerigen
                                    <title>_use Switch-Node deaktiviert.
 
@@ -1494,7 +1494,7 @@ class ComfyUIBackend(ImageBackend):
 
         # Referenzbild(er) hochladen
         if reference_image_paths:
-            # Multi-Slot Modus (z.B. MultiSwap-Workflow mit input_reference_image1/2)
+            # Multi-Slot Modus (z.B. MultiSwap-Workflow mit input_reference_image_1/_2)
             # Reihenfolge der Eintraege bestimmt Slot-Datei (slot_ref_1, slot_ref_2, ...)
             for slot_idx, (node_title, ref_path) in enumerate(reference_image_paths.items()):
                 ref_node = self._find_node_by_title(workflow, node_title)
@@ -1512,7 +1512,7 @@ class ComfyUIBackend(ImageBackend):
                 if use_node:
                     workflow[use_node]["inputs"]["boolean"] = True
                 logger.debug("FaceSwap Slot[%s]: %s", node_title, uploaded_ref)
-            # Inaktive Switch-Nodes (z.B. input_reference_image2_use bei nur 1 Ref)
+            # Inaktive Switch-Nodes (z.B. input_reference_image_2_use bei nur 1 Ref)
             # auf False setzen — gleiche Logik wie in _generate.
             _active_titles = set(reference_image_paths.keys())
             for node_id, node in workflow.items():

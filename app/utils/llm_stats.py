@@ -17,14 +17,17 @@ from app.core.log import get_logger
 
 logger = get_logger("llm_stats")
 
-# Maximale Anzahl Calls pro (model, task)-Bucket
-_BUCKET_LIMIT = 200
+# Maximale Anzahl Calls pro (model, task, provider)-Bucket. Hoch genug fuer
+# Admin-Auswertungen ueber laengere Zeitraeume; Schaetzer braucht weiterhin nur
+# die letzten ~200, was via ORDER BY ts DESC LIMIT geliefert wird.
+_BUCKET_LIMIT = 5000
 # Mindest-Samples damit der primaere Bucket genutzt wird (sonst Fallback)
 _MIN_TASK_SAMPLES = 5
 
 
 def record_call(model: str, task: str, provider: str,
-                in_tokens: int, out_tokens: int, duration_s: float) -> None:
+                in_tokens: int, out_tokens: int, duration_s: float,
+                agent_name: str = "", max_tokens: int = 0) -> None:
     """Schreibt einen abgeschlossenen LLM-Call in die Statistik-Tabelle.
 
     Defekte / unvollstaendige Records werden uebersprungen.
@@ -38,15 +41,18 @@ def record_call(model: str, task: str, provider: str,
         return
 
     prov = provider or ""
+    agent = agent_name or ""
+    mt = int(max_tokens) if max_tokens else 0
     try:
         with transaction() as conn:
             conn.execute(
                 "INSERT INTO llm_call_stats "
-                "(ts, model, task, provider, in_tokens, out_tokens, duration_s) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(ts, model, task, provider, agent_name, "
+                " in_tokens, out_tokens, max_tokens, duration_s) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (datetime.now().isoformat(timespec="seconds"),
-                 model, task, prov,
-                 int(in_tokens), int(out_tokens), float(duration_s)))
+                 model, task, prov, agent,
+                 int(in_tokens), int(out_tokens), mt, float(duration_s)))
             conn.execute(
                 "DELETE FROM llm_call_stats WHERE id IN ("
                 "  SELECT id FROM llm_call_stats "

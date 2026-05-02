@@ -12,8 +12,9 @@ Storage:
 - Raum-Items: Eingebettet in world.db:rooms meta (via world-Funktionen)
 """
 import json
+import random
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -209,16 +210,6 @@ def _save_items(items: List[Dict[str, Any]]):
         except Exception as e:
             logger.error("_save_items Fehler fuer %s: %s", item_id, e)
 
-    # JSON-Backup
-    try:
-        path = _get_items_file()
-        path.write_text(
-            json.dumps({"items": items, "last_updated": now},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8")
-    except Exception:
-        pass
-
 
 def list_items() -> List[Dict[str, Any]]:
     """Listet alle Item-Definitionen."""
@@ -299,12 +290,15 @@ def resolve_item_id(token: str) -> Optional[str]:
     return None
 
 
-def _clean_additional_slots(raw, primary_slot: str) -> List[str]:
-    """Normalisiert die Liste zusaetzlich belegter Slots.
+def _clean_piece_slots(raw) -> List[str]:
+    """Normalisiert die Slot-Liste eines Outfit-Pieces.
+
+    Symmetrisch — kein primary/additional. Ein Piece belegt alle Slots
+    in der Liste gleichberechtigt.
 
     - Nur gueltige Slots aus VALID_PIECE_SLOTS
-    - Primary-Slot selbst wird ausgeschlossen
     - Dedup, Reihenfolge stabil
+    - Leere Liste ist erlaubt (Aufrufer entscheidet ob das ein Fehler ist)
     """
     if not raw:
         return []
@@ -312,12 +306,11 @@ def _clean_additional_slots(raw, primary_slot: str) -> List[str]:
         return []
     result: List[str] = []
     seen = set()
-    primary = (primary_slot or "").strip().lower()
     for s in raw:
         if not isinstance(s, str):
             continue
         slot = s.strip().lower()
-        if not slot or slot == primary:
+        if not slot:
             continue
         if slot not in VALID_PIECE_SLOTS:
             continue
@@ -326,6 +319,28 @@ def _clean_additional_slots(raw, primary_slot: str) -> List[str]:
         seen.add(slot)
         result.append(slot)
     return result
+
+
+def _piece_slots(item: Optional[Dict[str, Any]]) -> List[str]:
+    """Extrahiert die slot-Liste eines Items. Liefert [] wenn kein outfit_piece."""
+    if not item:
+        return []
+    op = item.get("outfit_piece") or {}
+    return list(op.get("slots") or [])
+
+
+def _piece_render_slot(item_slots: List[str]) -> str:
+    """Bestimmt deterministisch den Render-Slot eines Multi-Slot-Pieces.
+
+    Render-Reihenfolge folgt VALID_PIECE_SLOTS — der erste Slot des Pieces
+    in dieser Reihenfolge ist der Render-Slot. Dadurch wird das Fragment
+    nur einmal in den Image-Prompt aufgenommen.
+    """
+    sset = set(item_slots or [])
+    for s in VALID_PIECE_SLOTS:
+        if s in sset:
+            return s
+    return ""
 
 
 def _clean_piece_lora(raw) -> Dict[str, Any]:
@@ -370,7 +385,8 @@ def add_item(name: str,
     prompt_fragment: Text-Baustein fuer die Bild-Prompt-Assembly, wenn das
         Item equipped/angelegt ist. Beispiel: "holding a hammer in the hand".
     outfit_piece: Nur fuer category=outfit_piece. Dict mit Feldern wie
-        {"slot": "outer", "covers": ["top"]}.
+        {"slots": ["top", "bottom"], "covers": ["underwear_top"]}. slots ist
+        eine symmetrische Liste — kein Primary-/Additional-Konzept mehr.
     """
     if category not in VALID_ITEM_CATEGORIES:
         category = "tool"
@@ -406,15 +422,14 @@ def add_item(name: str,
     }
     # Piece-spezifisches Sub-Dict nur setzen wenn Kategorie passt
     if category == "outfit_piece" and outfit_piece:
-        slot = (outfit_piece.get("slot") or "").strip()
-        if slot not in VALID_PIECE_SLOTS:
-            raise ValueError(f"Invalid outfit_piece slot: {slot!r}. Valid: {VALID_PIECE_SLOTS}")
+        slots = _clean_piece_slots(outfit_piece.get("slots"))
+        if not slots:
+            raise ValueError(
+                f"outfit_piece needs non-empty 'slots' list (valid: {VALID_PIECE_SLOTS})")
         item["outfit_piece"] = {
-            "slot": slot,
-            "covers": list(outfit_piece.get("covers", []) or []),
-            "partially_covers": list(outfit_piece.get("partially_covers", []) or []),
-            "additional_slots": _clean_additional_slots(
-                outfit_piece.get("additional_slots"), slot),
+            "slots": slots,
+            "covers": [s for s in _clean_piece_slots(outfit_piece.get("covers")) if s not in slots],
+            "partially_covers": [s for s in _clean_piece_slots(outfit_piece.get("partially_covers")) if s not in slots],
             "outfit_types": [s.strip() for s in (outfit_piece.get("outfit_types") or []) if s and s.strip()],
             "lora": _clean_piece_lora(outfit_piece.get("lora") or outfit_piece.get("loras")),
         }
@@ -448,15 +463,14 @@ def update_item(item_id: str,
             item["rarity"] = "common"
         if item.get("category") == "outfit_piece":
             op = item.get("outfit_piece") or {}
-            slot = (op.get("slot") or "").strip()
-            if slot not in VALID_PIECE_SLOTS:
-                raise ValueError(f"Invalid outfit_piece slot: {slot!r}")
+            slots = _clean_piece_slots(op.get("slots"))
+            if not slots:
+                raise ValueError(
+                    f"outfit_piece needs non-empty 'slots' list (valid: {VALID_PIECE_SLOTS})")
             item["outfit_piece"] = {
-                "slot": slot,
-                "covers": list(op.get("covers", []) or []),
-                "partially_covers": list(op.get("partially_covers", []) or []),
-                "additional_slots": _clean_additional_slots(
-                    op.get("additional_slots"), slot),
+                "slots": slots,
+                "covers": [s for s in _clean_piece_slots(op.get("covers")) if s not in slots],
+                "partially_covers": [s for s in _clean_piece_slots(op.get("partially_covers")) if s not in slots],
                 "outfit_types": [s.strip() for s in (op.get("outfit_types") or []) if s and s.strip()],
                 "lora": _clean_piece_lora(op.get("lora")),
             }
@@ -721,12 +735,10 @@ def remove_item_from_room(location_id: str,
 
 
 def _save_locations(locations: List[Dict[str, Any]]):
-    """Speichert Locations (inkl. Raum-Items) in die DB + JSON-Backup.
+    """Speichert Locations (inkl. Raum-Items) in die DB.
 
-    Nach SQLite-Migration liegt die Welt in DB (locations/rooms Tabellen).
-    Der bisherige reine JSON-Write griff nicht mehr — list_locations liest
-    aus DB, der Round-Trip klappte nicht. _save_world_data in world.py
-    handhabt beide Layer korrekt (DB + JSON-Sidecar).
+    Delegiert an `_save_world_data` in world.py — Welt liegt komplett
+    in den `locations`/`rooms`-Tabellen.
     """
     from app.models.world import _save_world_data
     _save_world_data({"locations": locations})
@@ -792,7 +804,7 @@ def _load_inventory(character_name: str) -> Dict[str, Any]:
 
 
 def _save_inventory(character_name: str, data: Dict[str, Any]):
-    """Speichert das Inventar eines Characters in die DB (Upsert) und JSON-Backup."""
+    """Speichert das Inventar eines Characters in die DB (Upsert)."""
     now = datetime.now().isoformat()
     inventory = data.get("inventory", [])
     try:
@@ -836,18 +848,6 @@ def _save_inventory(character_name: str, data: Dict[str, Any]):
                 ))
     except Exception as e:
         logger.error("_save_inventory DB-Fehler fuer %s: %s", character_name, e)
-
-    # JSON-Backup
-    try:
-        path = _get_inventory_file(character_name)
-        backup = dict(data)
-        backup["last_updated"] = now
-        path.write_text(
-            json.dumps(backup, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-    except Exception:
-        pass
 
 
 def get_character_inventory(character_name: str,
@@ -1004,16 +1004,29 @@ def update_inventory_entry(character_name: str,
 
 def find_inventory_piece_by_name_slot(character_name: str,
     name: str,
-    slot: str) -> Optional[str]:
-    """Sucht im Character-Inventar ein outfit_piece mit matchendem Name+Slot.
+    slot: str,
+    prompt_fragment: str = "") -> Optional[str]:
+    """Sucht im Character-Inventar ein outfit_piece mit matchendem Slot.
 
-    Name-Match ist case-insensitive und getrimmt. Slot-Match ist exakt.
+    Match-Reihenfolge (alle case-insensitive, getrimmt):
+      1. Name-Match: exakt gleich (klassischer Pfad).
+      2. Prompt-Fragment-Match: falls prompt_fragment uebergeben — Substring
+         in beide Richtungen ('white blouse' ist in 'white blouse with deep
+         neckline, silk' enthalten und umgekehrt). Dedupe-Schutz gegen
+         LLM-Naming-Drift wenn der Name leicht variiert ('Deep Cleavage' vs.
+         'Cleverage') aber die Bild-Beschreibung praktisch identisch ist.
+
+    Slot-Match: der Slot muss in item.outfit_piece.slots enthalten sein
+    (Multi-Slot-Pieces matchen fuer jeden ihrer Slots).
     Liefert die item_id des ersten Treffers oder None.
     """
     if not name or not slot:
         return None
-    target = name.strip().lower()
+    target_name = name.strip().lower()
+    target_frag = (prompt_fragment or "").strip().lower()
     data = _load_inventory(character_name)
+
+    # Pass 1: exakter Name-Match (schnell, keine false positives)
     for entry in data.get("inventory", []) or []:
         iid = entry.get("item_id", "")
         if not iid:
@@ -1021,11 +1034,31 @@ def find_inventory_piece_by_name_slot(character_name: str,
         item = get_item(iid)
         if not item or item.get("category") != "outfit_piece":
             continue
-        op = item.get("outfit_piece") or {}
-        if op.get("slot") != slot:
+        if slot not in _piece_slots(item):
             continue
-        if (item.get("name") or "").strip().lower() == target:
+        if (item.get("name") or "").strip().lower() == target_name:
             return iid
+
+    # Pass 2: Prompt-Fragment-Substring-Match (nur wenn fragment uebergeben).
+    # Schutz vor zu kurzem Fragment (z.B. "red" matcht zu vieles).
+    if target_frag and len(target_frag) >= 12:
+        for entry in data.get("inventory", []) or []:
+            iid = entry.get("item_id", "")
+            if not iid:
+                continue
+            item = get_item(iid)
+            if not item or item.get("category") != "outfit_piece":
+                continue
+            if slot not in _piece_slots(item):
+                continue
+            stored = (item.get("prompt_fragment") or "").strip().lower()
+            if not stored or len(stored) < 12:
+                continue
+            if target_frag in stored or stored in target_frag:
+                logger.info("Inventory-Dedupe via prompt_fragment: %s reuse %s "
+                            "(neu='%s' / alt='%s')",
+                            name, iid, target_frag[:60], stored[:60])
+                return iid
     return None
 
 
@@ -1344,10 +1377,10 @@ def get_equipped_item_ids(character_name: str) -> List[str]:
 
 
 def equip_piece(character_name: str, item_id: str) -> Dict[str, Any]:
-    """Legt ein Outfit-Piece an. Ersetzt automatisch ein bereits belegtes
-    Piece im gleichen Slot.
+    """Legt ein Outfit-Piece an. Belegt alle Slots aus item.outfit_piece.slots
+    symmetrisch und verdraengt jedes Piece, das aktuell in einem dieser Slots sitzt.
 
-    Returns: {"status": "ok", "slot": ..., "replaced": <old_item_id|"">} oder
+    Returns: {"status": "ok", "slots": [...], "displaced": [old_item_ids,...]} oder
              {"status": "error", "reason": "..."}
     """
     from app.models.character import get_character_profile, save_character_profile
@@ -1360,64 +1393,52 @@ def equip_piece(character_name: str, item_id: str) -> Dict[str, Any]:
     if item.get("category") != "outfit_piece":
         return {"status": "error", "reason": "not_outfit_piece"}
     piece_def = item.get("outfit_piece") or {}
-    slot = (piece_def.get("slot") or "").strip()
-    if slot not in VALID_PIECE_SLOTS:
+    slots = _clean_piece_slots(piece_def.get("slots"))
+    if not slots:
         return {"status": "error", "reason": "invalid_slot"}
-
-    additional = _clean_additional_slots(piece_def.get("additional_slots"), slot)
 
     profile = get_character_profile(character_name)
     state = _get_equipped(profile)
     eq = state["equipped_pieces"]
 
-    # Zusatzlich belegte Slots: Pieces die hier sitzen werden ausgezogen,
-    # damit das neue Multi-Slot-Piece reinpasst. Frueher hat das mit
-    # "additional_slots_occupied" abgebrochen — der Aufrufer (User oder LLM)
-    # erwartet aber dass "Anlegen" aequivalent zu "ersetzen" ist.
-    displaced: List[str] = []  # alle Pieces die wegen additional ausgezogen werden
-    for s in additional:
+    # Verdraengte Pieces sammeln: jedes Item, das aktuell in einem unserer
+    # Ziel-Slots sitzt (und nicht wir selbst sind), wird komplett ausgezogen —
+    # inklusive aller seiner Mirror-Slots.
+    displaced: List[str] = []
+    for s in slots:
         occ = eq.get(s, "")
         if occ and occ != item_id and occ not in displaced:
             displaced.append(occ)
 
-    replaced = eq.get(slot, "")
-    # Primaer-Slot freiraeumen: replaced + alle Spiegelslots loeschen
-    if replaced and replaced != item_id:
-        for s in list(eq.keys()):
-            if eq.get(s) == replaced and s != slot:
-                eq.pop(s, None)
-    # Verdraengte Pieces (aus additional_slots) komplett ausziehen — inklusive
-    # ihrer eigenen Primaer- und Spiegelslots.
     for displaced_id in displaced:
         for s in list(eq.keys()):
             if eq.get(s) == displaced_id:
                 eq.pop(s, None)
-    eq[slot] = item_id
-    for s in additional:
+
+    # Falls wir uns selbst woanders gespiegelt haben (z.B. Schema-Drift):
+    # alte Eintraege loeschen, dann frisch alle Slots setzen.
+    for s in list(eq.keys()):
+        if eq.get(s) == item_id and s not in slots:
+            eq.pop(s, None)
+    for s in slots:
         eq[s] = item_id
     profile["equipped_pieces"] = eq
-    # Bei Item-Wechsel im Slot: Farb-Meta zuruecksetzen (Farbe haengt an der
-    # Kombination Character+Slot+Item, nicht am Slot allein). Auch fuer alle
-    # Slots die durch additional_slots verdraengt wurden.
+
+    # Farb-Meta: alle Slots die durch dieses Equip ein neues Item bekommen
+    # haben verlieren ihre Farbe. Eigene unveraenderte Slots behalten sie.
     meta = profile.get("equipped_pieces_meta") or {}
     meta_changed = False
-    if replaced and replaced != item_id and slot in meta:
-        meta.pop(slot, None)
-        meta_changed = True
-    for s in additional:
+    for s in slots:
         if s in meta:
             meta.pop(s, None)
             meta_changed = True
     if meta_changed:
         profile["equipped_pieces_meta"] = meta
     save_character_profile(character_name, profile)
-    logger.info("equip_piece [%s]: slot=%s item=%s%s%s%s",
-                character_name, slot, item_id,
-                f" +additional={additional}" if additional else "",
-                f" (ersetzt {replaced})" if replaced else "",
+    logger.info("equip_piece [%s]: slots=%s item=%s%s",
+                character_name, slots, item_id,
                 f" (verdraengt {displaced})" if displaced else "")
-    return {"status": "ok", "slot": slot, "replaced": replaced,
-            "additional_slots": additional, "displaced": displaced}
+    return {"status": "ok", "slots": slots, "displaced": displaced}
 
 
 def set_equipped_piece_color(character_name: str, slot: str, color: str) -> Dict[str, Any]:
@@ -1465,8 +1486,9 @@ def unequip_piece(character_name: str,
                    slot: str = "", item_id: str = "") -> Dict[str, Any]:
     """Entfernt ein Piece — entweder per slot oder per item_id.
 
-    Das Piece bleibt im Inventar, ist nur nicht mehr equipped.
-    Farb-Meta fuer den Slot wird mit entfernt.
+    Multi-Slot-Pieces werden vollstaendig ausgezogen: alle Slots in denen
+    das Item sitzt werden geleert. Das Piece bleibt im Inventar, ist nur
+    nicht mehr equipped. Farb-Meta fuer alle betroffenen Slots wird entfernt.
     """
     from app.models.character import get_character_profile, save_character_profile
     profile = get_character_profile(character_name)
@@ -1484,24 +1506,20 @@ def unequip_piece(character_name: str,
     if not target_slot:
         return {"status": "error", "reason": "not_equipped"}
 
-    removed = eq.pop(target_slot)
-    # Multi-Slot-Piece: alle Spiegelslots mit derselben item_id auch entfernen.
-    mirrors = [s for s, iid in list(eq.items()) if iid == removed]
-    for s in mirrors:
+    removed = eq[target_slot]
+    cleared_slots = [s for s, iid in list(eq.items()) if iid == removed]
+    for s in cleared_slots:
         eq.pop(s, None)
     profile["equipped_pieces"] = eq
-    # Farb-Meta fuer alle betroffenen Slots entfernen
     meta = profile.get("equipped_pieces_meta") or {}
-    for s in [target_slot] + mirrors:
-        if s in meta:
-            meta.pop(s, None)
+    for s in cleared_slots:
+        meta.pop(s, None)
     profile["equipped_pieces_meta"] = meta
     save_character_profile(character_name, profile)
-    logger.info("unequip_piece [%s]: slot=%s item=%s%s",
-                character_name, target_slot, removed,
-                f" (+mirrors={mirrors})" if mirrors else "")
+    logger.info("unequip_piece [%s]: item=%s slots=%s",
+                character_name, removed, cleared_slots)
     return {"status": "ok", "slot": target_slot, "item_id": removed,
-            "additional_slots_cleared": mirrors}
+            "cleared_slots": cleared_slots}
 
 
 def equip_item(character_name: str, item_id: str) -> Dict[str, Any]:
@@ -1591,17 +1609,41 @@ def apply_equipped_pieces(character_name: str, *,
     skipped: List[Dict[str, Any]] = []
 
     rs = list(remove_slots or [])
+    # remove_slots: das gesamte Item aus dem Slot entfernen (inkl. Mirror-Slots).
     for slot in rs:
-        if slot in target_pieces:
-            cleared.append({"slot": slot, "item_id": target_pieces.pop(slot)})
+        iid = target_pieces.get(slot)
+        if not iid:
+            continue
+        for s in [s for s, x in list(target_pieces.items()) if x == iid]:
+            cleared.append({"slot": s, "item_id": iid})
+            target_pieces.pop(s, None)
 
     if pieces is not None:
+        # 1) Pieces, die nicht mehr im Soll-State sind, raeumen wir vollstaendig
+        #    weg — inklusive aller Mirror-Slots des betroffenen Items.
+        wanted_ids = {iid for iid in pieces.values() if iid}
         for slot in list(target_pieces.keys()):
-            if slot not in pieces and slot not in rs:
-                cleared.append({"slot": slot, "item_id": target_pieces.pop(slot)})
-        for slot, iid in pieces.items():
+            iid = target_pieces.get(slot)
             if not iid:
                 continue
+            if iid in wanted_ids:
+                continue  # Item bleibt, evtl. mit anderen Slots — gleich neu setzen
+            if slot in pieces or slot in rs:
+                # Slot wird gleich ueberschrieben/geleert — Cleanup uebernimmt das
+                continue
+            for s in [s for s, x in list(target_pieces.items()) if x == iid]:
+                cleared.append({"slot": s, "item_id": iid})
+                target_pieces.pop(s, None)
+
+        # 2) Pro Item dedup, dann Multi-Slot-Pieces ZUERST verarbeiten —
+        #    sonst kann ein Single-Slot-Piece einen Mirror-Slot eines Multi-Slot-
+        #    Pieces "stehlen" und das Multi-Slot-Piece bricht auseinander.
+        item_entries: List[Dict[str, Any]] = []
+        seen_ids: set = set()
+        for slot, iid in pieces.items():
+            if not iid or iid in seen_ids:
+                continue
+            seen_ids.add(iid)
             if not has_item(character_name, iid):
                 skipped.append({"item_id": iid, "slot": slot, "reason": "not_in_inventory"})
                 continue
@@ -1609,12 +1651,43 @@ def apply_equipped_pieces(character_name: str, *,
             if not it or it.get("category") != "outfit_piece":
                 skipped.append({"item_id": iid, "slot": slot, "reason": "not_outfit_piece"})
                 continue
-            piece_slot = (it.get("outfit_piece") or {}).get("slot", "") or slot
-            if piece_slot not in VALID_PIECE_SLOTS:
+            item_slots_list = _clean_piece_slots((it.get("outfit_piece") or {}).get("slots"))
+            if not item_slots_list:
                 skipped.append({"item_id": iid, "slot": slot, "reason": "invalid_slot"})
                 continue
-            target_pieces[piece_slot] = iid
-            applied.append({"item_id": iid, "slot": piece_slot})
+            item_entries.append({"iid": iid, "input_slot": slot, "slots": item_slots_list})
+
+        # Multi-Slot zuerst, dann Single-Slot (stable bei gleicher slot-count
+        # ueber input-Reihenfolge).
+        item_entries.sort(key=lambda e: -len(e["slots"]))
+
+        locked: Dict[str, str] = {}  # slot -> piece_id (gewinnender Anspruch)
+        for e in item_entries:
+            iid = e["iid"]
+            item_slots_list = e["slots"]
+            blocked = next(
+                (ts for ts in item_slots_list
+                 if ts in locked and locked[ts] != iid),
+                None)
+            if blocked is not None:
+                skipped.append({"item_id": iid, "slot": e["input_slot"],
+                                "reason": "slot_conflict_with_multi_slot"})
+                continue
+            # Verdraengen: bestehende Items, die in einem Ziel-Slot sitzen,
+            # komplett ausziehen (auch ihre Mirror-Slots).
+            for ts in item_slots_list:
+                occ = target_pieces.get(ts)
+                if occ and occ != iid:
+                    for s in [s for s, x in list(target_pieces.items()) if x == occ]:
+                        cleared.append({"slot": s, "item_id": occ})
+                        target_pieces.pop(s, None)
+            # Eigene Stale-Mirrors raeumen (Schema-Drift), dann frisch setzen.
+            for s in [s for s, x in list(target_pieces.items()) if x == iid and s not in item_slots_list]:
+                target_pieces.pop(s, None)
+            for ts in item_slots_list:
+                target_pieces[ts] = iid
+                locked[ts] = iid
+                applied.append({"item_id": iid, "slot": ts})
 
     if items is not None:
         validated: List[str] = []
@@ -1758,13 +1831,16 @@ def apply_outfit_type_compliance(character_name: str,
 
     # Inventory des Characters + Item-Definitionen
     inv = _load_inventory(character_name).get("inventory", [])
-    inv_ids = {e.get("item_id"): e for e in inv}
 
     swapped, removed = [], []
 
-    # Hilfsfunktion: bevorzugt ein STRIKT getyptes Ersatz-Piece fuer slot;
-    # faellt auf neutrale (ungetyppte) Pieces zurueck wenn nichts Passendes da.
-    def _find_replacement(slot: str, already_equipped: set) -> Optional[str]:
+    # Hilfsfunktion: sucht einen strikt/neutral passenden Ersatz, der ALLE
+    # angegebenen Slots abdeckt. Multi-Slot-Pieces matchen wenn ihre slots
+    # genau die required_slots enthalten (Set-Vergleich).
+    def _find_replacement(required_slots: List[str], already_equipped: set) -> Optional[str]:
+        req = set(required_slots)
+        if not req:
+            return None
         strict = None
         neutral = None
         for e in inv:
@@ -1774,8 +1850,12 @@ def apply_outfit_type_compliance(character_name: str,
             cand = get_item(cand_id)
             if not cand or cand.get("category") != "outfit_piece":
                 continue
-            op = cand.get("outfit_piece") or {}
-            if (op.get("slot") or "") != slot:
+            cand_slots = set(_piece_slots(cand))
+            # Wir suchen ein Piece das genau dieselbe Slot-Kombination belegt
+            # — nicht mehr und nicht weniger. Sonst wuerde z.B. ein Kleid
+            # (top+bottom) einen einzelnen top-Slot ersetzen und dabei
+            # bottom verdraengen.
+            if cand_slots != req:
                 continue
             if _piece_is_strict_type(cand, target_type):
                 strict = cand_id
@@ -1784,45 +1864,65 @@ def apply_outfit_type_compliance(character_name: str,
                 neutral = cand_id
         return strict or neutral
 
-    for slot in list(eq_pieces.keys()):
-        iid = eq_pieces[slot]
-        cur_item = get_item(iid) if iid else None
-        cur_strict = cur_item and _piece_is_strict_type(cur_item, target_type)
-        cur_matches = cur_item and _piece_matches_type(cur_item, target_type)
-
-        # Bereits strikt passend? Fertig.
-        if cur_strict:
+    # Eq nach Pieces gruppieren (jedes Piece kann mehrere Slots belegen).
+    # Wir iterieren ueber distinct items in stabiler Reihenfolge — VALID_PIECE_SLOTS
+    # gibt die Insertion-Order.
+    seen_pieces: List[tuple] = []  # (iid, [slots,...]) in Reihenfolge
+    by_iid: Dict[str, List[str]] = {}
+    for s in VALID_PIECE_SLOTS:
+        iid = eq_pieces.get(s)
+        if not iid:
             continue
-        # Aktuell neutral (wuerde passen) — nur tauschen wenn ein STRIKTES
-        # Piece existiert. Sonst belassen.
+        if iid not in by_iid:
+            by_iid[iid] = []
+            seen_pieces.append((iid, by_iid[iid]))
+        by_iid[iid].append(s)
+
+    for iid, piece_slots in seen_pieces:
+        cur_item = get_item(iid)
+        if not cur_item:
+            # Stale-Item — ausziehen
+            for s in piece_slots:
+                eq_pieces.pop(s, None)
+            removed.append({"slots": list(piece_slots), "old": iid})
+            continue
+        cur_strict = _piece_is_strict_type(cur_item, target_type)
+        cur_matches = _piece_matches_type(cur_item, target_type)
+
+        if cur_strict:
+            continue  # passt strikt — fertig
+
+        # Bereits in Verwendung markieren (sich selbst nicht ersetzen)
+        already = {x for x in eq_pieces.values() if x}
+
         if cur_matches:
-            strict_replacement = None
+            # Neutral — nur tauschen wenn ein strikter Ersatz existiert
             for e in inv:
                 cand_id = e.get("item_id")
-                if not cand_id or cand_id in eq_pieces.values():
+                if not cand_id or cand_id in already:
                     continue
                 cand = get_item(cand_id)
                 if not cand or cand.get("category") != "outfit_piece":
                     continue
-                op = cand.get("outfit_piece") or {}
-                if (op.get("slot") or "") != slot:
+                if set(_piece_slots(cand)) != set(piece_slots):
                     continue
                 if _piece_is_strict_type(cand, target_type):
-                    strict_replacement = cand_id
+                    for s in piece_slots:
+                        eq_pieces[s] = cand_id
+                    swapped.append({"slots": list(piece_slots), "old": iid, "new": cand_id})
                     break
-            if strict_replacement:
-                eq_pieces[slot] = strict_replacement
-                swapped.append({"slot": slot, "old": iid, "new": strict_replacement})
             continue
 
-        # Aktuell passt NICHT — strikter oder neutraler Ersatz
-        replacement_id = _find_replacement(slot, set(eq_pieces.values()))
+        # Passt nicht — strikter oder neutraler Ersatz
+        replacement_id = _find_replacement(piece_slots, already)
         if replacement_id:
-            eq_pieces[slot] = replacement_id
-            swapped.append({"slot": slot, "old": iid, "new": replacement_id})
+            for s in piece_slots:
+                eq_pieces[s] = replacement_id
+            swapped.append({"slots": list(piece_slots), "old": iid, "new": replacement_id})
         else:
-            eq_pieces.pop(slot, None)
-            removed.append({"slot": slot, "old": iid})
+            for s in piece_slots:
+                eq_pieces.pop(s, None)
+            removed.append({"slots": list(piece_slots), "old": iid})
 
     changed = bool(swapped or removed)
     if changed:
@@ -1880,9 +1980,14 @@ def auto_fill_missing_slots(character_name: str, outfit_type: str) -> List[Dict[
     filled: List[Dict[str, str]] = []
 
     def _pick_piece(slot: str) -> Optional[str]:
-        """Bevorzugt strict-typed, dann neutral-typed piece fuer den Slot."""
-        strict = None
-        neutral = None
+        """Bevorzugt strict-typed, sonst neutral-typed piece fuer den Slot.
+
+        Bei mehreren gleichwertigen Kandidaten waehlt ein Tages-Seed
+        (character+date+slot) deterministisch — gleiche Auswahl ueber den
+        Tag, naechster Tag potenziell anderes Outfit.
+        """
+        strict: List[str] = []
+        neutral: List[str] = []
         for e in inv:
             iid = e.get("item_id")
             if not iid or iid in used_ids:
@@ -1890,36 +1995,37 @@ def auto_fill_missing_slots(character_name: str, outfit_type: str) -> List[Dict[
             it = get_item(iid)
             if not it or it.get("category") != "outfit_piece":
                 continue
-            op = it.get("outfit_piece") or {}
-            if (op.get("slot") or "") != slot:
+            if slot not in _piece_slots(it):
                 continue
             if _piece_is_strict_type(it, outfit_type):
-                strict = iid
-                break
-            if neutral is None and _piece_matches_type(it, outfit_type):
-                neutral = iid
-        return strict or neutral
+                strict.append(iid)
+            elif _piece_matches_type(it, outfit_type):
+                neutral.append(iid)
+        pool = strict or neutral
+        if not pool:
+            return None
+        rng = random.Random(f"{character_name}|{date.today().isoformat()}|{slot}")
+        return rng.choice(pool)
 
     for slot in missing:
-        # Ein vorher befuelltes additional_slot kann diesen Slot bereits
-        # abgedeckt haben — in dem Fall kein separates Piece mehr picken.
+        # Ein Multi-Slot-Pick aus einer frueheren Iteration kann diesen Slot
+        # bereits gefuellt haben (z.B. Kleid deckt top + bottom).
         if eq_pieces.get(slot):
             continue
         pick = _pick_piece(slot)
         if not pick:
             continue
 
-        # additional_slots des gewaehlten Pieces mitbelegen — wie equip_piece()
-        # es bei manuellem Anziehen tut. Sonst bleiben z.B. beim Bikini Bra
-        # zusaetzliche Slots (etwa "neck") leer.
+        # Alle Slots des gewaehlten Pieces symmetrisch belegen. Bestehende
+        # Pieces in diesen Slots werden vollstaendig verdraengt — sonst
+        # blockiert z.B. ein bereits angezogener Rock das Auto-Anziehen
+        # eines Kleides, das top+bottom belegt.
         it = get_item(pick)
-        op = (it.get("outfit_piece") or {}) if it else {}
-        add_slots = _clean_additional_slots(op.get("additional_slots"), slot)
-        # Konflikte in additional_slots: existierende Pieces werden verdraengt
-        # (analog equip_piece). Sonst blockiert z.B. ein bereits angezogener
-        # Rock das Auto-Anziehen eines Kleides, das top+bottom belegt.
+        item_slots = _piece_slots(it)
+        if slot not in item_slots:
+            continue  # Defensive — sollte durch _pick_piece nicht vorkommen
         displaced: List[str] = []
-        for s in add_slots:
+        for s in item_slots:
             occ = eq_pieces.get(s) or ""
             if occ and occ != pick and occ not in displaced:
                 displaced.append(occ)
@@ -1929,14 +2035,13 @@ def auto_fill_missing_slots(character_name: str, outfit_type: str) -> List[Dict[
                     eq_pieces.pop(s, None)
             used_ids.discard(displaced_id)
 
-        eq_pieces[slot] = pick
-        for s in add_slots:
+        for s in item_slots:
             eq_pieces[s] = pick
         used_ids.add(pick)
-        filled.append({"slot": slot, "item_id": pick})
+        filled.append({"slot": slot, "item_id": pick, "slots": list(item_slots)})
         if displaced:
-            logger.info("auto_fill [%s]: %s belegt slot '%s' +%s — verdraengt %s",
-                        character_name, pick, slot, add_slots, displaced)
+            logger.info("auto_fill [%s]: %s belegt slots %s — verdraengt %s",
+                        character_name, pick, item_slots, displaced)
 
     if filled:
         profile["equipped_pieces"] = eq_pieces

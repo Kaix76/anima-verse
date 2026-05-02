@@ -471,42 +471,28 @@ def _generate_image_prompt(
             "Only describe the subjects who are being photographed. "
         )
 
-    system_prompt = (
-        "You are an image prompt generator. "
-        + model_context
-        + instruction_context
-        + photographer_context
-        + "Extract a visual scene description from the following text for AI image generation. "
-        + (identity_context + " " if identity_context else "")
-        + "Replace all pronouns with the character names in your output. "
-        "IMPORTANT: Only include characters who are PHYSICALLY PRESENT and VISIBLE in the scene. "
-        "If a character is only mentioned by name (e.g. talked about, remembered) but not physically there, do NOT include them. "
-        "Describe ONLY: actions, poses, body positions, camera angle, lighting, atmosphere. "
-        "Do NOT describe: physical appearance (hair color, eye color, body shape, age, ethnicity), "
-        "clothing or outfits, emotions or mood, location or setting details. "
-        "These are handled by separate variables and will be added to the prompt automatically. "
-        "Ignore metadata, hashtags, mood statements. "
-        "Respond ONLY with the prompt, nothing else."
-    )
-
-    # Human-Message: Szenen-Text prominent, Kontext kompakt darunter
-    human_parts = [f"/no_think\nScene:\n{text}"]
-
-    if setting_context:
-        human_parts.append(f"\n{setting_context}")
-
-    if appearances:
-        # Nur Namen senden – das LLM braucht sie fuer Pronomen-Aufloesung.
-        # Volle Appearance-Texte werden spaeter vom ImageGenerationSkill
-        # in den Prompt eingefuegt; hier wuerden sie vom LLM oft dupliziert.
-        app_names = ", ".join(p["name"] for p in appearances)
-        human_parts.append(f"\nCharacters present: {app_names}")
-
-    human_msg = "\n".join(human_parts)
-
     try:
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
         _agent_name = (agent_config or {}).get("name", "")
+        characters_present_block = ""
+        if appearances:
+            # Nur Namen senden – das LLM braucht sie fuer Pronomen-Aufloesung.
+            # Volle Appearance-Texte werden spaeter vom ImageGenerationSkill
+            # in den Prompt eingefuegt; hier wuerden sie vom LLM oft dupliziert.
+            app_names = ", ".join(p["name"] for p in appearances)
+            characters_present_block = f"Characters present: {app_names}"
+
+        system_prompt, human_msg = render_task(
+            "image_prompt_scene",
+            model_context=model_context,
+            instruction_context=instruction_context,
+            photographer_context=photographer_context,
+            identity_context=identity_context,
+            scene_text=text,
+            setting_block=setting_context,
+            characters_present_block=characters_present_block)
+
         response = llm_call(
             task="image_prompt",
             system_prompt=system_prompt,
@@ -1066,11 +1052,8 @@ async def chat(request: Request) -> StreamingResponse:
     # Avatar nicht im Raum). Beeinflusst System-Prompt + Chat-Bubble-Styling.
     medium = (data.get("medium") or "in_person").strip() or "in_person"
 
-    # Thought Loop: User-Interaktion tracken
-    from app.core.thoughts import get_thought_loop
-    _thought = get_thought_loop()
-    if _thought:
-        _thought.record_interaction()
+    # NOTE: ThoughtLoop.record_interaction() removed — the AgentLoop is
+    # continuous and importance-driven, no idle-time gating needed.
 
     # Chat partner = the character that responds (read from _chat_partner.txt)
     _t0 = _t.perf_counter()
@@ -1436,12 +1419,23 @@ async def chat(request: Request) -> StreamingResponse:
             current_agent, llm_instance=_llm_inst,
             task_type="user_chat", label=f"Chat: {current_agent}")
 
+        # Hand the task_id to the agent so iteration progress shows in panel.
+        agent.chat_task_id = _chat_task_id
+
         # Tool-Executor: gibt Queue waehrend Tool-Ausfuehrung frei,
         # damit Tools die selbst LLM-Calls machen (z.B. KnowledgeExtract) nicht blockiert werden
         _chat_state = {"task_id": _chat_task_id}
+        # (tool_name, raw_input) per executed tool — passed to the intent
+        # engine so [INTENT:...] markers that duplicate a tool already run
+        # in this turn get skipped (avoids double SendMessage / Instagram).
+        _tool_executions: list = []
 
         async def _tool_executor(tool_name, tool_input):
             # Queue freigeben damit Tool-LLM-Calls durchkommen
+            try:
+                _tool_executions.append((tool_name, tool_input))
+            except Exception:
+                pass
             if _chat_state["task_id"]:
                 _llm_queue.register_chat_done(_chat_state["task_id"])
                 _chat_state["task_id"] = None
@@ -1654,7 +1648,8 @@ async def chat(request: Request) -> StreamingResponse:
                 llm=llm,
                 user_display_name=user_display_name,
                 full_chat_history=full_chat_history,
-                old_history=old_history)
+                old_history=old_history,
+                executed_tools=_tool_executions)
 
             # SSE events for frontend (mood, location, activity, assignments)
             if _pp.get("mood"):
@@ -2193,38 +2188,22 @@ def _extract_context_from_last_chat(agent_name: str,
             return
 
         source_label = "User input" if is_avatar else "Character reply"
-        if outfit_locked:
-            # Agent-Fall: Activity weiter extrahieren, Outfit-Feld raus.
-            system = (
-                f"The following is {source_label} from {target_name}. "
-                f"Extract what {target_name} is currently doing as a short phrase.\n\n"
-                "Respond ONLY with JSON:\n"
-                '{"activity": "<short phrase>"}'
-            )
-        else:
-            activity_field = "" if is_avatar else '"activity": "<short phrase>", '
-            system = (
-                f"{target_name} currently wears: {target_baseline or '(unknown)'}\n\n"
-                f"The following is {source_label} from {target_name}. "
-                f"Analyze if any clothing item is removed, dropped, taken off, "
-                f"opened and dropped, undressed, or changed. Indirect phrasing "
-                f"counts: 'faellt auf den Boden' / 'falls to floor' = removed. "
-                f"'zieht aus/auf und laesst fallen' = removed. "
-                f"Return the REMAINING outfit (items still worn) after any changes. "
-                f"If genuinely nothing changed → empty string. "
-                "Never invent new items; never return placeholders like 'underwear' "
-                "unless the baseline explicitly lists underwear items.\n\n"
-                "Respond ONLY with JSON:\n"
-                "{" + activity_field +
-                f'"outfit": "<remaining {target_name} outfit or empty>"}}'
-            )
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "extraction_chat_context",
+            target_name=target_name,
+            target_baseline=target_baseline or "(unknown)",
+            source_label=source_label,
+            source_text=source_text,
+            outfit_locked=outfit_locked,
+            is_avatar=is_avatar)
 
         try:
             from app.core.llm_router import llm_call as _llm_call
             response = _llm_call(
                 task="extraction",
-                system_prompt=system,
-                user_prompt=f"/no_think\n{source_text}",
+                system_prompt=sys_prompt,
+                user_prompt=user_prompt,
                 agent_name=target_name)
         except RuntimeError:
             logger.debug("Chat-Kontext-Extraktion [%s]: kein LLM verfuegbar", target_name)
@@ -2294,55 +2273,42 @@ def _build_full_system_prompt(character_name: str,
     skip_partner: bool = False,
     medium: str = "in_person",
     room_item_ids: Optional[list] = None) -> str:
-    """Baut den vollstaendigen System-Prompt (template-driven).
+    """Build the chat-stream / talk-to system prompt.
 
-    1. Sprach-Anweisung
-    2. User-Informationen (aus User-Template)
-    3. Character-Informationen (aus Character-Template)
-    4. History-Zusammenfassung
+    Loads all data sections (character/soul template, partner template,
+    memory, relationships, ...), then renders ``chat/chat_stream.md``.
+    Pre-formatted blocks live in Python (``build_*_prompt_section``);
+    static instruction text lives in the template.
 
     Args:
-        skip_partner: Im Gruppenchat True — Partner-Sektion wird uebersprungen
-            (Teilnehmer werden stattdessen in der GROUP CONVERSATION Sektion beschrieben).
+        skip_partner: True for group chat — partner section is skipped
+            (participants get listed in the GROUP CONVERSATION block instead).
     """
-    parts = []
+    from app.core.prompt_templates import render
 
-    # --- 1) Sprach-Anweisung ---
-    parts.append(lang_instruction)
-
-    # Character-Template frueh laden (Features steuern User-Prompt-Filterung)
     char_profile = get_character_profile(character_name)
     char_template = get_template(char_profile.get("template", "human-default"))
     char_features = (char_template or {}).get("features", {})
 
-    # --- 2) Conversation partner ---
-    # skip_partner: Im Gruppenchat kommt die Teilnehmer-Info in die GROUP CONVERSATION Sektion
-    # partner_override is used for Social Dialog (character-to-character)
+    # ---- Conversation partner ----------------------------------------
     from app.models.account import get_active_character
     _partner_name = "" if skip_partner else (partner_override or get_active_character())
     _partner_lines: list = []
+    partner_mode = "none"
 
     if _partner_name and _partner_name != character_name:
-        # Chatbots (relationships_enabled=false) bekommen nur den Namen — kein
-        # Avatar-Profilblock mit Appearance/Activity, das ist irrelevant.
         if not char_features.get("relationships_enabled", True):
-            parts.append(
-                f"\nThe person you are chatting with is {_partner_name}. "
-                f"Address them as {_partner_name}."
-            )
+            partner_mode = "chatbot"
         else:
-            # Partner is another character — describe them from their profile
+            partner_mode = "character"
             partner_profile = get_character_profile(_partner_name)
             partner_template = get_template(partner_profile.get("template", "human-default"))
             if partner_template:
-                # Appearance-Tokens ({age}, {body_type}, ...) wie beim eigenen Character aufloesen
                 p_app = partner_profile.get("character_appearance", "")
                 if p_app and "{" in p_app:
                     partner_profile["character_appearance"] = resolve_profile_tokens(
                         p_app, partner_profile, template=partner_template,
                         target_key="character_appearance")
-                # Location-ID zu Name aufloesen (nur falls das Feld im Partner-Block
-                # noch erscheint — aktuell `prompt_self_only`, aber für Konsistenz)
                 p_loc_id = partner_profile.get("current_location", "")
                 if p_loc_id:
                     p_loc_name = get_location_name(p_loc_id)
@@ -2354,9 +2320,6 @@ def _build_full_system_prompt(character_name: str,
             if not _partner_lines:
                 _partner_lines = [f"Name: {_partner_name}"]
 
-            # Avatar-Mood/Activity explizit anhaengen — Felder sind im Template
-            # als prompt_self_only markiert, sollen aber in Partner-Sicht
-            # sichtbar sein ("dein Gespraechspartner wirkt muede").
             try:
                 _p_feeling = (partner_profile.get("current_feeling") or "").strip()
                 if _p_feeling:
@@ -2367,71 +2330,20 @@ def _build_full_system_prompt(character_name: str,
             except Exception:
                 pass
 
-            # address_form is per-relationship
             partner_address = get_character_address_form(character_name)
             if partner_address:
                 _partner_lines.append(f"Form of address: {partner_address}")
+    elif not skip_partner:
+        # Fallback: no active character — use account username
+        _fallback_name = get_user_name() or ""
+        if _fallback_name:
+            _partner_name = _fallback_name
+            partner_mode = "fallback"
 
-            parts.append(
-                f"\nYou are talking to {_partner_name} — another character in this world:\n"
-                + "\n".join(_partner_lines)
-            )
-            parts.append(
-                f"\nIMPORTANT: You are having a conversation with {_partner_name}. "
-                f"{_partner_name} is a real person in your world, not an observer or narrator. "
-                f"Do NOT confuse {_partner_name} with any other character. "
-                f"Address them as {_partner_name} (unless a different form of address is specified above)."
-            )
-    else:
-        # Fallback: no active character set — use account username
-        # Im Gruppenchat (skip_partner=True) NICHT ausgeben — sonst denkt das LLM
-        # es spricht 1:1 mit dem Avatar, obwohl es ein Gruppenchat ist.
-        if not skip_partner:
-            _partner_name = get_user_name() or ""
-            if _partner_name:
-                parts.append(
-                    f"\nIMPORTANT: The person you are chatting with right now is {_partner_name}. "
-                    f"Do NOT confuse {_partner_name} with any other character. "
-                    f"Always address them as {_partner_name} (unless a different form of address is specified above)."
-                )
-
-    # --- 2.5) Medium context (wie findet die Konversation statt) ---
-    if medium == "telegram":
-        parts.append(
-            "\nCONTEXT: This conversation takes place via Telegram (text messaging). "
-            "You are NOT face-to-face with the other person. You are chatting remotely. "
-            "Keep this in mind for your responses — you cannot see them, "
-            "they cannot see you. Physical actions (touching, handing things over, etc.) "
-            "are not possible. However, you CAN send images and media via Telegram. "
-            "React as if you are texting on your phone."
-        )
-    elif medium == "messaging":
-        parts.append(
-            "\nCONTEXT: This conversation takes place via text messaging — "
-            "you are NOT face-to-face, you are chatting remotely from different locations. "
-            "Physical actions (touching, handing things over, sharing a look, etc.) "
-            "are not possible. React as if you are texting."
-        )
-    elif medium == "instagram":
-        parts.append(
-            "\nCONTEXT: This interaction takes place on Instagram (comments or DMs). "
-            "Keep responses short, casual, and platform-appropriate. Emojis are fine."
-        )
-    else:  # in_person
-        parts.append(
-            "\nCONTEXT: This conversation takes place in-person, face-to-face. "
-            "You are physically at the same location. Physical actions, gestures, "
-            "and shared surroundings are possible and natural."
-        )
-
-    # --- 2.55) Was die Charaktere tragen + dabei haben ---
-    # Fuer den Character selbst: explizite Kleidung + Inventar.
-    # Fuer den Gespraechspartner: nur Kleidung (Inventar des Partners geht
-    # den NPC nichts an — besonders nicht das private Inventar des Avatars).
+    # ---- Self / partner wearing blocks --------------------------------
     def _strip_wearing_prefix(text: str) -> str:
         t = (text or "").strip()
-        low = t.lower()
-        if low.startswith("wearing:"):
+        if t.lower().startswith("wearing:"):
             t = t[len("wearing:"):].lstrip()
         return t
 
@@ -2443,14 +2355,11 @@ def _build_full_system_prompt(character_name: str,
                 get_character_inventory, get_equipped_item_ids)
             wearing = _strip_wearing_prefix(build_equipped_outfit_prompt(_cname))
             lines: list = []
-            # Verb-Form je nach Subjekt: "Du" -> 2.Pers., sonst 3.Pers.
-            _is_du = (_label == "Du")
-            _v_traegt = "traegst" if _is_du else "traegt"
-            _v_hat = "hast" if _is_du else "hat"
+            _is_self = (_label == "You")
+            _v_wear = "are" if _is_self else "is"
+            _v_carry = "have" if _is_self else "has"
             if wearing:
-                # Explizite Ansage damit das LLM das als Fakt parst, nicht
-                # als Aufzaehlung aus dem Nichts.
-                lines.append(f"{_label} {_v_traegt} aktuell diese Kleidung und Ausruestung: {wearing}")
+                lines.append(f"{_label} {_v_wear} currently wearing this clothing and equipment: {wearing}")
             if include_inventory:
                 inv = get_character_inventory(_cname).get("inventory", [])
                 equipped_set = set(get_equipped_item_ids(_cname))
@@ -2460,26 +2369,19 @@ def _build_full_system_prompt(character_name: str,
                     if e.get("item_id") not in equipped_set
                 ]
                 if carried:
-                    lines.append(f"{_label} {_v_hat} dabei (noch nicht angezogen / im Inventar): {', '.join(carried)}")
+                    lines.append(f"{_label} {_v_carry} on hand (not yet equipped / in inventory): {', '.join(carried)}")
             return "\n".join(lines)
         except Exception:
             return ""
 
-    # Character selbst: Kleidung + eigenes Inventar
-    _self_wear = _build_wearing_block(character_name, "Du", include_inventory=True)
-    if _self_wear:
-        parts.append("\n" + _self_wear)
-
-    # Partner: nur Kleidung, nie das Inventar (privat — besonders beim Avatar)
+    self_wearing = _build_wearing_block(character_name, "You", include_inventory=True)
+    partner_wearing = ""
     if _partner_name and _partner_name != character_name and not skip_partner:
-        _partner_wear = _build_wearing_block(_partner_name, _partner_name,
-                                              include_inventory=False)
-        if _partner_wear:
-            parts.append("\n" + _partner_wear)
+        partner_wearing = _build_wearing_block(_partner_name, _partner_name,
+                                                include_inventory=False)
 
-    # --- 2.6) Markierte Raum-Items (User hat im Panel Items ausgewaehlt) ---
-    # Nur bei in_person relevant — NPC kann auf markierte Items zeigen, sie
-    # anfassen, benutzen, kommentieren.
+    # ---- Focused room items (in_person + room_item_ids) ---------------
+    focused_items = ""
     if medium == "in_person" and room_item_ids:
         try:
             from app.models.inventory import get_item
@@ -2490,92 +2392,51 @@ def _build_full_system_prompt(character_name: str,
                     continue
                 _n = _it.get("name", _iid)
                 _d = (_it.get("description") or "").strip()
-                if _d:
-                    _item_lines.append(f"- {_n}: {_d}")
-                else:
-                    _item_lines.append(f"- {_n}")
+                _item_lines.append(f"- {_n}: {_d}" if _d else f"- {_n}")
             if _item_lines:
-                parts.append(
-                    "\nFOCUSED ITEMS IN THE ROOM (the person you're talking to has "
-                    "drawn attention to these — you can naturally reference, point to, "
-                    "or interact with them):\n" + "\n".join(_item_lines)
-                )
+                focused_items = "\n".join(_item_lines)
         except Exception:
             pass
 
-    # --- 3) Character-Informationen (template-driven) ---
-
+    # ---- Character template lines (the core "this is who you are") ----
     if char_template:
-        # Appearance Token-Aufloesung VOR build_prompt_section
         appearance = char_profile.get("character_appearance", "")
         if appearance and "{" in appearance:
             char_profile["character_appearance"] = resolve_profile_tokens(
                 appearance, char_profile, template=char_template,
-                target_key="character_appearance"
-            )
-
-        # Outfit: dynamisch berechnet (Location/Activity-Regeln)
+                target_key="character_appearance")
         current_outfit = (build_equipped_outfit_prompt(character_name) or "").removeprefix("wearing: ")
         if current_outfit:
             char_profile["default_outfit"] = current_outfit
-
-        # Location-ID zu Name aufloesen (in_prompt wuerde sonst die rohe ID ausgeben)
         loc_id = char_profile.get("current_location", "")
         if loc_id:
             loc_name = get_location_name(loc_id)
             char_profile["current_location"] = loc_name if loc_name else loc_id
-
         char_lines = build_prompt_section(
             char_template, char_profile,
             active_features=char_features, character_name=character_name)
     else:
-        # Fallback ohne Template
         char_lines = [f"Name: {character_name}"]
         if char_profile.get("character_personality"):
             char_lines.append(f"Personality: {char_profile['character_personality']}")
 
-    if char_lines:
-        # Identitaets-Anker: hart formuliert, damit das LLM nicht in Narrator-,
-        # Beobachter- oder Partner-Stimme rutscht. "You are this character:"
-        # allein war zu schwach (LLM beschrieb den Character in 3. Person,
-        # sprach Antworten fuer den Partner, brach in Meta-Kommentar aus).
-        # WICHTIG: Identitaets-Block wird VORN eingefuegt (direkt nach
-        # Sprach-Anweisung), nicht hier am Ende. Sonst kommen Wearing/
-        # Inventar-Sektionen vor "YOU ARE Kira" — das LLM weiss dann gar nicht
-        # wer redet, wenn es den Block liest.
-        identity_block = (
-            f"\n=== YOUR IDENTITY ===\n"
-            f"YOU ARE {character_name}. You are NOT an assistant, NOT a narrator, "
-            f"NOT an observer. You ARE this person. Speak in first person "
-            f"(\"ich\"/\"I\") as {character_name}. Never describe yourself in "
-            f"third person. Never speak FOR the other person — let them respond "
-            f"themselves. Never break character to comment on the conversation, "
-            f"the system, or the user.\n\n"
-            f"This is who you are:\n" + "\n".join(char_lines)
-        )
-        # Position 1 = direkt nach lang_instruction (Position 0)
-        parts.insert(1, identity_block)
-
-    # Feature-Check Helper fuer diesen Character
+    # ---- Feature-Check Helper -----------------------------------------
     from app.models.character_template import is_feature_enabled as _feat
     def _has(feat: str) -> bool:
         return _feat(character_name, feat)
 
-    # --- 3.2) Temporaere Aufgaben (Assignments) ---
+    # ---- Active assignments -------------------------------------------
+    assignment_section = ""
     if _has("assignments_enabled"):
         from app.models.assignments import build_assignment_prompt_section
-        assignment_section = build_assignment_prompt_section(character_name)
-        if assignment_section:
-            parts.append(assignment_section)
+        assignment_section = build_assignment_prompt_section(character_name) or ""
 
-    # --- 3.3) Current situation (Time, Location, Room & Activity) ---
+    # ---- Current situation block --------------------------------------
     current_location_id = get_character_current_location(character_name)
     current_location = get_location_name(current_location_id) if current_location_id else ""
     current_room_id = get_character_current_room(character_name)
     current_activity = get_character_current_activity(character_name)
 
-    # Zeit kommt immer (auch Chatbot kennt die Uhrzeit). Location/Room/Activity
-    # nur bei entsprechend aktivierten Features.
     now = datetime.now()
     time_line = f"Current time: {now.strftime('%H:%M')} ({now.strftime('%A, %d %B %Y')})"
     situation_parts = [time_line]
@@ -2583,13 +2444,11 @@ def _build_full_system_prompt(character_name: str,
     if _has("locations_enabled") and current_location:
         loc_data = get_location(current_location_id)
         loc_desc = loc_data.get("description", "") if loc_data else ""
-        if loc_desc:
-            situation_parts.append(f"Location: {current_location} - {loc_desc}")
-        else:
-            situation_parts.append(f"Location: {current_location}")
+        situation_parts.append(
+            f"Location: {current_location} - {loc_desc}" if loc_desc
+            else f"Location: {current_location}")
         if current_room_id and loc_data:
             room_data = get_room_by_id(loc_data, current_room_id)
-            # Fallback: current_room koennte als Name gespeichert sein (Altdaten)
             if not room_data:
                 for r in loc_data.get("rooms", []):
                     if r.get("name", "").lower() == current_room_id.lower():
@@ -2608,86 +2467,78 @@ def _build_full_system_prompt(character_name: str,
         act_desc = act_data.get("description", "") if act_data else ""
         act_detail = char_profile.get("current_activity_detail", "")
         display_desc = act_detail or act_desc
-        if display_desc:
-            situation_parts.append(f"Activity: {current_activity} - {display_desc}")
-        else:
-            situation_parts.append(f"Activity: {current_activity}")
+        situation_parts.append(
+            f"Activity: {current_activity} - {display_desc}" if display_desc
+            else f"Activity: {current_activity}")
 
-    # Wenn nur die Zeit drinsteht, gibt's keine Roleplay-"Situation" — nur Zeit
     if len(situation_parts) == 1:
-        parts.append(f"\n{time_line}")
+        situation_block = time_line
     else:
-        parts.append("\nYour current situation:\n" + "\n".join(situation_parts))
+        situation_block = "Your current situation:\n" + "\n".join(situation_parts)
 
-    # --- 3.3b) Status-Effects / Danger (Stamina, Stress, Courage, Danger-Level) ---
+    # ---- Status effects / danger --------------------------------------
+    status_section = ""
     if _has("status_effects_enabled"):
         from app.core.danger_system import build_status_prompt_section
-        _status_section = build_status_prompt_section(character_name)
-        if _status_section:
-            parts.append(_status_section)
+        status_section = build_status_prompt_section(character_name) or ""
 
-    # --- 3.4) Location Events (situative Ereignisse am Ort) ---
+    # ---- Location events ----------------------------------------------
+    events_section = ""
     if current_location_id and _has("locations_enabled"):
-        events_section = build_events_prompt_section(location_id=current_location_id)
-        if events_section:
-            parts.append(events_section)
+        events_section = build_events_prompt_section(location_id=current_location_id) or ""
 
-    # --- 3.5) Character Memory (ersetzt altes Knowledge-System) ---
+    # ---- Memory --------------------------------------------------------
+    memory_section = ""
     if _has("memory_enabled"):
-        memory_section = build_memory_prompt_section(character_name, user_name=_partner_name,
-            current_message="",  # Wird spaeter per Retrieval mit Kontext befuellt
-        )
-        if memory_section:
-            parts.append(memory_section)
+        memory_section = build_memory_prompt_section(
+            character_name, user_name=_partner_name, current_message="") or ""
 
-    # --- 3.5b) Relationship Graph (Beziehungen zu anderen Characters) ---
+    # ---- Relationships -------------------------------------------------
+    relationships_section = ""
     if _has("relationships_enabled"):
         from app.models.relationship import build_relationship_prompt_section
-        rel_section = build_relationship_prompt_section(character_name)
-        if rel_section:
-            parts.append(rel_section)
+        relationships_section = build_relationship_prompt_section(character_name) or ""
 
-    # --- 3.5c) Character Secrets (eigene Geheimnisse + Wissen ueber andere) ---
+    # ---- Secrets -------------------------------------------------------
+    secrets_section = ""
     if _has("secrets_enabled"):
         from app.models.secrets import build_secrets_prompt_section
-        secrets_section = build_secrets_prompt_section(character_name)
-        if secrets_section:
-            parts.append(secrets_section)
+        secrets_section = build_secrets_prompt_section(character_name) or ""
 
-    # --- 3.5d) Character Inventory (was der Character bei sich traegt) ---
+    # ---- Inventory: carrying + room visible ---------------------------
+    inventory_carrying_section = ""
+    inventory_room_section = ""
     if _has("inventory_enabled"):
         try:
-            from app.models.inventory import get_character_inventory, get_room_items, get_item
-            from app.models.character import get_character_language as _get_lang_inv
-            _inv_lang = (_get_lang_inv(character_name) or "en").lower()
-            _is_de = _inv_lang.startswith("de")
+            from app.models.inventory import (
+                get_character_inventory, get_room_items, get_item,
+                get_equipped_item_ids)
 
             def _localized(item: Dict[str, Any], field: str) -> str:
-                """Gibt ein Item-Feld in passender Sprache zurueck."""
                 if field == "name":
                     return (item.get("name") or "").strip()
-                if _is_de:
-                    return (item.get(f"{field}_de") or item.get(field) or "").strip()
                 return (item.get(field) or item.get(f"{field}_de") or "").strip()
 
             inv_data = get_character_inventory(character_name)
             inv_items = inv_data.get("inventory", [])
+            equipped_set = set(get_equipped_item_ids(character_name))
             if inv_items:
                 inv_lines = []
                 for entry in inv_items:
-                    full_item = get_item(entry.get("item_id", "")) or {}
+                    item_id = entry.get("item_id", "")
+                    if item_id in equipped_set or entry.get("equipped"):
+                        continue
+                    full_item = get_item(item_id) or {}
                     name = _localized(full_item, "name") or entry.get("item_name", "?")
                     desc = _localized(full_item, "description")
                     qty = entry.get("quantity", 1)
-                    equipped = " (equipped)" if entry.get("equipped") else ""
-                    line = f"- {name}" + (f" x{qty}" if qty > 1 else "") + equipped
+                    line = f"- {name}" + (f" x{qty}" if qty > 1 else "")
                     if desc:
                         line += f" — {desc}"
                     inv_lines.append(line)
-                header = "\nItems du bei dir traegst:" if _is_de else "\nItems you are carrying:"
-                parts.append(header + "\n" + "\n".join(inv_lines))
+                if inv_lines:
+                    inventory_carrying_section = "Items you are carrying:\n" + "\n".join(inv_lines)
 
-            # Raum-Items: sichtbare (nicht versteckte) Items im aktuellen Raum
             if current_location_id and current_room_id:
                 room_entries = get_room_items(current_location_id, current_room_id) or []
                 visible_lines = []
@@ -2708,97 +2559,45 @@ def _build_full_system_prompt(character_name: str,
                         line += f" — {desc}"
                     visible_lines.append(line)
                 if visible_lines:
-                    header = "\nItems in diesem Raum sichtbar:" if _is_de else "\nItems visible in this room:"
-                    parts.append(header + "\n" + "\n".join(visible_lines))
+                    inventory_room_section = "Items visible in this room:\n" + "\n".join(visible_lines)
         except Exception:
             pass
 
-    # --- 3.6) Keine Bilddateien erzeugen (nur wenn kein ImageGenerator-Tool verfuegbar) ---
-    if not tools_enabled:
-        parts.append(
-            '\nIMPORTANT: Never generate image file references, image URLs, or markdown image syntax '
-            'in your responses. You cannot create or display images. If the user asks for an image, '
-            'describe it in words instead.'
-        )
-
-    # --- 4) Mood-Tracking Anweisung (konfigurierbar, am Ende fuer staerkere Gewichtung) ---
+    # ---- Mood tracking flag -------------------------------------------
     char_config = get_character_config(character_name)
-    if _has("mood_tracking_enabled") and char_config.get("mood_tracking", False):
-        parts.append(
-            '\nIMPORTANT: Always end your response with your current emotional state with only one word '
-            'in this exact format: **I feel <emotion>**'
-        )
+    mood_tracking_enabled = bool(
+        _has("mood_tracking_enabled") and char_config.get("mood_tracking", False))
 
-    # --- 4.1) Location-Change Anweisung (nur wenn Character einen Ort hat) ---
+    # ---- Location / activity change instructions ----------------------
+    known_locations = ""
     if current_location_id and _has("locations_enabled"):
         location_names = [loc.get("name", "") for loc in list_locations()]
         if location_names:
-            loc_list = ", ".join(location_names)
-            parts.append(
-                f'\nLocation change: If the roleplay clearly moves you to a DIFFERENT location, '
-                f'add this line at the very end: **I am at <new location>**\n'
-                f'Known locations: {loc_list}\n'
-                f'You may also use other locations not in this list if the roleplay requires it.'
-            )
+            known_locations = ", ".join(location_names)
 
-    # --- 4.1a) Activity-Change Anweisung (verfuegbare Aktivitaeten auflisten) ---
+    known_activities = ""
     if current_location_id and _has("activities_enabled"):
         loc_data_act = get_location(current_location_id)
         if loc_data_act:
-            # Alle verfuegbaren Aktivitaeten (Bibliothek + Location + Character + Conditions)
             from app.models.activity_library import get_activity_names as _get_act_names
             from app.models.character import get_character_language as _get_lang
             _char_lang = _get_lang(character_name)
-            activity_names = _get_act_names(character_name, location_id=current_location_id, lang=_char_lang)
-
+            activity_names = _get_act_names(
+                character_name, location_id=current_location_id, lang=_char_lang)
             if activity_names:
-                act_list = ", ".join(activity_names)
-                parts.append(
-                    f'\nActivity change: If the roleplay clearly changes your activity, '
-                    f'add this line at the very end (BEFORE any location line): **I do <activity name>**\n'
-                    f'Available activities at this location: {act_list}\n'
-                    f'Use the EXACT activity name from the list above. '
-                    f'You may also use other activities not in this list if the roleplay requires it.'
-                )
+                known_activities = ", ".join(activity_names)
 
-    # --- 4.1b) Intent-Tracking + Assignment-Erkennung ---
-    # Nur im single Modus: Chat-LLM muss es selbst machen
-    # Im rp_first Modus: Tool-LLM uebernimmt Extraktion in Phase 2
-    # Bei tools_enabled=False (z.B. TalkTo): nicht noetig
-    if tools_enabled and not has_tool_llm:
-        parts.append(
-            '\nIntent tracking: If you commit to a concrete real-world action (posting something, '
-            'sending a message, doing something at a specific time), add this marker at the END '
-            'of your response on a new line:\n'
-            '[INTENT: <type> | delay=<0/30m/2h/1d> | key=value]\n'
-            'Types: instagram_post, send_message, remind, execute_tool\n'
-            'Delay: 0=now, 30m, 2h, 1d, or 14:00 (time of day)\n'
-            'Only add this when genuinely committing to a specific action. '
-            'Do NOT add for hypothetical, past, or uncertain actions.'
-        )
+    # ---- Intent / assignment tracking flags ---------------------------
+    intent_tracking_enabled = bool(tools_enabled and not has_tool_llm)
+    assignment_tracking_enabled = bool(intent_tracking_enabled and _has("assignments_enabled"))
+    other_characters = ""
+    if assignment_tracking_enabled:
+        from app.models.character import list_available_characters
+        all_characters = list_available_characters()
+        other_characters = ", ".join(c for c in all_characters if c != character_name)
 
-        if _has("assignments_enabled"):
-            from app.models.character import list_available_characters
-            all_characters = list_available_characters()
-            other_characters = [c for c in all_characters if c != character_name]
-            parts.append(
-                '\nAssignment tracking: If the user gives you a task, mission, or assignment '
-                '(something to work on over a period of time, not a one-time action), '
-                'add this marker at the END of your response on a new line:\n'
-                '[NEW_ASSIGNMENT: <title> | <your_role> | <description> | <priority 1-5> | <duration_minutes>]\n'
-                'If the user names other characters who should also participate, add them:\n'
-                '[NEW_ASSIGNMENT: <title> | <your_role> | <description> | <priority> | <duration> | <other_char>=<their_role>, <other_char2>=<their_role2>]\n'
-                f'Available characters: {", ".join(other_characters)}\n'
-                'Priority: 1=urgent, 2=high, 3=normal, 4=low, 5=background\n'
-                'Duration: in minutes (60=1h, 120=2h, 1440=1day)\n'
-                'Only add this when the user explicitly assigns a task. '
-                'Do NOT add for casual suggestions or roleplay actions.'
-            )
-
-    # --- 4.2) Tool-Instruktionen ---
-    # Single-Modus: Alle Tools im System-Prompt (Chat-LLM macht alles)
-    # RP-First Modus: KEINE Tool-Instruktionen im Chat-LLM Prompt
-    #   (Tool-LLM bekommt sie separat via tool_system_content)
+    # ---- Tool instructions block (built externally — complex) ---------
+    tool_instructions = ""
     if tools_enabled and agent_config and not has_tool_llm:
         from app.core.tool_formats import build_tool_instruction, get_format_for_model
         sm = get_skill_manager()
@@ -2812,32 +2611,24 @@ def _build_full_system_prompt(character_name: str,
             fmt = get_format_for_model(_model_for_fmt)
             appearance = get_character_appearance(character_name)
             usage = sm.get_agent_usage_instructions(character_name, fmt, check_limits=False)
-            llm_model = _model_for_fmt
             from app.core.prompt_builder import is_photographer_mode as _is_pm
             _sp_photographer = _is_pm(character_name)
             _sp_user_app = get_user_appearance() or "" if _sp_photographer else ""
             from app.models.character_template import is_roleplay_character as _is_rp_char
-            parts.append(build_tool_instruction(
-                fmt, agent_tools, appearance, usage, model_name=llm_model,
+            tool_instructions = build_tool_instruction(
+                fmt, agent_tools, appearance, usage, model_name=_model_for_fmt,
                 photographer_mode=_sp_photographer, user_appearance=_sp_user_app,
-                is_roleplay=_is_rp_char(character_name)))
+                is_roleplay=_is_rp_char(character_name))
 
-    # --- 5/5b/6) Summaries — nur wenn Memory-System aktiv ist ---
+    # ---- Long-term / daily / session summaries -----------------------
+    longterm_section = ""
+    daily_summary_section = ""
+    history_summary_block = ""
     if _has("memory_enabled"):
-        # --- 5) Langzeit-Gedaechtnis (Wochen/Monats-Summaries, Stufe 3) ---
         from app.utils.history_manager import build_longterm_summary_prompt_section
-        longterm_section = build_longterm_summary_prompt_section(character_name)
-        if longterm_section:
-            parts.append(longterm_section)
+        longterm_section = build_longterm_summary_prompt_section(character_name) or ""
+        daily_summary_section = build_daily_summary_prompt_section(character_name, max_days=5) or ""
 
-        # --- 5b) Tages-Summaries (Stufe 2: SHORT bis MID Tage) ---
-        # Im Prompt nur die letzten 5 Tage — Wochen-/Monatssummaries decken
-        # den Rest ab (Langzeit-Memory bleibt erhalten).
-        daily_section = build_daily_summary_prompt_section(character_name, max_days=5)
-        if daily_section:
-            parts.append(daily_section)
-
-        # --- 6) Sitzungs-Summary (nur wenn es alte Nachrichten gibt) ---
         if history_summary:
             location_changed = get_location_changed_at(character_name)
             location_is_recent = False
@@ -2848,29 +2639,61 @@ def _build_full_system_prompt(character_name: str,
                     location_is_recent = age_minutes < 10
                 except (ValueError, TypeError):
                     pass
-
             if location_is_recent:
                 short = history_summary[:200]
                 if len(history_summary) > 200:
                     short = short.rsplit(" ", 1)[0]
-                parts.append(f"\nPreviously: {short}")
+                history_summary_block = f"Previously: {short}"
             else:
-                parts.append(f"\nSummary of previous conversations:\n{history_summary}")
+                history_summary_block = f"Summary of previous conversations:\n{history_summary}"
 
-    # --- 6b) Recent Activity — was der Character zuletzt tat ---
+    # ---- Recent activity ----------------------------------------------
+    recent_activity_section = ""
     try:
         from app.core.system_prompt_builder import build_recent_activity_section
-        _recent = build_recent_activity_section(character_name)
-        if _recent:
-            parts.append("\n" + _recent)
+        recent_activity_section = build_recent_activity_section(character_name) or ""
     except Exception as _re:
         logger.debug("Recent-Activity-Section: %s", _re)
 
-    # --- 7) Condition-Reminder am Ende (hoechste LLM-Aufmerksamkeit) ---
+    # ---- Condition reminder -------------------------------------------
+    condition_reminder = ""
     if _has("status_effects_enabled"):
         from app.core.danger_system import build_condition_reminder
-        _cond_reminder = build_condition_reminder(character_name)
-        if _cond_reminder:
-            parts.append(_cond_reminder)
+        condition_reminder = build_condition_reminder(character_name) or ""
 
-    return "\n".join(parts)
+    return render(
+        "chat/chat_stream.md",
+        character_name=character_name,
+        lang_instruction=lang_instruction,
+        char_lines=char_lines,
+        partner_mode=partner_mode,
+        partner_name=_partner_name,
+        partner_lines=_partner_lines,
+        skip_partner=skip_partner,
+        medium=medium,
+        self_wearing=self_wearing,
+        partner_wearing=partner_wearing,
+        focused_items=focused_items,
+        assignment_section=assignment_section,
+        situation_block=situation_block,
+        status_section=status_section,
+        events_section=events_section,
+        memory_section=memory_section,
+        relationships_section=relationships_section,
+        secrets_section=secrets_section,
+        inventory_carrying_section=inventory_carrying_section,
+        inventory_room_section=inventory_room_section,
+        tools_enabled=tools_enabled,
+        has_tool_llm=has_tool_llm,
+        mood_tracking_enabled=mood_tracking_enabled,
+        known_locations=known_locations,
+        known_activities=known_activities,
+        intent_tracking_enabled=intent_tracking_enabled,
+        assignment_tracking_enabled=assignment_tracking_enabled,
+        other_characters=other_characters,
+        tool_instructions=tool_instructions,
+        longterm_section=longterm_section,
+        daily_summary_section=daily_summary_section,
+        history_summary_block=history_summary_block,
+        recent_activity_section=recent_activity_section,
+        condition_reminder=condition_reminder)

@@ -40,6 +40,12 @@ class Provider:
     system: str = ""                    # Physical system name (e.g. "ASUS-GX10") for dashboard grouping
     system_specs: str = ""              # Human-readable specs (e.g. "128 GB Unified RAM")
     available: bool = False
+    # Cooldown gate set by upstream-failure detector (5xx, connection drop,
+    # process-crash). check_availability() respects this without re-probing,
+    # so a flaky provider doesn't oscillate available/unavailable across
+    # health checks. Auto-clears when the timestamp passes.
+    _cooldown_until: float = field(default=0.0, repr=False)
+    _cooldown_reason: str = field(default="", repr=False)
 
     # VRAM tracking state (Ollama only)
     vram_used_mb: int = 0
@@ -64,8 +70,36 @@ class Provider:
             return base[:-3]
         return base
 
+    def mark_unhealthy(self, reason: str, cooldown_seconds: float = 300.0) -> None:
+        """Force the provider into a cooldown after an upstream failure.
+
+        Used when a request mid-flight crashed the backend (e.g. 5xx,
+        process exit, connection reset) but the /models probe might still
+        report 200. The cooldown blocks scheduling here so the routing
+        chain falls through to the next provider until the window expires.
+        """
+        import time as _time
+        self.available = False
+        self._cooldown_until = _time.monotonic() + max(0.0, cooldown_seconds)
+        self._cooldown_reason = reason or "unhealthy"
+        logger.warning("Provider %s in cooldown for %ds: %s",
+                       self.name, int(cooldown_seconds), reason)
+
+    def _cooldown_active(self) -> bool:
+        if not self._cooldown_until:
+            return False
+        import time as _time
+        return _time.monotonic() < self._cooldown_until
+
     def check_availability(self) -> bool:
         """Checks if this provider endpoint is reachable."""
+        if self._cooldown_active():
+            self.available = False
+            return False
+        # Cooldown expired — clear marker before probing.
+        if self._cooldown_until:
+            self._cooldown_until = 0.0
+            self._cooldown_reason = ""
         try:
             headers = {}
             if self.api_key and self.api_key not in ("ollama-local", ""):

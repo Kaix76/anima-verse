@@ -133,34 +133,15 @@ class SendMessageSkill(BaseSkill):
             except Exception as e:
                 logger.debug("SendMessage: Notification fehlgeschlagen: %s", e)
 
-        # Forced-Thought fuer den Empfaenger: er sieht die Nachricht im naechsten
-        # Thought-Tick, kann mit SendMessage antworten. Avatar-Target schliesst
-        # das aus — der Spieler antwortet selbst, das System denkt nicht fuer ihn.
-        # Cascade-Brake: reply_only_to=sender_name → SendMessage darf NUR an
-        # diesen Sender gehen. Verhindert Diego→Luna→Enzo→...-Kaskaden in denen
-        # jeder Empfaenger weitere Nachrichten an Dritte sendet.
+        # AgentLoop bump: recipient gets prioritised on the next slot so
+        # they see the inbox message soon (not waiting for their normal
+        # importance quota). Avatars don't think autonomously, so skip.
         if not target_is_avatar:
             try:
-                from app.core.background_queue import get_background_queue
-                get_background_queue().submit("forced_thought", {
-                    "user_id": user_id,
-                    "character_name": target_name,
-                    "context_hint": (
-                        f"Du hast eine neue Direktnachricht von {sender_name} erhalten:\n"
-                        f"\"{message}\"\n\n"
-                        f"Entscheide, ob und wie du antworten moechtest. "
-                        f"Wenn du antworten willst, nutze das Tool SendMessage. "
-                        f"Der Empfaenger ist {sender_name}. "
-                        f"Schreibe nur den eigentlichen Antworttext — keine "
-                        f"Meta-Kommentare wie 'meine Antwort:' davor. "
-                        f"Schicke KEINE Nachrichten an andere Personen — "
-                        f"das ist ein Reply, kein Verteiler."
-                    ),
-                    "tool_whitelist": ["SendMessage"],
-                    "reply_only_to": sender_name,
-                })
+                from app.core.agent_loop import get_agent_loop
+                get_agent_loop().bump(target_name)
             except Exception as e:
-                logger.error("SendMessage: forced_thought einplanen fehlgeschlagen: %s", e)
+                logger.debug("SendMessage: AgentLoop bump failed: %s", e)
 
         # Resolve: falls dieser Send einen offenen pending_report aufloest,
         # markieren. Heuristik: Target == initiator eines offenen Reports.

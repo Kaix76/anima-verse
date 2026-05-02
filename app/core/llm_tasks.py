@@ -39,7 +39,6 @@ TASK_TYPES: Dict[str, Dict[str, object]] = {
     # geroutet ist (siehe llm_router.resolve_llm). Direkt nutzen sollte ihn
     # neuer Code nicht mehr — stattdessen einen der intent_*-Sub-Tasks.
     "intent":             {"label": "Intent (Fallback)",        "priority": Priority.NORMAL, "category": "tool"},
-    "intent_commitment":  {"label": "Intent: Commitment-Detection",  "priority": Priority.NORMAL, "category": "tool"},
     "intent_location":    {"label": "Intent: Location-Wahl",         "priority": Priority.NORMAL, "category": "tool"},
     "intent_activity":    {"label": "Intent: Activity-Klassifikation","priority": Priority.NORMAL, "category": "tool"},
 

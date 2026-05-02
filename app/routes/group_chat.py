@@ -640,7 +640,8 @@ async def group_chat(request: Request):
                         deferred_tools=_deferred_tools,
                         content_tools=_content_tools if _char_tools_enabled else set(),
                         log_task="group_chat",
-                        mode=_char_mode)
+                        mode=_char_mode,
+                        chat_task_id=_chat_task_id)
 
                     # Tool-Executor: Queue freigeben waehrend Tool-Ausfuehrung,
                     # damit Tools die selbst LLM-Calls machen nicht blockiert werden

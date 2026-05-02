@@ -785,15 +785,9 @@ function openWardrobeModal(characterName, startTab) {
     _wardrobeState.autoSyncDone = false;
     _wardrobeState.setRemoveSlots = new Set();
     _wardrobeState.availableFilter = '';
-    // Slot-Aenderung im Piece-Formular soll die Covers-Auswahl neu rendern
-    // (eigener Slot darf nicht sich selbst verdecken)
-    const slotSel = document.getElementById('wpc-slot');
-    if (slotSel && !slotSel.dataset.coversBound) {
-        slotSel.addEventListener('change', () => {
-            _renderWpcCovers(_readWpcCovers(), _readWpcPartiallyCovers(), slotSel.value, _readWpcAdditionalSlots());
-        });
-        slotSel.dataset.coversBound = '1';
-    }
+    // (Slot-Wechsel-Binding entfaellt — _renderWpcSlots verdrahtet die
+    // Cover-Aktualisierung jetzt direkt ueber den onChange-Callback der
+    // Slot-Tag-Picker.)
     document.getElementById('wardrobe-char-name').textContent = characterName;
     document.getElementById('wardrobe-modal').style.display = 'flex';
     switchWardrobeTab(startTab || 'studio');
@@ -986,12 +980,15 @@ function _updateWardrobePreviewLabel() {
           ).map(([s, m]) => [s, (m && m.color) || '']));
     const _slotColor = (s) => ((colorSrc[s] || '') + '').trim();
 
-    // 1) covers + partially_covers sammeln (Farbe geht in covering-frag mit rein)
+    // 1) covers + partially_covers sammeln (Farbe geht in covering-frag mit rein).
+    //    Multi-Slot-Pieces nur einmal verarbeiten — beim ersten Slot in SLOT_ORDER.
     const coveredSlots = new Set();
     const partiallyCovered = {}; // slot → {frag, slot}
+    const seenItemsForCovers = new Set();
     for (const slot of SLOT_ORDER) {
         const iid = pieces[slot];
-        if (!iid) continue;
+        if (!iid || seenItemsForCovers.has(iid)) continue;
+        seenItemsForCovers.add(iid);
         const it = inv.find(p => p.item_id === iid);
         if (!it || !it.outfit_piece) continue;
         let coveringFrag = (it.item_prompt_fragment || '').trim();
@@ -1013,7 +1010,8 @@ function _updateWardrobePreviewLabel() {
     }
 
     // 2) Fragments mit covers/partially_covers Logik + Farben aufbauen.
-    //    Multi-Slot-Pieces (additional_slots) nur aus dem Primary-Slot rendern.
+    //    Multi-Slot-Pieces werden nur EINMAL gerendert — im ersten Slot, der
+    //    in SLOT_ORDER auftaucht (Render-Slot).
     const fragments = [];
     const renderedItems = new Set();
     for (const slot of SLOT_ORDER) {
@@ -1021,11 +1019,9 @@ function _updateWardrobePreviewLabel() {
         if (suppressedSlots.has(slot)) continue;
         const iid = pieces[slot];
         if (!iid) continue;
+        if (renderedItems.has(iid)) continue;
         const it = inv.find(p => p.item_id === iid);
         if (!it) continue;
-        const primary = ((it.outfit_piece && it.outfit_piece.slot) || '').trim();
-        if (primary && primary !== slot) continue;
-        if (renderedItems.has(iid)) continue;
         renderedItems.add(iid);
         let frag = (it.item_prompt_fragment || '').trim();
         if (!frag) continue;
@@ -1051,8 +1047,9 @@ function _renderWardrobeAvailableFilter() {
     const presentSlots = new Set();
     for (const it of _wardrobeState.inventory) {
         if (it.item_category !== 'outfit_piece') continue;
-        const slot = it.outfit_piece && it.outfit_piece.slot;
-        if (slot) presentSlots.add(slot);
+        for (const s of ((it.outfit_piece && it.outfit_piece.slots) || [])) {
+            if (s) presentSlots.add(s);
+        }
     }
     const slots = SLOT_ORDER.filter(s => presentSlots.has(s));
     const current = _wardrobeState.availableFilter || '';
@@ -1342,14 +1339,18 @@ function _renderWardrobeStudio() {
             const itemId = eq[slot] || '';
             const it = itemId ? pieces.find(p => p.item_id === itemId) : null;
             const isRemove = _wardrobeState.setRemoveSlots.has(slot);
-            // Mirror-Slot? (Item belegt diesen Slot nur ueber additional_slots,
-            // der Primary-Slot des Items ist ein anderer)
-            const primarySlot = it ? ((it.outfit_piece && it.outfit_piece.slot) || '') : '';
-            const isMirror = it && primarySlot && primarySlot !== slot;
+            // Mirror-Slot? Multi-Slot-Pieces werden im ersten ihrer slots
+            // (in SLOT_ORDER-Reihenfolge) gerendert; alle weiteren Slots
+            // sind Mirror-Slots und werden dezent dargestellt.
+            const itemSlots = it ? ((it.outfit_piece && it.outfit_piece.slots) || []) : [];
+            const renderSlot = itemSlots.length
+                ? (SLOT_ORDER.find(s => itemSlots.includes(s)) || '')
+                : '';
+            const isMirror = it && renderSlot && renderSlot !== slot;
 
             let state, icon, title;
             if (isMirror) {
-                state = 'mirror'; icon = '✕'; title = `Durch "${it.item_name}" (${SLOT_LABELS_DE[primarySlot] || primarySlot}) belegt — Klick loest gesamtes Teil ab`;
+                state = 'mirror'; icon = '✕'; title = `Multi-Slot-Teil "${it.item_name}" — Klick loest gesamtes Teil ab`;
             } else if (it) {
                 state = 'equipped'; icon = '✕'; title = 'Entfernen (Slot leeren)';
             } else if (isRemove) {
@@ -1363,8 +1364,11 @@ function _renderWardrobeStudio() {
 
             if (it) {
                 if (isMirror) {
-                    // Mirror-Slot: Item-Name dezent + Badge "blockiert durch <Primary>".
-                    // Kein Farb-Dot (Farbe gehoert zum Primary-Slot), Action kann dennoch ausloesen.
+                    // Multi-Slot-Teil im Mirror-Slot: Item-Name dezent dargestellt
+                    // (italic + Graustufe). Kein zusaetzliches Badge — alle Slots
+                    // sind unter dem symmetrischen Modell gleichberechtigt; das
+                    // Item taucht in allen seinen Slots auf, wird aber nur einmal
+                    // mit voller Farbe gerendert (im ersten Slot in SLOT_ORDER).
                     return `<div class="wardrobe-slot-row wardrobe-slot-mirror" data-slot="${escapeHtml(slot)}" style="opacity:0.78;">
                         <div class="wardrobe-slot-label">${escapeHtml(SLOT_LABELS_DE[slot] || slot)}</div>
                         <div class="wardrobe-slot-piece">
@@ -1372,7 +1376,6 @@ function _renderWardrobeStudio() {
                                 ? `<img class="wardrobe-slot-img" src="${_wardrobeItemImg(it.item_id)}" alt="" style="filter:grayscale(0.4);">`
                                 : `<div class="wardrobe-slot-img" style="display:flex;align-items:center;justify-content:center;font-size:18px;">📦</div>`}
                             <span class="wardrobe-slot-name" style="font-style:italic;">${escapeHtml(it.item_name || it.item_id)}</span>
-                            <span style="display:inline-block;padding:1px 6px;margin-left:4px;background:var(--bg-alt);color:var(--text-muted);border:1px solid var(--border);border-radius:3px;font-size:10px;white-space:nowrap;" title="Slot ist durch das Haupt-Teil blockiert">↖ ${escapeHtml(SLOT_LABELS_DE[primarySlot] || primarySlot)}</span>
                         </div>
                         ${actionBtn}
                     </div>`;
@@ -1485,22 +1488,24 @@ function _renderWardrobeStudio() {
         const allItems = _wardrobeState.inventory.filter(it => {
             if (it.item_category !== 'outfit_piece') return false;
             if (!filter) return true;
-            const slot = (it.outfit_piece && it.outfit_piece.slot) || '';
-            return slot === filter;
+            const slots = (it.outfit_piece && it.outfit_piece.slots) || [];
+            return slots.includes(filter);
         });
         if (!allItems.length) {
             availEl.innerHTML = '<p class="scheduler-empty">Keine outfit-tauglichen Items im Inventar. Lege im Reiter "Inventar (Outfit-Teile)" welche an.</p>';
         } else {
             availEl.innerHTML = allItems.map(it => {
                 const isPiece = it.item_category === 'outfit_piece';
-                const slot = isPiece ? (it.outfit_piece && it.outfit_piece.slot) : '';
+                const itemSlots = isPiece ? ((it.outfit_piece && it.outfit_piece.slots) || []) : [];
+                const slot = itemSlots[0] || '';
+                const slotLabel = itemSlots.map(s => SLOT_LABELS_DE[s] || s).join(' + ');
                 const hasFragment = !!(it.item_prompt_fragment || '').trim();
                 const equipped = isPiece ? eqPieceIds.has(it.item_id) : eqItemSet.has(it.item_id);
                 // Im Set-Edit-Modus sind nur Pieces zulaessig (Sets kennen
                 // aktuell keine generischen Equipped-Items).
                 const equippable = editMode2 ? isPiece : (isPiece || hasFragment);
                 let metaText = '';
-                if (isPiece) metaText = slot ? (SLOT_LABELS_DE[slot] || slot) : '— ohne Slot —';
+                if (isPiece) metaText = slotLabel || '— ohne Slot —';
                 else if (hasFragment) metaText = 'Ausruestung';
                 else metaText = `${it.item_category || 'Item'} · kein Prompt-Text`;
                 let actionBtn = '';
@@ -1528,13 +1533,15 @@ function _renderWardrobeStudio() {
                 b.onclick = () => {
                     const iid = b.dataset.item;
                     if (_wardrobeState.setEditMode) {
-                        // Set-Editor: im entsprechenden Slot ablegen (ueberschreibt
-                        // bestehenden Eintrag, Remove-Markierung wird gecleart).
+                        // Set-Editor: in alle slot-Felder des Pieces ablegen
+                        // (ueberschreibt bestehende Eintraege, Remove-Markierungen geclearT).
                         const piece = _wardrobePieces().find(p => p.item_id === iid);
-                        const slot = piece && piece.outfit_piece && piece.outfit_piece.slot;
-                        if (!slot) { showStatusToast('Item hat keinen Slot', 'error'); return; }
-                        _wardrobeState.setEditPieces[slot] = iid;
-                        _wardrobeState.setRemoveSlots.delete(slot);
+                        const slots = (piece && piece.outfit_piece && piece.outfit_piece.slots) || [];
+                        if (!slots.length) { showStatusToast('Item hat keine Slots', 'error'); return; }
+                        for (const slot of slots) {
+                            _wardrobeState.setEditPieces[slot] = iid;
+                            _wardrobeState.setRemoveSlots.delete(slot);
+                        }
                         _renderWardrobeStudio();
                         _loadWardrobePreview(_wardrobeState.character);
                     } else {
@@ -1684,11 +1691,10 @@ async function _onWardrobeSetSelected(triggeredByUser) {
 }
 
 function _wardrobeSetToSlotMap(outfit) {
-    // Mappt ein Set (outfit.pieces = [item_id,...]) auf {slot: item_id}
-    // indem es die slot-Information aus den Items selbst zieht.
-    // Multi-Slot-Pieces (additional_slots) werden in alle belegten Slots
-    // gespiegelt, damit die Garderobe-UI sie korrekt als blockiert anzeigt
-    // und die Equip-Aktion beim Anziehen alle Mirror-Slots setzt.
+    // Mappt ein Set (outfit.pieces = [item_id,...]) auf {slot: item_id}.
+    // Multi-Slot-Pieces werden in alle ihre Slots gespiegelt — die UI nutzt
+    // das fuer "blockiert"-Anzeigen, und Equip-Aktionen sehen so den vollen
+    // Belegungs-Soll-State.
     const map = {};
     if (!outfit || !Array.isArray(outfit.pieces)) return map;
     const pieces = _wardrobePieces();
@@ -1696,11 +1702,9 @@ function _wardrobeSetToSlotMap(outfit) {
         const it = pieces.find(p => p.item_id === pid);
         if (!it) continue;
         const op = it.outfit_piece || {};
-        const slot = (op.slot || '').trim();
-        if (slot && !map[slot]) map[slot] = pid;
-        for (const add of (op.additional_slots || [])) {
-            const s = (add || '').trim();
-            if (s && !map[s]) map[s] = pid;
+        for (const s of (op.slots || [])) {
+            const slot = (s || '').trim();
+            if (slot && !map[slot]) map[slot] = pid;
         }
     }
     return map;
@@ -1720,11 +1724,9 @@ function _renderEquippedColumnPreview(outfitId) {
         const it = pieces.find(p => p.item_id === pid);
         if (!it) continue;
         const op = it.outfit_piece || {};
-        const slot = (op.slot || '').trim();
-        if (slot && !setPieceMap[slot]) setPieceMap[slot] = it;
-        for (const add of (op.additional_slots || [])) {
-            const s = (add || '').trim();
-            if (s && !setPieceMap[s]) setPieceMap[s] = it;
+        for (const s of (op.slots || [])) {
+            const slot = (s || '').trim();
+            if (slot && !setPieceMap[slot]) setPieceMap[slot] = it;
         }
     }
     const removeSet = new Set(o.remove_slots || []);
@@ -1801,7 +1803,8 @@ async function _initWardrobeAddExisting() {
         }
         resultsEl.innerHTML = matches.map(it => {
             const inInv = invIds.has(it.id);
-            const slot = (it.outfit_piece && (SLOT_LABELS_DE[it.outfit_piece.slot] || it.outfit_piece.slot)) || '';
+            const slotsArr = (it.outfit_piece && it.outfit_piece.slots) || [];
+            const slot = slotsArr.map(s => SLOT_LABELS_DE[s] || s).join(' + ');
             return `<div class="wardrobe-add-result${inInv ? ' disabled' : ''}" data-id="${escapeHtml(it.id)}"
                 style="padding:4px 8px;cursor:${inInv ? 'not-allowed' : 'pointer'};font-size:12px;display:flex;gap:6px;align-items:center;${inInv ? 'opacity:0.4;' : ''}"
                 title="${inInv ? 'Bereits im Inventar' : 'Klicken zum Auswaehlen'}">
@@ -1864,7 +1867,8 @@ function _renderWardrobeInventory() {
         return;
     }
     listEl.innerHTML = pieces.map(it => {
-        const slot = (it.outfit_piece && it.outfit_piece.slot) || '';
+        const slotsArr = (it.outfit_piece && it.outfit_piece.slots) || [];
+        const slot = slotsArr.map(s => SLOT_LABELS_DE[s] || s).join(' + ');
         const isSelected = (_wardrobeState.previewItemId === it.item_id);
         return `<div class="wardrobe-piece-card${isSelected ? ' equipped' : ''}" data-item="${escapeHtml(it.item_id)}" style="cursor:pointer;">
             ${it.item_image
@@ -1872,7 +1876,7 @@ function _renderWardrobeInventory() {
                 : `<div class="wardrobe-piece-img" style="display:flex;align-items:center;justify-content:center;font-size:20px;">👕</div>`}
             <div class="wardrobe-piece-info">
                 <span class="wardrobe-piece-name">${escapeHtml(it.item_name || it.item_id)}</span>
-                <span class="wardrobe-piece-meta">${escapeHtml(SLOT_LABELS_DE[slot] || slot || '— ohne Slot —')} · ${escapeHtml((it.item_prompt_fragment || '').slice(0, 60))}</span>
+                <span class="wardrobe-piece-meta">${escapeHtml(slot || '— ohne Slot —')} · ${escapeHtml((it.item_prompt_fragment || '').slice(0, 60))}</span>
             </div>
             <div class="wardrobe-piece-actions">
                 <button class="danger wardrobe-piece-delete" data-item="${escapeHtml(it.item_id)}">Loeschen</button>
@@ -1935,8 +1939,9 @@ function _setPiecePreview(itemId) {
         genBtn.onclick = () => _generateWardrobePieceImage(itemId);
     }
     if (metaEl) {
-        const slot = (it.outfit_piece && it.outfit_piece.slot) || '';
-        metaEl.textContent = `${it.item_name} · ${SLOT_LABELS_DE[slot] || slot || 'kein Slot'}`;
+        const slotsArr = (it.outfit_piece && it.outfit_piece.slots) || [];
+        const label = slotsArr.map(s => SLOT_LABELS_DE[s] || s).join(' + ');
+        metaEl.textContent = `${it.item_name} · ${label || 'kein Slot'}`;
     }
 }
 
@@ -2080,7 +2085,7 @@ async function _loadWardrobePreview(characterName) {
 
 function _setWardrobePieceFormReadOnly(readOnly) {
     const ids = [
-        'wpc-name', 'wpc-slot', 'wpc-prompt-fragment',
+        'wpc-name', 'wpc-slots-add', 'wpc-prompt-fragment',
         'wpc-outfit-type-select', 'wpc-outfit-type-new',
         'wpc-description', 'wpc-image-prompt',
     ];
@@ -2088,6 +2093,11 @@ function _setWardrobePieceFormReadOnly(readOnly) {
         const el = document.getElementById(id);
         if (el) el.disabled = !!readOnly;
     }
+    // Slot-Tags klickbarkeit (Entfernen) im Read-Only-Modus abschalten
+    document.querySelectorAll('#wpc-slots-tags .wpc-cover-tag').forEach(el => {
+        el.style.pointerEvents = readOnly ? 'none' : '';
+        el.style.opacity = readOnly ? '0.6' : '';
+    });
     // Outfit-Type-Tags: Lösch-Buttons abschalten
     document.querySelectorAll('#wpc-outfit-type-tags button').forEach(b => {
         b.disabled = !!readOnly;
@@ -2177,13 +2187,13 @@ function _wardrobeFormReset() {
     document.getElementById('wpc-image-prompt').value = '';
     _setWardrobePieceFormReadOnly(false);
     _renderOutfitTypeTags([]);
-    _renderWpcCovers([], [], 'outer', []);
+    _renderWpcSlots(['outer']);
+    _renderWpcCovers([], [], ['outer']);
     _renderWpcLora({});
     const _sel = document.getElementById('wpc-outfit-type-select');
     if (_sel) _sel.value = '';
     const _ni = document.getElementById('wpc-outfit-type-new');
     if (_ni) { _ni.value = ''; _ni.style.display = 'none'; }
-    document.getElementById('wpc-slot').value = 'outer';
     const status = document.getElementById('wpc-status');
     if (status) status.textContent = '';
     const title = document.getElementById('wpc-form-title');
@@ -2208,15 +2218,15 @@ function _wardrobeFormLoad(item) {
     if (_sel) _sel.value = '';
     const _ni = document.getElementById('wpc-outfit-type-new');
     if (_ni) { _ni.value = ''; _ni.style.display = 'none'; }
-    const slot = (item.outfit_piece && item.outfit_piece.slot) || 'outer';
-    document.getElementById('wpc-slot').value = slot;
+    // Symmetrische Slots-Liste — komplett im Slot-Tag-Picker.
+    const allSlots = (item.outfit_piece && Array.isArray(item.outfit_piece.slots))
+        ? item.outfit_piece.slots : [];
+    _renderWpcSlots(allSlots);
     const covers = (item.outfit_piece && item.outfit_piece.covers) || [];
     const partCovers = (item.outfit_piece && item.outfit_piece.partially_covers) || [];
-    const addSlots = (item.outfit_piece && item.outfit_piece.additional_slots) || [];
     _renderWpcCovers(Array.isArray(covers) ? covers : [],
                       Array.isArray(partCovers) ? partCovers : [],
-                      slot,
-                      Array.isArray(addSlots) ? addSlots : []);
+                      allSlots);
     const lora = (item.outfit_piece && (item.outfit_piece.lora || item.outfit_piece.loras)) || {};
     _renderWpcLora(lora);
     const status = document.getElementById('wpc-status');
@@ -2272,15 +2282,32 @@ function _wpcRemoveOutfitType(value) {
     _renderOutfitTypeTags(current);
 }
 
-function _renderWpcCovers(covered, partiallyCovers, currentSlot, additional) {
-    const cur = (currentSlot || '').trim().toLowerCase();
-    const allSlots = SLOT_ORDER.filter(s => s !== cur);
-    _renderWpcCoverGroup('wpc-covers-tags', 'wpc-covers-add', covered, allSlots);
-    _renderWpcCoverGroup('wpc-partially-covers-tags', 'wpc-partially-covers-add', partiallyCovers, allSlots);
-    _renderWpcCoverGroup('wpc-additional-slots-tags', 'wpc-additional-slots-add', additional || [], allSlots);
+function _renderWpcCovers(covered, partiallyCovers, slots) {
+    // Eigene Slots des Pieces duerfen nicht in covers/partially_covers
+    // auftauchen — Slot ist physisch belegt, nichts zu verdecken.
+    const own = new Set((slots || []).map(s => String(s).trim().toLowerCase()).filter(Boolean));
+    const coversAvailable = SLOT_ORDER.filter(s => !own.has(s));
+    _renderWpcCoverGroup('wpc-covers-tags', 'wpc-covers-add', covered, coversAvailable);
+    _renderWpcCoverGroup('wpc-partially-covers-tags', 'wpc-partially-covers-add', partiallyCovers, coversAvailable);
 }
 
-function _renderWpcCoverGroup(tagsId, addId, selected, allSlots) {
+function _renderWpcSlots(slots) {
+    // Symmetrische Slots-Auswahl. onChange-Callback triggert ein Cover-Re-Render
+    // damit eigene Slots aus dem Cover-Picker fliegen sobald sich die Auswahl
+    // aendert.
+    _renderWpcCoverGroup('wpc-slots-tags', 'wpc-slots-add', slots || [], SLOT_ORDER, (newSlots) => {
+        _renderWpcCovers(_readWpcCovers(), _readWpcPartiallyCovers(), newSlots);
+    });
+    _renderWpcCovers(_readWpcCovers(), _readWpcPartiallyCovers(), _readWpcSlots());
+}
+
+function _readWpcSlots() {
+    const wrap = document.getElementById('wpc-slots-tags');
+    if (!wrap) return [];
+    return Array.from(wrap.querySelectorAll('.wpc-cover-tag')).map(el => el.dataset.slot);
+}
+
+function _renderWpcCoverGroup(tagsId, addId, selected, allSlots, onChange) {
     const tagsEl = document.getElementById(tagsId);
     const addSel = document.getElementById(addId);
     if (!tagsEl || !addSel) return;
@@ -2294,7 +2321,8 @@ function _renderWpcCoverGroup(tagsId, addId, selected, allSlots) {
         el.onclick = () => {
             const slot = el.dataset.slot;
             set.delete(slot);
-            _renderWpcCoverGroup(tagsId, addId, Array.from(set), allSlots);
+            _renderWpcCoverGroup(tagsId, addId, Array.from(set), allSlots, onChange);
+            if (typeof onChange === 'function') onChange(Array.from(set));
         };
     });
     // Add-Dropdown: nur Slots die noch nicht ausgewaehlt sind
@@ -2305,7 +2333,8 @@ function _renderWpcCoverGroup(tagsId, addId, selected, allSlots) {
     addSel.onchange = () => {
         if (!addSel.value) return;
         set.add(addSel.value);
-        _renderWpcCoverGroup(tagsId, addId, Array.from(set), allSlots);
+        _renderWpcCoverGroup(tagsId, addId, Array.from(set), allSlots, onChange);
+        if (typeof onChange === 'function') onChange(Array.from(set));
     };
 }
 
@@ -2317,12 +2346,6 @@ function _readWpcCovers() {
 
 function _readWpcPartiallyCovers() {
     const wrap = document.getElementById('wpc-partially-covers-tags');
-    if (!wrap) return [];
-    return Array.from(wrap.querySelectorAll('.wpc-cover-tag')).map(el => el.dataset.slot);
-}
-
-function _readWpcAdditionalSlots() {
-    const wrap = document.getElementById('wpc-additional-slots-tags');
     if (!wrap) return [];
     return Array.from(wrap.querySelectorAll('.wpc-cover-tag')).map(el => el.dataset.slot);
 }
@@ -2447,13 +2470,14 @@ async function _setupSingleOutfitTypePicker(selectId, newInputId, hiddenId,
 async function saveWardrobePiece() {
     const editId = document.getElementById('wpc-edit-id').value.trim();
     const name = document.getElementById('wpc-name').value.trim();
-    const slot = document.getElementById('wpc-slot').value;
+    const slots = _readWpcSlots();
     const promptFragment = document.getElementById('wpc-prompt-fragment').value.trim();
     const description = document.getElementById('wpc-description').value.trim();
     const imagePrompt = document.getElementById('wpc-image-prompt').value.trim();
     const status = document.getElementById('wpc-status');
     if (!name) { if (status) status.textContent = 'Bitte Name angeben.'; return; }
     if (!promptFragment) { if (status) status.textContent = 'Bitte Prompt-Fragment angeben.'; return; }
+    if (!slots.length) { if (status) status.textContent = 'Bitte mindestens einen Slot waehlen.'; return; }
     const c = _wardrobeState.character;
 
     if (editId) {
@@ -2464,13 +2488,13 @@ async function saveWardrobePiece() {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    
+
                     name,
                     description,
                     category: 'outfit_piece',
                     image_prompt: imagePrompt,
                     prompt_fragment: promptFragment,
-                    outfit_piece: { slot, outfit_types: _readOutfitTypes(), covers: _readWpcCovers(), partially_covers: _readWpcPartiallyCovers(), additional_slots: _readWpcAdditionalSlots(), lora: _readWpcLora() },
+                    outfit_piece: { slots, outfit_types: _readOutfitTypes(), covers: _readWpcCovers(), partially_covers: _readWpcPartiallyCovers(), lora: _readWpcLora() },
                 }),
             });
             if (!r.ok) {
@@ -2504,7 +2528,7 @@ async function saveWardrobePiece() {
                 category: 'outfit_piece',
                 image_prompt: imagePrompt,
                 prompt_fragment: promptFragment,
-                outfit_piece: { slot, outfit_types: _readOutfitTypes(), covers: _readWpcCovers(), partially_covers: _readWpcPartiallyCovers(), additional_slots: _readWpcAdditionalSlots(), lora: _readWpcLora() },
+                outfit_piece: { slots, outfit_types: _readOutfitTypes(), covers: _readWpcCovers(), partially_covers: _readWpcPartiallyCovers(), lora: _readWpcLora() },
             }),
         });
         if (!itemRes.ok) {
@@ -2883,30 +2907,41 @@ const SLOT_RENDER_ORDER = [
 
 // Generelle Silhouette-Render-Funktion. Liest die aktuellen Slot-Listen und
 // faerbt die Slot-Zonen entsprechend ein:
-//   primary: orange — der Slot des Pieces selbst
-//   additional_slots: blau — zusaetzlich belegte Slots
-//   partially_covers: gruen
-//   covers: dunkelblau
+//   slots: blau — alle Slots, die das Piece physisch belegt (symmetrisch)
+//   partially_covers: grau gestreift (Diagonal-Pattern)
+//   covers: grau (solid)
 function renderSlotSilhouette(container, opts) {
     if (!container) return;
-    const primary = (opts.primary || '').trim();
+    const slots = new Set((opts.slots || []).map(s => String(s).trim()).filter(Boolean));
     const covers = new Set((opts.covers || []).map(s => String(s).trim()));
     const partial = new Set((opts.partiallyCovers || []).map(s => String(s).trim()));
-    const additional = new Set((opts.additionalSlots || []).map(s => String(s).trim()));
     const labels = opts.labels || SLOT_LABELS_DE;
 
-    const _color = (slot) => {
-        if (slot === primary) return { fill: '#f59e0b', stroke: '#b45309' };
-        if (covers.has(slot)) return { fill: '#1e3a8a', stroke: '#1e40af' };
-        if (partial.has(slot)) return { fill: '#22c55e', stroke: '#15803d' };
-        if (additional.has(slot)) return { fill: '#3b82f6', stroke: '#1d4ed8' };
+    const STRIPE_PATTERN_ID = 'silhouette-stripe-pattern';
+    const SLOT_FILL = '#3b82f6';      // blau
+    const SLOT_STROKE = '#1d4ed8';
+    const COVER_FILL = '#9ca3af';     // grau
+    const COVER_STROKE = '#6b7280';
+    const PARTIAL_STROKE = '#6b7280';
+
+    const _fill = (slot) => {
+        if (slots.has(slot)) return { fill: SLOT_FILL, stroke: SLOT_STROKE };
+        if (covers.has(slot)) return { fill: COVER_FILL, stroke: COVER_STROKE };
+        if (partial.has(slot)) return { fill: `url(#${STRIPE_PATTERN_ID})`, stroke: PARTIAL_STROKE };
         return { fill: 'rgba(255,255,255,0.05)', stroke: 'rgba(255,255,255,0.25)' };
     };
 
     let svg = `<svg viewBox="0 0 180 340" style="width:100%;max-width:144px;height:auto;display:block;">`;
+    // Diagonale Blau/Grau-Schraffur fuer "teilweise verdeckt" — kombiniert
+    // visuell die "Slot"-Farbe (blau) mit der "Cover"-Farbe (grau) in
+    // gleich breiten Streifen.
+    svg += `<defs><pattern id="${STRIPE_PATTERN_ID}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+        <rect x="0" width="4" height="8" fill="${SLOT_FILL}"/>
+        <rect x="4" width="4" height="8" fill="${COVER_FILL}"/>
+    </pattern></defs>`;
     for (const slot of SLOT_RENDER_ORDER) {
         const shapes = SLOT_SHAPES[slot] || [];
-        const { fill, stroke } = _color(slot);
+        const { fill, stroke } = _fill(slot);
         const title = `<title>${escapeHtml(labels[slot] || slot)}</title>`;
         for (const s of shapes) {
             if (s.t === 'circle') {
@@ -2924,11 +2959,14 @@ function renderSlotSilhouette(container, opts) {
     }
     svg += `</svg>`;
 
+    // Legende: kleine Patches mit denselben Stilen wie in der Silhouette.
+    // Die Schraffur fuer "teilweise" wird ueber CSS-Hintergrund nachgebildet,
+    // damit sie auch ohne SVG-<defs> in einem normalen <span> sichtbar ist.
+    const stripeBg = `repeating-linear-gradient(45deg, ${SLOT_FILL} 0 3px, ${COVER_FILL} 3px 6px)`;
     const legend = `<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:10px;margin-top:6px;justify-content:center;color:var(--text-muted);">
-        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#f59e0b;border-radius:2px;"></span>Slot</span>
-        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#3b82f6;border-radius:2px;"></span>zusaetzlich</span>
-        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#22c55e;border-radius:2px;"></span>teilweise</span>
-        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:#1e3a8a;border-radius:2px;"></span>komplett</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:${SLOT_FILL};border:1px solid ${SLOT_STROKE};border-radius:2px;"></span>Slot(s)</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:${stripeBg};border:1px solid ${PARTIAL_STROKE};border-radius:2px;"></span>teilweise verdeckt</span>
+        <span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;background:${COVER_FILL};border:1px solid ${COVER_STROKE};border-radius:2px;"></span>komplett verdeckt</span>
     </div>`;
 
     container.innerHTML = svg + legend;
@@ -2959,12 +2997,16 @@ async function openGarderobePicker(characterName) {
         return openAvatarOutfitPicker(characterName);
     }
 
-    // Pieces nach Slot gruppieren (nur Pieces in Inventar)
+    // Pieces nach Slot gruppieren (nur Pieces in Inventar). Multi-Slot-Pieces
+    // tauchen in jeder ihrer Slot-Gruppen auf, damit der Picker sie unter jeder
+    // Kategorie anzeigt — Equip kuemmert sich um die symmetrische Belegung.
     const piecesBySlot = {};
     for (const it of pieceItems) {
-        const slot = (it.outfit_piece && it.outfit_piece.slot) || '';
-        if (!slot) continue;
-        (piecesBySlot[slot] ||= []).push(it);
+        const slots = (it.outfit_piece && it.outfit_piece.slots) || [];
+        for (const slot of slots) {
+            if (!slot) continue;
+            (piecesBySlot[slot] ||= []).push(it);
+        }
     }
 
     const overlay = document.createElement('div');
@@ -3684,10 +3726,22 @@ function setChatBusy(busy) {
     // Visueller Indikator
     document.body.classList.toggle('chat-busy', busy);
 
-    // Beim Stream-Ende: Polling-Baseline auf JETZT setzen, damit der Poller
-    // nicht die eben selbst gesendete Antwort als "neue Message" feiert.
+    // Beim Stream-Ende: Polling-Baseline aktualisieren. Client-Uhr als
+    // Provisorium (sofortige Wirkung), und parallel die *echte* Server-
+    // Timestamp aus /chat/.../history?limit=1 holen — sonst sieht der
+    // naechste Poll-Tick "ts != lastSeenTs" wegen Client/Server-Clock-Skew
+    // und nuked die DOM kurz, was als Flicker erscheint.
     if (!busy) {
         try { _chatLastSeenTs = new Date().toISOString(); } catch (_) {}
+        _chatPollMuteUntil = Date.now() + 7000;
+        fetch('/chat/default/history?limit=1')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                const m = (d && d.messages && d.messages[d.messages.length - 1]) || null;
+                if (m && m.timestamp) _chatLastSeenTs = m.timestamp;
+            })
+            .catch(() => {})
+            .finally(() => { _chatPollMuteUntil = 0; });
     }
 
     // Safety-Valve: Automatischer Reset nach 3 Minuten falls stuck
@@ -6253,6 +6307,7 @@ function _updateLoadMoreButton() {
 // der Chat-Partner uns angesprochen hat (TalkTo, Notification, etc.). Pausiert
 // waehrend isChatBusy (aktiver eigener Stream) und ohne Chat-Partner.
 let _chatLastSeenTs = '';
+let _chatPollMuteUntil = 0;  // epoch ms — poller skips while > Date.now()
 let _chatPollInterval = null;
 const CHAT_POLL_INTERVAL_MS = 5000;
 
@@ -6364,6 +6419,7 @@ function _stopUnreadPolling() {
 
 async function _pollChatForUpdates() {
     if (typeof isChatBusy !== 'undefined' && isChatBusy) return;
+    if (Date.now() < _chatPollMuteUntil) return;
     if (typeof currentCharacterName === 'undefined' || !currentCharacterName
             || currentCharacterName === 'KI') return;
     try {
@@ -9266,7 +9322,6 @@ function switchTab(tabName) {
         worldDevLoadLocations();
         worldDevLoadCharacters();
         worldDevLoadContextOptions();
-        worldDevCheckPauseStatus();
     }
 
     if (_isHideCharTab) {
@@ -15474,13 +15529,9 @@ function switchGameAdminTab(tabName) {
             catSel.addEventListener('change', _toggleOutfitPieceSection);
             catSel.dataset.bound = '1';
         }
-        const slotSel = document.getElementById('item-edit-slot');
-        if (slotSel && !slotSel.dataset.bound) {
-            slotSel.addEventListener('change', () => {
-                _renderItemEditCovers(_readItemEditCovers(), _readItemEditPartiallyCovers(), slotSel.value, _readItemEditAdditionalSlots());
-            });
-            slotSel.dataset.bound = '1';
-        }
+        // (Slot-Wechsel-Binding entfaellt — _renderItemEditSlots verdrahtet
+        // die Cover/Silhouette-Aktualisierung jetzt direkt ueber den
+        // onChange-Callback des Slot-Tag-Pickers.)
         const consChk = document.getElementById('item-edit-consumable');
         if (consChk && !consChk.dataset.bound) {
             consChk.addEventListener('change', _toggleConsumableEffectSection);
@@ -15926,7 +15977,7 @@ function _renderItemsList() {
         const icon = _ITEM_CAT_ICONS[cat] || '📦';
         const isPiece = cat === 'outfit_piece';
         const slotMeta = isPiece
-            ? ((item.outfit_piece && (SLOT_LABELS_DE[item.outfit_piece.slot] || item.outfit_piece.slot)) || '— ohne Slot —')
+            ? (((item.outfit_piece && item.outfit_piece.slots) || []).map(s => SLOT_LABELS_DE[s] || s).join(' + ') || '— ohne Slot —')
             : '';
         const fragment = (item.prompt_fragment || item.description || '').slice(0, 60);
         const metaLine = [slotMeta, fragment].filter(Boolean).join(' · ');
@@ -16171,9 +16222,8 @@ function _newItem() {
     document.getElementById('item-edit-stackable').checked = false;
     document.getElementById('item-edit-transferable').checked = true;
     document.getElementById('item-edit-consumable').checked = false;
-    const slotEl = document.getElementById('item-edit-slot');
-    if (slotEl) slotEl.value = 'outer';
-    _renderItemEditCovers([], [], 'outer', []);
+    _renderItemEditSlots(['outer']);
+    _renderItemEditCovers([], [], ['outer']);
     const effEl = document.getElementById('item-edit-effects');
     if (effEl) effEl.value = '';
     const acEl = document.getElementById('item-edit-apply-condition');
@@ -16208,28 +16258,43 @@ function _toggleConsumableEffectSection() {
     if (sec) sec.style.display = (cat === 'consumable' || isConsumable) ? 'block' : 'none';
 }
 
-function _renderItemEditCovers(covered, partiallyCovers, currentSlot, additional) {
-    const cur = (currentSlot || '').trim().toLowerCase();
-    const allSlots = (typeof SLOT_ORDER !== 'undefined' ? SLOT_ORDER : []).filter(s => s !== cur);
-    _renderItemEditCoverGroup('item-edit-covers-tags', 'item-edit-covers-add', covered, allSlots);
-    _renderItemEditCoverGroup('item-edit-partially-covers-tags', 'item-edit-partially-covers-add', partiallyCovers, allSlots);
-    _renderItemEditCoverGroup('item-edit-additional-slots-tags', 'item-edit-additional-slots-add', additional || [], allSlots);
+function _renderItemEditCovers(covered, partiallyCovers, slots) {
+    // Eigene Slots des Pieces sind nicht-gueltige Cover-Ziele.
+    const own = new Set((slots || []).map(s => String(s).trim().toLowerCase()).filter(Boolean));
+    const order = (typeof SLOT_ORDER !== 'undefined' ? SLOT_ORDER : []);
+    const coversAvailable = order.filter(s => !own.has(s));
+    _renderItemEditCoverGroup('item-edit-covers-tags', 'item-edit-covers-add', covered, coversAvailable);
+    _renderItemEditCoverGroup('item-edit-partially-covers-tags', 'item-edit-partially-covers-add', partiallyCovers, coversAvailable);
     _updateItemEditSilhouette();
+}
+
+function _renderItemEditSlots(slots) {
+    // Symmetrische Slots-Auswahl. onChange-Callback synchronisiert
+    // Cover-Picker und Silhouette mit der neuen Slot-Auswahl.
+    const order = (typeof SLOT_ORDER !== 'undefined' ? SLOT_ORDER : []);
+    _renderItemEditCoverGroup('item-edit-slots-tags', 'item-edit-slots-add', slots || [], order, (newSlots) => {
+        _renderItemEditCovers(_readItemEditCovers(), _readItemEditPartiallyCovers(), newSlots);
+    });
+}
+
+function _readItemEditSlots() {
+    const wrap = document.getElementById('item-edit-slots-tags');
+    if (!wrap) return [];
+    return Array.from(wrap.querySelectorAll('.item-edit-cover-tag')).map(el => el.dataset.slot);
 }
 
 function _updateItemEditSilhouette() {
     const container = document.getElementById('item-edit-silhouette');
     if (!container) return;
     renderSlotSilhouette(container, {
-        primary: (document.getElementById('item-edit-slot')?.value || '').trim(),
+        slots: _readItemEditSlots(),
         covers: _readItemEditCovers(),
         partiallyCovers: _readItemEditPartiallyCovers(),
-        additionalSlots: _readItemEditAdditionalSlots(),
         labels: SLOT_LABELS_DE,
     });
 }
 
-function _renderItemEditCoverGroup(tagsId, addId, selected, allSlots) {
+function _renderItemEditCoverGroup(tagsId, addId, selected, allSlots, onChange) {
     const tagsEl = document.getElementById(tagsId);
     const addSel = document.getElementById(addId);
     if (!tagsEl || !addSel) return;
@@ -16242,8 +16307,9 @@ function _renderItemEditCoverGroup(tagsId, addId, selected, allSlots) {
     tagsEl.querySelectorAll('.item-edit-cover-tag').forEach(el => {
         el.onclick = () => {
             set.delete(el.dataset.slot);
-            _renderItemEditCoverGroup(tagsId, addId, Array.from(set), allSlots);
+            _renderItemEditCoverGroup(tagsId, addId, Array.from(set), allSlots, onChange);
             _updateItemEditSilhouette();
+            if (typeof onChange === 'function') onChange(Array.from(set));
         };
     });
     const remaining = allSlots.filter(s => !set.has(s));
@@ -16253,8 +16319,9 @@ function _renderItemEditCoverGroup(tagsId, addId, selected, allSlots) {
     addSel.onchange = () => {
         if (!addSel.value) return;
         set.add(addSel.value);
-        _renderItemEditCoverGroup(tagsId, addId, Array.from(set), allSlots);
+        _renderItemEditCoverGroup(tagsId, addId, Array.from(set), allSlots, onChange);
         _updateItemEditSilhouette();
+        if (typeof onChange === 'function') onChange(Array.from(set));
     };
 }
 
@@ -16266,12 +16333,6 @@ function _readItemEditCovers() {
 
 function _readItemEditPartiallyCovers() {
     const wrap = document.getElementById('item-edit-partially-covers-tags');
-    if (!wrap) return [];
-    return Array.from(wrap.querySelectorAll('.item-edit-cover-tag')).map(el => el.dataset.slot);
-}
-
-function _readItemEditAdditionalSlots() {
-    const wrap = document.getElementById('item-edit-additional-slots-tags');
     if (!wrap) return [];
     return Array.from(wrap.querySelectorAll('.item-edit-cover-tag')).map(el => el.dataset.slot);
 }
@@ -16390,11 +16451,11 @@ async function _editItem(itemId) {
         const fragEl = document.getElementById('item-edit-prompt-fragment');
         if (fragEl) fragEl.value = item.prompt_fragment || '';
         const op = item.outfit_piece || {};
-        const slotEl = document.getElementById('item-edit-slot');
-        if (slotEl) slotEl.value = op.slot || 'outer';
+        const itemSlots = Array.isArray(op.slots) ? op.slots : [];
+        _renderItemEditSlots(itemSlots.length ? itemSlots : ['outer']);
         _renderItemOutfitTypeTags(Array.isArray(op.outfit_types) ? op.outfit_types : []);
         _rebuildItemOutfitTypeSelect();
-        _renderItemEditCovers(op.covers || [], op.partially_covers || [], op.slot || 'outer', op.additional_slots || []);
+        _renderItemEditCovers(op.covers || [], op.partially_covers || [], itemSlots);
         // Consumable-Effects befuellen
         const effObj = item.effects || {};
         const effLines = Object.entries(effObj)
@@ -16434,18 +16495,18 @@ function _setGameAdminItemFormReadOnly(readOnly) {
         'item-edit-category', 'item-edit-rarity',
         'item-edit-stackable', 'item-edit-transferable', 'item-edit-consumable',
         'item-edit-image-prompt', 'item-edit-prompt-fragment',
-        'item-edit-slot', 'item-edit-outfit-types-add',
+        'item-edit-slots-add', 'item-edit-outfit-types-add',
         'item-edit-effects', 'item-edit-apply-condition', 'item-edit-condition-duration',
     ];
     for (const id of ids) {
         const el = document.getElementById(id);
         if (el) el.disabled = !!readOnly;
     }
-    for (const id of ['item-edit-covers-add', 'item-edit-partially-covers-add', 'item-edit-additional-slots-add']) {
+    for (const id of ['item-edit-covers-add', 'item-edit-partially-covers-add']) {
         const el = document.getElementById(id);
         if (el) el.disabled = !!readOnly;
     }
-    document.querySelectorAll('#item-edit-covers-tags .item-edit-cover-tag, #item-edit-partially-covers-tags .item-edit-cover-tag, #item-edit-additional-slots-tags .item-edit-cover-tag').forEach(el => {
+    document.querySelectorAll('#item-edit-slots-tags .item-edit-cover-tag, #item-edit-covers-tags .item-edit-cover-tag, #item-edit-partially-covers-tags .item-edit-cover-tag').forEach(el => {
         el.style.pointerEvents = readOnly ? 'none' : '';
         el.style.opacity = readOnly ? '0.6' : '';
     });
@@ -16471,13 +16532,11 @@ async function _saveItem() {
     // outfit_piece-Daten nur mitschicken wenn die Kategorie es verlangt —
     // sonst wuerde das Backend ohne gueltigen Slot einen Fehler werfen.
     if (item.category === 'outfit_piece') {
-        const slot = (document.getElementById('item-edit-slot')?.value || '').trim();
         item.outfit_piece = {
-            slot,
+            slots: _readItemEditSlots(),
             outfit_types: _readItemOutfitTypes(),
             covers: _readItemEditCovers(),
             partially_covers: _readItemEditPartiallyCovers(),
-            additional_slots: _readItemEditAdditionalSlots(),
         };
     }
     // Evidence: reveals_secret nur wenn Sektion sichtbar UND beide Werte gesetzt.
@@ -18904,6 +18963,11 @@ function _renderTaskMeta(t) {
     if (t.provider_name) parts.push(escapeHtml(t.provider_name));
     else if (t.provider) parts.push(escapeHtml(t.provider));
     if (t.model) parts.push(escapeHtml(t.model));
+    // Iteration progress for chat_active tasks (StreamingAgent reports
+    // current/max iteration each time it starts a new LLM call).
+    if (t.iteration && t.max_iterations) {
+        parts.push(`<span class="queue-task-iter" title="Iteration des Agent-Turns">iter ${t.iteration}/${t.max_iterations}</span>`);
+    }
     return parts.length > 0 ? parts.join(' / ') : '';
 }
 
@@ -21299,7 +21363,6 @@ let _worldDevLastCharacterData = null;
 let _worldDevLastOutfitData = null;        // {character_name, outfit: {name, pieces, ...}}
 let _worldDevLastSoulData = null;          // {character_name, section, content}
 let _worldDevLastProfilePatchData = null;  // {character_name, fields: {...}}
-let _worldDevPaused = false;
 let _worldDevEditLocationId = null;
 
 async function worldDevLoadModels() {
@@ -21935,52 +21998,6 @@ async function worldDevApplyProfilePatch() {
     } catch (e) {
         console.error('[WorldDev] Apply profile-patch error:', e);
         alert('Fehler beim Profil-Patch: ' + e.message);
-    }
-}
-
-async function worldDevTogglePause() {
-    const btn = document.getElementById('worlddev-pause-btn');
-    if (!btn) return;
-
-    btn.disabled = true;
-    try {
-        const endpoint = _worldDevPaused ? '/world-dev/resume-all' : '/world-dev/pause-all';
-        const res = await fetch(endpoint, { method: 'POST' });
-        if (!res.ok) throw new Error('Request failed');
-        const data = await res.json();
-        _worldDevPaused = data.paused;
-        _worldDevUpdatePauseButton();
-    } catch (e) {
-        console.error('[WorldDev] Pause toggle error:', e);
-    } finally {
-        btn.disabled = false;
-    }
-}
-
-async function worldDevCheckPauseStatus() {
-    try {
-        const res = await fetch('/world-dev/pause-status');
-        if (!res.ok) return;
-        const data = await res.json();
-        _worldDevPaused = data.paused;
-        _worldDevUpdatePauseButton();
-    } catch (e) { /* ignore */ }
-}
-
-function _worldDevUpdatePauseButton() {
-    const btn = document.getElementById('worlddev-pause-btn');
-    const label = document.getElementById('worlddev-pause-label');
-    if (!btn) return;
-    if (_worldDevPaused) {
-        btn.innerHTML = '&#9208; Pausiert';
-        btn.classList.add('worlddev-pause-btn-active');
-        btn.title = 'Hintergrund-Aktivitaeten sind pausiert. Klicken zum Fortsetzen.';
-        if (label) label.textContent = 'Scheduler, Gedanken-Loop und Task-Queue sind pausiert';
-    } else {
-        btn.innerHTML = '&#9654; Aktiv';
-        btn.classList.remove('worlddev-pause-btn-active');
-        btn.title = 'Alle Hintergrund-Aktivitaeten pausieren';
-        if (label) label.textContent = 'Scheduler, Gedanken-Loop und Task-Queue laufen';
     }
 }
 
@@ -22935,7 +22952,7 @@ function _renderDiary(entries) {
         html += `<div class="diary-entry${isSummary}">
             <div class="diary-entry-icon">${icon}</div>
             <div class="diary-entry-body">
-                <div class="diary-entry-content" onclick="this.classList.toggle('expanded')">${escapeHtml(e.content)}</div>
+                <div class="diary-entry-content" onclick="this.classList.toggle('expanded')">${escapeDiaryHtml(e.content)}</div>
                 <div class="diary-entry-time">${timeStr}<span class="diary-entry-type">${typeLabel}</span>${relTag}${effectsTags}</div>
             </div>
         </div>`;
@@ -22944,11 +22961,10 @@ function _renderDiary(entries) {
     container.innerHTML = html;
 }
 
-function escapeHtml(text) {
+function escapeDiaryHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     let escaped = div.innerHTML;
-    // Support **bold** markdown in diary entries
     escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     return escaped;
 }

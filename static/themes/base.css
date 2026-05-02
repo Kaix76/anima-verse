@@ -1059,6 +1059,7 @@ body.chat-busy #btn-save-appearance, body.chat-busy #btn-save-personality { opac
 .queue-task-row-bottom .queue-task-meta { flex: 1; min-width: 0; margin-top: 0; }
 .queue-task-time { font-size: 10px; color: var(--text-light); white-space: nowrap; margin-left: auto; }
 .queue-task-estimate { font-size: 10px; color: var(--text-muted); white-space: nowrap; margin-left: 4px; }
+.queue-task-iter { font-size: 10px; font-weight: 600; color: var(--badge-running-color, #58a6ff); white-space: nowrap; padding: 1px 6px; border-radius: 8px; background: var(--badge-running-bg, rgba(88,166,255,0.12)); }
 .queue-elapsed-overdue { color: var(--badge-failed-color, #d97706); font-weight: 600; }
 .queue-task-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; white-space: nowrap; }
 .badge-chat { background: var(--badge-chat-bg); color: var(--badge-chat-color); }

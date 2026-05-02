@@ -25,21 +25,14 @@ def enhance_prompt(
         return original_prompt
 
     from app.core.llm_router import llm_call
+    from app.core.prompt_templates import render_task
 
     character_name = (agent_config or {}).get("name", "")
 
-    system_prompt = (
-        "You are an image prompt improver. You receive an existing image generation prompt "
-        "and a user's improvement request in natural language. "
-        "Modify the original prompt to incorporate the requested improvements. "
-        "Keep the core scene and subjects intact, but adjust details as requested. "
-        "Respond ONLY with the improved prompt, nothing else."
-    )
-
-    human_msg = (
-        f"/no_think\nOriginal prompt:\n{original_prompt}\n\n"
-        f"Requested improvements:\n{improvement_request}"
-    )
+    system_prompt, human_msg = render_task(
+        "image_prompt_improver",
+        original_prompt=original_prompt,
+        improvement_request=improvement_request)
 
     try:
         response = llm_call(

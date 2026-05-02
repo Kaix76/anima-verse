@@ -157,7 +157,7 @@ _world_file_lock = threading.Lock()
 
 
 def _save_world_data(data: Dict[str, Any]):
-    """Speichert die Weltdaten in die DB (Locations + Raeume als Upsert) + JSON-Backup."""
+    """Speichert die Weltdaten in die DB (Locations + Raeume als Upsert)."""
     now = __import__('datetime').datetime.now().isoformat()
     locations = data.get("locations", [])
     try:
@@ -243,14 +243,6 @@ def _save_world_data(data: Dict[str, Any]):
                     ))
     except Exception as e:
         logger.error("_save_world_data DB-Fehler: %s", e)
-
-    # JSON-Backup
-    path = _get_world_file()
-    with _world_file_lock:
-        path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
 
 
 # === Orte ===

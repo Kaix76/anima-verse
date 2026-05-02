@@ -186,7 +186,7 @@ async def comment_post(post_id: str, request: Request) -> Dict[str, Any]:
 async def detect_post_characters(post_id: str, request: Request) -> Dict[str, Any]:
     """Erkennt im Post verwendete Characters aus reference_images Metadaten."""
     from app.models.character import list_available_characters
-    from app.models.account import get_user_profile
+    from app.models.account import get_active_character
 
     data = await request.json()
     user_id = data.get("user_id", "")
@@ -197,8 +197,17 @@ async def detect_post_characters(post_id: str, request: Request) -> Dict[str, An
 
     character_name = post.get("agent_name", "")
     all_chars = list_available_characters()
-    user_profile = get_user_profile()
-    user_name = user_profile.get("user_name", "")
+    # Avatar = vom User gesteuerter Character (kein Login-Name).
+    avatar_name = get_active_character() or ""
+
+    def _match_char(filename: str) -> str:
+        """Match a reference filename to a known character. Filenames typically
+        replace spaces with underscores, so check both forms."""
+        for c in all_chars:
+            for prefix in (c + "_", c.replace(" ", "_") + "_"):
+                if filename.startswith(prefix):
+                    return c
+        return ""
 
     # 1. Primaer: explizit gespeicherte character_names
     img_meta = load_image_meta(post.get("image_filename", ""))
@@ -213,15 +222,9 @@ async def detect_post_characters(post_id: str, request: Request) -> Dict[str, An
         for _slot, ref_filename in ref_images.items():
             if _slot == "input_reference_image_4":
                 continue  # Location-Slot
-            matched = False
-            for c in all_chars:
-                if ref_filename.startswith(c + "_"):
-                    if c not in detected_names:
-                        detected_names.append(c)
-                    matched = True
-                    break
-            if not matched and user_name and user_name not in detected_names:
-                detected_names.append(user_name)
+            matched = _match_char(ref_filename)
+            if matched and matched not in detected_names:
+                detected_names.append(matched)
 
         # 3. Fallback: Prompt-basierte Erkennung
         if not detected_names:
@@ -236,10 +239,10 @@ async def detect_post_characters(post_id: str, request: Request) -> Dict[str, An
     available = []
     if character_name in all_chars:
         available.append({"name": character_name, "type": "agent"})
-    if user_name:
-        available.append({"name": user_name, "type": "user"})
+    if avatar_name and avatar_name in all_chars and avatar_name != character_name:
+        available.append({"name": avatar_name, "type": "user"})
     for c in all_chars:
-        if c != character_name and c != user_name:
+        if c != character_name and c != avatar_name:
             available.append({"name": c, "type": "character"})
 
     return {"detected": detected_names, "available": available}
@@ -399,22 +402,15 @@ async def suggest_instagram_animate_prompt(post_id: str, request: Request) -> Di
 
         logger.info("[suggest-animate] Instagram: Bildanalyse vorhanden, rufe LLM auf... (llm_override=%s)", llm_override or "")
 
-        system_content = custom_system_prompt or (
-            "You write short animation prompts for image-to-video AI models. "
-            "The user gives you an image description. You respond with ONLY the MOTION instructions. "
-            "Do NOT re-describe the image content, appearance, clothing, or scene. "
-            "ONLY describe what MOVES and HOW it moves. Keep it to 1-3 sentences.\n\n"
-            "Good example: 'She blinks slowly and tilts her head slightly. Her hair sways gently. "
-            "Background lights pulse and flicker.'\n"
-            "Bad example: 'A woman with pink hair wearing a dress stands in a room...' (this re-describes the image)\n\n"
-            "Reply ONLY with the motion prompt. No explanations, no markdown."
-        )
-
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
+        default_system, user_prompt = render_task(
+            "animation_prompt", image_analysis=image_analysis)
+        system_content = custom_system_prompt or default_system
         response = llm_call(
             task="instagram_caption",
             system_prompt=system_content,
-            user_prompt=f"Bildbeschreibung:\n{image_analysis}",
+            user_prompt=user_prompt,
             agent_name=character_name)
         result = (response.content or "").strip().strip('"').strip("'")
         logger.info("[suggest-animate] Instagram Prompt: %s", result[:100])

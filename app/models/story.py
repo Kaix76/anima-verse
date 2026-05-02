@@ -242,7 +242,7 @@ def get_story_state(character_name: str, filename: str
 
 def save_story_state(character_name: str, filename: str, state: Dict[str, Any]
 ) -> None:
-    """Speichert den Story-State — DB + JSON-Backup."""
+    """Speichert den Story-State in die DB."""
     story_id = _story_state_id(character_name, filename)
     now = datetime.now().isoformat()
     title = re.sub(r"[^a-zA-Z0-9_-]", "_", filename.replace(".md", ""))
@@ -259,16 +259,6 @@ def save_story_state(character_name: str, filename: str, state: Dict[str, Any]
             )
     except Exception as e:
         logger.error("save_story_state DB error: %s", e)
-
-    # JSON-Backup
-    try:
-        state_path = _get_state_path(character_name, filename)
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(
-            json.dumps(state, ensure_ascii=False, indent=2),
-            encoding="utf-8")
-    except Exception:
-        pass
 
 
 def delete_story_state(character_name: str, filename: str

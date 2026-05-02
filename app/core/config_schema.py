@@ -139,8 +139,33 @@ SECTIONS = {
             "outfit_image_prompt_prefix": {"type": "str", "label": "Outfit/Vorschau Prompt Prefix", "default": "full body portrait", "description": "Wird Garderobe-Vorschau-Prompts vorangestellt (z.B. 'full body portrait, RAW photo'). Nur fuer Vorschau, nicht fuer Expression-Auto-Regen."},
 
             # --- Outfit-Bild Groesse ---
-            "outfit_image_width": {"type": "int", "label": "Outfit Breite (px)", "default": 832, "min": 64, "max": 4096, "description": "Hochformat empfohlen fuer Ganzkoerper-Outfits"},
-            "outfit_image_height": {"type": "int", "label": "Outfit Hoehe (px)", "default": 1216, "min": 64, "max": 4096},
+            "outfit_image_width": {
+                "type": "int",
+                "label": "Outfit Breite (px)",
+                "default": 832,
+                "min": 64,
+                "max": 4096,
+                "description": (
+                    "Hochformat (~2:3) fuer Ganzkoerper-Outfits. Render-Zeit skaliert grob "
+                    "linear mit der Pixelanzahl, deshalb sind nur Sprünge mit deutlichem "
+                    "Performance-Effekt sinnvoll:\n"
+                    "  - 640x960   (~0.6 MP — ca. 60% Zeit, fuer schnelle Iteration/Vorschau)\n"
+                    "  - 832x1216  (~1.0 MP — Default, SDXL-/Flux-Sweet-Spot)\n"
+                    "  - 1024x1536 (~1.6 MP — ca. 60% mehr Zeit/VRAM, mehr Detail)\n"
+                    "Darüber hinaus (z.B. 1280x1920) waechst die Zeit weiter linear, der "
+                    "Qualitaetsgewinn flacht aber ab und Repetitionsartefakte werden "
+                    "wahrscheinlicher — fuer scharfe grosse Bilder besser einen Upscale-Pass "
+                    "nachschalten."
+                ),
+            },
+            "outfit_image_height": {
+                "type": "int",
+                "label": "Outfit Hoehe (px)",
+                "default": 1216,
+                "min": 64,
+                "max": 4096,
+                "description": "Siehe Outfit Breite fuer empfohlene Bucket-Kombinationen im selben Verhaeltnis.",
+            },
 
             # --- Sonstiges ---
             "u2net_home": {"type": "str", "label": "U2Net Model Path", "default": "./models/u2net", "description": "Pfad fuer u2net-Modell (Hintergrundentfernung via rembg)"},
@@ -207,8 +232,34 @@ SECTIONS = {
                         "label": "Fallback-Backend (specific)",
                         "description": "Nur relevant wenn Fallback-Strategie = specific. Backend das uebernimmt wenn dieses ausfaellt — kann anderer api_type/Workflow sein (z.B. Qwen-Backend down -> Together-Flux).",
                     },
-                    "width": {"type": "int", "label": "Breite", "default": 800, "min": 64, "max": 4096},
-                    "height": {"type": "int", "label": "Höhe", "default": 800, "min": 64, "max": 4096},
+                    "width": {
+                        "type": "int",
+                        "label": "Breite",
+                        "default": 800,
+                        "min": 64,
+                        "max": 4096,
+                        "description": (
+                            "Quadratisches Default-Format (~1:1). Render-Zeit skaliert grob "
+                            "linear mit der Pixelanzahl, deshalb sind nur Sprünge mit "
+                            "deutlichem Performance-Effekt sinnvoll:\n"
+                            "  - 512x512   (~0.26 MP — ca. 30% Zeit, schnelle Iteration)\n"
+                            "  - 768x768   (~0.59 MP — ca. 70% Zeit, brauchbare Details)\n"
+                            "  - 1024x1024 (~1.05 MP — SDXL/Flux Sweet-Spot)\n"
+                            "  - 1280x1280 (~1.64 MP — ca. 60% mehr Zeit/VRAM)\n"
+                            "Default 800x800 liegt zwischen den Buckets — fuer beste "
+                            "Resultate auf einen der oben genannten setzen. Ueber 1MP waechst "
+                            "die Zeit weiter linear, der Qualitaetsgewinn flacht aber ab — "
+                            "fuer scharfe grosse Bilder besser einen Upscale-Pass nachschalten."
+                        ),
+                    },
+                    "height": {
+                        "type": "int",
+                        "label": "Höhe",
+                        "default": 800,
+                        "min": 64,
+                        "max": 4096,
+                        "description": "Siehe Breite fuer empfohlene Bucket-Kombinationen.",
+                    },
                     "faceswap_needed": {"type": "bool", "label": "FaceSwap nötig", "default": False, "description": "Generierte Bilder benoetigen FaceSwap als Post-Processing"},
                     "prompt_prefix": {"type": "str", "label": "Prompt Prefix"},
                     "negative_prompt": {"type": "str", "label": "Negative Prompt"},
@@ -238,8 +289,34 @@ SECTIONS = {
                     "image_model": {"type": "select", "label": "Target Prompt Stil", "choices": ["", "z_image", "qwen", "flux"], "description": "Bestimmt den Prompt-Adapter (z_image=Komma-Keywords, qwen=natuerliche Saetze, flux=Fotografie-Stil). Leer = Fallback ueber Workflow-Dateiname."},
                     "prompt_instruction": {"type": "text", "label": "Prompt Instruction (Enhancer)", "description": "Optional: Anweisung fuer den Enhancer-LLM (task=image_prompt). Leer = Template-Output wird direkt verwendet (schnell, deterministisch)."},
                     "vram_required": {"type": "int", "label": "VRAM Required (GB)", "min": 0, "description": "Ueberschreibt Backend-Default"},
-                    "width": {"type": "int", "label": "Breite", "default": 800, "min": 64, "max": 4096},
-                    "height": {"type": "int", "label": "Höhe", "default": 800, "min": 64, "max": 4096},
+                    "width": {
+                        "type": "int",
+                        "label": "Breite",
+                        "default": 800,
+                        "min": 64,
+                        "max": 4096,
+                        "description": (
+                            "Quadratisches Default-Format (~1:1) fuer den Workflow. "
+                            "Performance-relevante Stufen (Render-Zeit ≈ linear zu MP):\n"
+                            "  - 512x512   (~0.26 MP — ca. 30% Zeit, schnelle Iteration)\n"
+                            "  - 768x768   (~0.59 MP — ca. 70% Zeit)\n"
+                            "  - 1024x1024 (~1.05 MP — SDXL/Flux Sweet-Spot)\n"
+                            "  - 1280x1280 (~1.64 MP — ca. 60% mehr Zeit/VRAM)\n"
+                            "Workflow-Override schlaegt Backend-Default. Default 800x800 liegt "
+                            "zwischen den SDXL-Buckets — fuer beste Resultate auf 768 oder 1024 "
+                            "setzen. Ueber 1MP flacht der Qualitaetsgewinn ab und "
+                            "Repetitionsartefakte werden wahrscheinlicher — Upscale-Pass "
+                            "nachgelagert ist meist effizienter."
+                        ),
+                    },
+                    "height": {
+                        "type": "int",
+                        "label": "Höhe",
+                        "default": 800,
+                        "min": 64,
+                        "max": 4096,
+                        "description": "Siehe Breite fuer empfohlene Bucket-Kombinationen.",
+                    },
                     "loras": {
                         "type": "lora_array",
                         "label": "LoRAs",
@@ -422,6 +499,7 @@ SECTIONS = {
                     "caption_language": {"type": "select", "label": "Caption Sprache", "choices": ["de", "en", "fr", "es", "it"], "default": "en"},
                     "default_popularity": {"type": "int", "label": "Default Popularität", "default": 50, "min": 0, "max": 100, "description": "Default-Popularitaet fuer neue Characters (0-100%, per-Character ueberschreibbar)"},
                     "imagegen_default": {"type": "imagegen_select", "label": "Default ImageGen"},
+                    "pending_window_hours": {"type": "int", "label": "Recent-Posts Window (h)", "default": 4, "min": 1, "max": 72, "description": "Wie lange neue Instagram-Posts als 'pending' im Agent-Thought-Prompt sichtbar sind (Stunden). Standardwert 4."},
                 },
             },
             "set_location": {

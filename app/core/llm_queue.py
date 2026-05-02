@@ -50,6 +50,11 @@ class LLMTask:
     started_at: str = ""        # Zeitpunkt wann Task tatsaechlich verarbeitet wird (nicht Queue-Einreichung)
     vram_required_mb: int = 0   # VRAM in MB die dieser Task braucht (0 = unbekannt/unmanaged)
     label: str = ""             # Optional user-friendly label fuer Task-Panel
+    # Iteration tracking fuer chat_active Tasks (StreamingAgent kann mehrere
+    # LLM-Calls pro Turn machen: Initial → Tool-Call → Follow-Up). Wird vom
+    # Agent via register_chat_iteration() aktualisiert. 0 = noch nicht gestartet.
+    current_iteration: int = 0
+    max_iterations: int = 1
     # Dauer-Schaetzung — wird bei Verarbeitungsstart gesetzt (nicht beim Submit),
     # damit nur Calls eine Anzeige bekommen, die wirklich auf einem Provider laufen.
     estimated_duration_s: float = 0.0
@@ -86,6 +91,9 @@ class LLMTask:
             d["model"] = self.model
         if self.label:
             d["label"] = self.label
+        if self.current_iteration > 0:
+            d["iteration"] = self.current_iteration
+            d["max_iterations"] = self.max_iterations
         if self._retry_count > 0:
             d["retry_count"] = self._retry_count
         if self.estimated_duration_s > 0:
@@ -205,6 +213,17 @@ class LLMQueue:
         from .provider_manager import get_provider_manager
         pm = get_provider_manager()
         pm.register_chat_done(task_id)
+
+    def register_chat_iteration(self, task_id: str,
+                                 iteration: int, max_iterations: int) -> None:
+        """Update iteration count on a chat_active task.
+
+        Called by StreamingAgent at the start of each iteration so the
+        admin queue panel can show "iter 2/3" while the turn runs.
+        """
+        from .provider_manager import get_provider_manager
+        pm = get_provider_manager()
+        pm.register_chat_iteration(task_id, iteration, max_iterations)
 
     def has_pending_tasks(self) -> bool:
         """Returns True if any provider queue has pending tasks."""

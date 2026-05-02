@@ -67,6 +67,16 @@ class InstagramCommentSkill(BaseSkill):
             except Exception:
                 pass
 
+        # Recomment bump: poster and prior commenters get a chance to react
+        # on their next AgentLoop slot. The post surfaces in the
+        # instagram_pending_block (within pending_window_hours), so they have
+        # full context. agent_loop.bump filters reserved names, sleepers and
+        # the avatar — so we can call it broadly.
+        try:
+            _bump_recomment_audience(post, commenter)
+        except Exception as e:
+            logger.debug("Recomment bump skipped: %s", e)
+
         return f"Comment posted on {post_id}: {text[:120]}"
 
     def get_usage_instructions(self, format_name: str = "", **kwargs) -> str:
@@ -82,6 +92,41 @@ class InstagramCommentSkill(BaseSkill):
                 f"Use only when you actually want to react to a specific post."
             ),
             func=self.execute)
+
+
+_RECOMMENT_BUMP_LIMIT = 5  # max prior-commenter bumps per new comment
+
+
+def _bump_recomment_audience(post: Dict[str, Any], commenter: str) -> None:
+    """Bump the poster + recent unique commenters so they can recomment.
+
+    Self-bump is skipped. Order: poster first, then most recent unique
+    prior commenters (capped). agent_loop.bump dedups and filters
+    ineligible names internally.
+    """
+    from app.core.agent_loop import get_agent_loop
+
+    loop = get_agent_loop()
+    if not loop:
+        return
+
+    poster = (post.get("agent_name") or "").strip()
+    bumped: set = {commenter}
+    if poster and poster not in bumped:
+        loop.bump(poster)
+        bumped.add(poster)
+
+    # Most recent prior commenters first, dedup, cap.
+    prior_count = 0
+    for c in reversed(post.get("comments") or []):
+        if prior_count >= _RECOMMENT_BUMP_LIMIT:
+            break
+        author = (c.get("author") or "").strip()
+        if not author or author in bumped:
+            continue
+        loop.bump(author)
+        bumped.add(author)
+        prior_count += 1
 
 
 def _parse_input(ctx: Dict[str, Any]) -> tuple:

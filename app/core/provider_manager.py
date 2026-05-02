@@ -338,6 +338,14 @@ class ProviderManager:
                 return
         logger.warning("chat task %s not found in any channel", task_id)
 
+    def register_chat_iteration(self, task_id: str,
+                                 iteration: int, max_iterations: int) -> None:
+        """Find owning channel and update iteration progress."""
+        for pq in self.channels.values():
+            if task_id in pq._chat_tasks:
+                pq.register_chat_iteration(task_id, iteration, max_iterations)
+                return
+
     def find_channel(self, gpu_type: str, vram_required_mb: int = 0) -> Optional[ProviderQueue]:
         """Find the best channel for a task by GPU type, VRAM and load.
 

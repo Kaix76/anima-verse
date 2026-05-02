@@ -1,6 +1,7 @@
 """Outfit Creation Skill — erzeugt neue Outfit-Pieces (Items) per LLM.
 
-Der Skill generiert einzelne Kleidungsstuecke (outfit_piece-Items) mit Slot,
+Der Skill generiert einzelne Kleidungsstuecke (outfit_piece-Items) mit
+slots-Liste (z.B. ["top"] oder Multi-Slot ["top","bottom"] fuer Kleider),
 prompt_fragment und outfit_types. Die Pieces wandern ins Character-Inventar
 und werden direkt equipped.
 
@@ -24,7 +25,7 @@ from app.models.character import (
     get_character_current_feeling)
 from app.models.inventory import (
     add_item, add_to_inventory, get_character_inventory,
-    equip_piece, unequip_piece,
+    equip_piece,
     find_inventory_piece_by_name_slot,
     VALID_PIECE_SLOTS)
 from app.models.world import get_location, get_activity
@@ -38,10 +39,11 @@ class OutfitCreationSkill(BaseSkill):
     Flow:
     1. Kontext sammeln (Location + outfit_type, Aktivitaet, Stimmung,
        Personality, bestehende Pieces)
-    2. LLM generiert eine Liste von Piece-Entwuerfen (slot, name,
+    2. LLM generiert eine Liste von Piece-Entwuerfen (slots, name,
        prompt_fragment, outfit_types)
     3. Jedes Piece wird als outfit_piece-Item angelegt + ins Inventar
-    4. Pieces des gleichen Slots wie vorher werden ueberschrieben (equip_piece)
+    4. equip_piece raeumt verdraengte Pieces in den Ziel-Slots
+       symmetrisch auf (Multi-Slot-Pieces belegen alle ihre Slots).
     """
 
     SKILL_ID = "outfit_creation"
@@ -143,8 +145,8 @@ class OutfitCreationSkill(BaseSkill):
                                   max_pieces: int) -> Optional[List[Dict[str, Any]]]:
         """LLM produziert eine Liste von Piece-Entwuerfen.
 
-        Returns Liste von Dicts {slot, name, prompt_fragment, outfit_types}
-        oder None bei Fehler.
+        Returns Liste von Dicts {slots, name, prompt_fragment, outfit_types,
+        covers, partially_covers} oder None bei Fehler.
         """
         # Equipped-State laden: Slots die gerade belegt sind sollen im Prompt
         # markiert werden, damit der LLM weiss was aktuell getragen wird
@@ -164,13 +166,14 @@ class OutfitCreationSkill(BaseSkill):
         existing_lines = []
         for p in existing_pieces[-20:]:  # letzte 20 reichen als Kontext
             op = p.get("outfit_piece") or {}
-            slot = op.get("slot") or "?"
+            slot_list = op.get("slots") or []
+            slot_str = "+".join(slot_list) if slot_list else "?"
             types = op.get("outfit_types") or []
             type_str = ", ".join(types) if types else "–"
             frag = (p.get("item_prompt_fragment") or "").strip()
             name = p.get("item_name") or p.get("item_id") or "?"
             equipped_marker = " [EQUIPPED]" if p.get("item_id") in equipped_iids else ""
-            line = f"- [{slot}] ({type_str}){equipped_marker} {name}"
+            line = f"- [{slot_str}] ({type_str}){equipped_marker} {name}"
             if frag:
                 line += f": {frag}"
             existing_lines.append(line)
@@ -235,78 +238,27 @@ class OutfitCreationSkill(BaseSkill):
 
         allowed_slots = ", ".join(VALID_PIECE_SLOTS)
 
-        prompt = f"""You are designing individual clothing pieces for a character.
-
-Character: {character_name}
-Personality: {personality or '(not specified)'}
-Appearance: {appearance or '(not specified)'}
-
-Context:
-{context_block}
-
-{f'User hint: {hint}' if hint else ''}
-
-Existing pieces in the character's wardrobe. REUSE these by using the EXACT same `name` and `slot` — the system will deduplicate and skip creating a new item. Only generate a NEW piece when nothing in the wardrobe fits the context.
-{existing_block}
-
-{type_hint}
-
-{required_block}
-
-Generate a COHERENT OUTFIT as a list of individual pieces. Rules:
-- Return at most {max_pieces} pieces.
-- Each piece has a primary `slot` from: {allowed_slots}
-- Only generate required slots that are NOT already marked [EQUIPPED] above — an equipped piece in a slot satisfies that slot and should not be duplicated.
-- Add outer (jacket/coat) only when context (weather/activity) fits.
-- head/neck/legs/underwear_* only if the style demands them (e.g. sleepwear, sportswear) or required above.
-- prompt_fragment is the concrete visual description used for image generation
-  (e.g. "black leather moto jacket, silver zippers"). NO character names, NO poses.
-- name is short, 2-4 words (e.g. "Black Leather Jacket"). {lang_hint}
-- outfit_types is an array of tags (e.g. ["Casual"], ["Business","Formal"]).
-
-SLOT semantics (MANDATORY — place each garment in the correct slot):
-- head: hats, caps, headbands, hairbands, fascinators.
-- neck: necklaces, chokers, scarves, ties, bowties.
-- outer: jackets, coats, blazers, cardigans, hoodies, vests, boleros.
-- top: shirts, blouses, t-shirts, crop tops, tank tops, bras (as outerwear),
-  bodies, bodysuits, dress tops, corsets, bustiers.
-- bottom: pants, jeans, skirts, shorts, hot-pants, leggings WORN AS PANTS, mini-skirts.
-- underwear_top: bra, sports-bra (under clothing), bralette, nipple-covers.
-- underwear_bottom: panties, thong, briefs, boxers, G-string.
-- legs: stockings, pantyhose, tights, knee-high socks, garters, leg-warmers.
-- feet: shoes, boots, sneakers, heels, sandals, flip-flops, loafers.
-
-CRITICAL: "Jacket" → outer. "Leather Jacket" → outer. "Dress" → top (with
-additional_slots: ["bottom"]). NEVER put outerwear in `bottom`.
-
-Multi-slot pieces: if one garment physically occupies multiple slots (e.g. a
-dress covers top+bottom, a jumpsuit covers top+bottom+legs, thigh-high
-stockings cover legs+feet), emit ONE piece with:
-- `slot`: the primary slot
-- `additional_slots`: list of extra slots the garment occupies
-Do NOT create separate pieces for those slots — `additional_slots` blocks them.
-
-Visual coverage (optional): when another piece is only visible because it's
-layered on top, use:
-- `covers`: slots fully hidden behind this piece (dropped from the prompt)
-- `partially_covers`: slots partially visible as "underneath" (rendered as
-  "{{fragment}} underneath {{covering-fragment}}")
-
-Return ONLY valid JSON with this schema:
-{{
-  "pieces": [
-    {{"slot": "top", "name": "...", "prompt_fragment": "...", "outfit_types": ["..."],
-      "additional_slots": ["bottom"], "covers": [], "partially_covers": []}},
-    ...
-  ]
-}}"""
+        from app.core.prompt_templates import render_task
+        sys_prompt, user_prompt = render_task(
+            "outfit_generation",
+            character_name=character_name,
+            personality=personality or "(not specified)",
+            appearance=appearance or "(not specified)",
+            context_block=context_block,
+            hint_block=f"User hint: {hint}" if hint else "",
+            existing_block=existing_block,
+            type_hint=type_hint,
+            required_block=required_block,
+            max_pieces=max_pieces,
+            allowed_slots=allowed_slots,
+            language_hint=lang_hint)
 
         try:
             from app.core.llm_router import llm_call
             response = llm_call(
                 task="outfit_generation",
-                system_prompt="",
-                user_prompt=prompt,
+                system_prompt=sys_prompt,
+                user_prompt=user_prompt,
                 agent_name=character_name,
                 label="piece_generation")
             raw = (response.content or "").strip()
@@ -342,28 +294,50 @@ Return ONLY valid JSON with this schema:
 
             # Validieren + saubermachen
             cleaned: List[Dict[str, Any]] = []
-            seen_slots = set()
+            seen_slots = set()  # alle bereits beanspruchten Slots (auch Mirrors)
+
+            def _clean_slot_list(raw, exclude: set) -> List[str]:
+                if not isinstance(raw, list):
+                    return []
+                out: List[str] = []
+                seen_ls = set()
+                for s in raw:
+                    s = str(s or "").strip().lower()
+                    if not s or s not in VALID_PIECE_SLOTS:
+                        continue
+                    if s in exclude or s in seen_ls:
+                        continue
+                    seen_ls.add(s)
+                    out.append(s)
+                return out
+
             for p in data["pieces"]:
                 if not isinstance(p, dict):
                     continue
-                slot = str(p.get("slot") or "").strip().lower()
-                if slot not in VALID_PIECE_SLOTS:
+                # Neues Schema: slots: [...]. Falls leer → skip.
+                slots = _clean_slot_list(p.get("slots"), exclude=set())
+                if not slots:
                     continue
                 name = str(p.get("name") or "").strip()
                 frag = str(p.get("prompt_fragment") or "").strip()
                 if not name or not frag:
                     continue
 
-                # Slot-Mismatch korrigieren (LLM packt "Black Leather Jacket"
-                # in slot=bottom → wir verschieben auf outer).
-                inferred = _infer_slot(name, frag)
-                if inferred and inferred != slot:
-                    logger.info("Slot-Korrektur: '%s' %s→%s (name/fragment deutet auf %s)",
-                                name, slot, inferred, inferred)
-                    slot = inferred
+                # Slot-Sanity: wenn Name/Fragment eindeutig nach einem anderen
+                # Slot klingt UND der LLM nur einen Slot vorgeschlagen hat,
+                # korrigieren wir. Multi-Slot-Pieces (z.B. Kleid top+bottom)
+                # bleiben unangetastet.
+                if len(slots) == 1:
+                    inferred = _infer_slot(name, frag)
+                    if inferred and inferred != slots[0]:
+                        logger.info("Slot-Korrektur: '%s' %s→%s (name/fragment deutet auf %s)",
+                                    name, slots[0], inferred, inferred)
+                        slots = [inferred]
 
-                if slot in seen_slots:
-                    continue  # nur ein Piece pro Slot
+                # Slot-Konflikt mit bereits gesetztem Piece → komplett skippen.
+                if any(s in seen_slots for s in slots):
+                    continue
+
                 types = p.get("outfit_types") or []
                 if not isinstance(types, list):
                     types = [str(types)]
@@ -371,45 +345,19 @@ Return ONLY valid JSON with this schema:
                 if target_type and target_type not in types:
                     types.append(target_type)
 
-                def _slot_list(key: str, exclude_primary: bool) -> List[str]:
-                    raw = p.get(key) or []
-                    if not isinstance(raw, list):
-                        return []
-                    out: List[str] = []
-                    seen_ls = set()
-                    for s in raw:
-                        s = str(s or "").strip().lower()
-                        if s not in VALID_PIECE_SLOTS:
-                            continue
-                        if exclude_primary and s == slot:
-                            continue
-                        if s in seen_ls:
-                            continue
-                        seen_ls.add(s)
-                        out.append(s)
-                    return out
-
-                additional = _slot_list("additional_slots", exclude_primary=True)
-                covers = _slot_list("covers", exclude_primary=True)
-                partially = _slot_list("partially_covers", exclude_primary=True)
-                # additional_slots duerfen nicht gleichzeitig covers sein
-                # (widerspruechlich: Slot ist physisch belegt -> nichts zu verdecken).
-                covers = [s for s in covers if s not in additional]
-                partially = [s for s in partially if s not in additional]
+                # covers/partially_covers duerfen sich nicht mit slots ueberschneiden
+                # (slot ist physisch belegt → nichts zu verdecken).
+                covers = _clean_slot_list(p.get("covers"), exclude=set(slots))
+                partially = _clean_slot_list(p.get("partially_covers"), exclude=set(slots))
 
                 cleaned.append({
-                    "slot": slot, "name": name,
+                    "slots": slots, "name": name,
                     "prompt_fragment": frag,
                     "outfit_types": types,
-                    "additional_slots": additional,
                     "covers": covers,
                     "partially_covers": partially,
                 })
-                seen_slots.add(slot)
-                # Additional-Slots werden gesperrt, damit das LLM nicht
-                # zusaetzlich ein separates Piece fuer denselben Slot emittiert.
-                for s in additional:
-                    seen_slots.add(s)
+                seen_slots.update(slots)
             if not cleaned:
                 return None
             return cleaned[:max_pieces]
@@ -541,13 +489,16 @@ Return ONLY valid JSON with this schema:
             failed = []
             for p in pieces:
                 try:
+                    slots_list = p.get("slots") or []
+                    primary_slot = slots_list[0] if slots_list else ""
                     existing_iid = find_inventory_piece_by_name_slot(
-                        character_name, p.get("name") or "", p.get("slot") or "")
+                        character_name, p.get("name") or "", primary_slot,
+                        prompt_fragment=p.get("prompt_fragment") or "")
                     if existing_iid:
                         iid = existing_iid
-                        reused.append({"id": iid, "slot": p["slot"], "name": p["name"]})
-                        logger.info("Piece '%s' (slot=%s) bereits im Inventar, reuse %s",
-                                    p["name"], p["slot"], iid)
+                        reused.append({"id": iid, "slots": slots_list, "name": p["name"]})
+                        logger.info("Piece '%s' (slots=%s) bereits im Inventar, reuse %s",
+                                    p["name"], slots_list, iid)
                     else:
                         item = add_item(
                             name=p["name"],
@@ -556,9 +507,8 @@ Return ONLY valid JSON with this schema:
                             image_prompt="",
                             prompt_fragment=p["prompt_fragment"],
                             outfit_piece={
-                                "slot": p["slot"],
+                                "slots": slots_list,
                                 "outfit_types": p.get("outfit_types") or [],
-                                "additional_slots": p.get("additional_slots") or [],
                                 "covers": p.get("covers") or [],
                                 "partially_covers": p.get("partially_covers") or [],
                             })
@@ -571,12 +521,12 @@ Return ONLY valid JSON with this schema:
                             item_id=iid,
                             obtained_method="generated",
                             obtained_from="outfit_creation")
-                        created.append({"id": iid, "slot": p["slot"], "name": p["name"]})
-                    # Alten Piece im gleichen Slot leeren, dann equippen
-                    unequip_piece(character_name, slot=p["slot"])
+                        created.append({"id": iid, "slots": slots_list, "name": p["name"]})
+                    # equip_piece raeumt verdraengte Pieces (auch Multi-Slot) eigenstaendig auf.
                     r = equip_piece(character_name, iid)
                     if (r or {}).get("status") == "ok":
-                        equipped.append(p["slot"])
+                        for s in slots_list:
+                            equipped.append(s)
                 except Exception as e:
                     logger.warning("Piece anlegen fehlgeschlagen (%s): %s", p.get("name"), e)
                     failed.append(p.get("name") or "?")

@@ -150,24 +150,24 @@ def _trigger_reflection(character_name: str) -> bool:
         f"{rel_block}"
     )
 
+    # NOTE: character_evolution is being phased out in favour of the new
+    # RetrospectSkill (which writes beliefs.md / improvements.md). This
+    # legacy path used to submit a forced_thought with a self-reflection
+    # context_hint; with forced_thoughts removed (B1), the path is a
+    # no-op now. Bump the agent so they may decide to call Retrospect on
+    # their next turn (the retrospective_block in agent_thought.md hints
+    # "time to reflect" when overdue).
     try:
-        from app.core.background_queue import get_background_queue
-        get_background_queue().submit("forced_thought", {
-            "user_id": "",
-            "character_name": character_name,
-            "context_hint": context_hint,
-        })
-        # Cooldown-Marker setzen damit nicht jeder Tick re-triggert
-        # (auch wenn der LLM nichts editiert)
+        from app.core.agent_loop import get_agent_loop
+        get_agent_loop().bump(character_name)
         from app.models.character import save_character_profile
         profile["character_evolution_updated"] = datetime.now().isoformat()
         save_character_profile(character_name, profile)
-        logger.info("Reflexion getriggert fuer %s (%d memories)",
+        logger.info("Evolution -> AgentLoop bump: %s (%d relevant memories)",
                     character_name, len(relevant))
         return True
     except Exception as e:
-        logger.error("forced_thought submit fehlgeschlagen fuer %s: %s",
-                     character_name, e)
+        logger.error("Evolution bump failed for %s: %s", character_name, e)
         return False
 
 

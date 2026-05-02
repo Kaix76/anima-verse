@@ -258,6 +258,20 @@ class ProviderQueue:
                     self._queue_name, agent_name, task.task_id, active_count)
         return task.task_id
 
+    def register_chat_iteration(self, task_id: str,
+                                 iteration: int, max_iterations: int) -> None:
+        """Update iteration progress on a chat_active task.
+
+        Called by StreamingAgent at each iteration boundary so the queue
+        panel can show "iter 2/3" while the turn streams.
+        """
+        with self._lock:
+            task = self._chat_tasks.get(task_id)
+            if task is None:
+                return
+            task.current_iteration = iteration
+            task.max_iterations = max_iterations
+
     def register_chat_done(self, task_id: str) -> None:
         """Chat/story finished. Resumes queue only when ALL chats are done."""
         with self._lock:
@@ -606,6 +620,18 @@ class ProviderQueue:
                         task.error = str(e)
                         task.duration_s = round(time.monotonic() - t0, 2)
                         logger.error("[%s] Fehler: %s: %s", self._queue_name, task.task_id, e, exc_info=True)
+                        # Backend-side crash (5xx, process exit, conn drop):
+                        # cooldown the provider so resolve_llm skips it and
+                        # the routing chain falls through. Streaming consumers
+                        # that don't go through llm_call benefit too.
+                        try:
+                            from app.core.llm_router import _is_upstream_failure, _UPSTREAM_COOLDOWN_SECONDS
+                            if _is_upstream_failure(e):
+                                self.provider.mark_unhealthy(
+                                    f"upstream-fail [{task.task_type}]: {str(e)[:120]}",
+                                    _UPSTREAM_COOLDOWN_SECONDS)
+                        except Exception:
+                            pass
                 finally:
                     with self._lock:
                         self._futures.pop(task.task_id, None)

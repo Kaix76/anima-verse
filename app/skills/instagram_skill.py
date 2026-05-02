@@ -216,26 +216,19 @@ class InstagramSkill(BaseSkill):
             )
 
         # Persoenlichkeit in den Prompt einbauen
-        style_desc = f"Dein Stil: {personality}" if personality else "Dein Stil: Du bist freundlich, selbstbewusst und nahbar."
+        style_description = (
+            f"Your style: {personality}" if personality
+            else "Your style: friendly, confident and approachable.")
 
-        prompt_text = (
-            f"Du bist {character_name} und postest auf deinem oeffentlichen Instagram-Kanal.\n"
-            f"{style_desc}\n\n"
-            f"Schau dir dieses Bild an und schreibe einen natuerlichen, authentischen Instagram-Post-Text dafuer.\n\n"
-            f"WICHTIG: Dies ist ein OEFFENTLICHER Instagram-Post, sichtbar fuer alle!\n"
-            f"Regeln:\n"
-            f"- Schreibe aus der Ich-Perspektive als {character_name}\n"
-            f"- Der Text soll {caption_style} und authentisch klingen, wie ein echter oeffentlicher Instagram-Post\n"
-            f"- Halte den Inhalt oeffentlichkeitstauglich - kein intimer, privater oder anzueglicher Inhalt\n"
-            f"- Fokussiere dich auf das Bild, die Stimmung, Aktivitaeten, Orte oder Inspiration\n"
-            f"- Erwaehne beteiligte Personen beim Namen wenn sie auf dem Bild sind\n"
-            f"- Laenge: mindestens 3-5 Saetze, gern auch mehr — KEIN Einzeiler, keine Telegramm-Kuerze\n"
-            f"- Fuege genau {hashtag_count} passende Hashtags am Ende hinzu\n"
-            f"- Sprache: {lang_name}\n"
-            f"- Antworte NUR mit dem Post-Text und den Hashtags, nichts anderes\n"
-            f"- Keine Anfuehrungszeichen, kein Markdown"
-            f"{context_info}"
-        )
+        from app.core.prompt_templates import render_task
+        _, prompt_text = render_task(
+            "instagram_caption",
+            character_name=character_name,
+            style_description=style_description,
+            caption_style=caption_style,
+            hashtag_count=hashtag_count,
+            language_name=lang_name,
+            context_info=context_info)
 
         try:
             # Per-Agent Vision-LLM Config (with LLM Service support)
@@ -325,20 +318,14 @@ class InstagramSkill(BaseSkill):
             logger.error("Fehler beim Laden des Bildes fuer Analyse: %s", e)
             return None
 
-        prompt_text = os.environ.get("IMAGE_ANALYSIS_PROMPT", "").strip() or (
-            "Describe this image in detail. Include:\n"
-            "- People: appearance, clothing, pose, expression\n"
-            "- Setting: location, environment, lighting\n"
-            "- Objects and activities visible\n"
-            "- Overall mood and atmosphere\n\n"
-            "Be factual and objective. Respond ONLY with the description, "
-            "no formatting, no markdown, no quotes. 2-4 sentences."
-        )
-
         # Detect language from caption config for this agent
         cfg = self._get_effective_config(character_name)
         caption_language = cfg.get("caption_language", "de")
         lang_name = "German" if caption_language == "de" else "English"
+
+        from app.core.prompt_templates import render_task
+        analysis_system, prompt_text = render_task(
+            "image_analysis", language_name=lang_name)
 
         try:
             vcfg = self._get_vision_llm_config(character_name)
@@ -356,7 +343,7 @@ class InstagramSkill(BaseSkill):
 
             image_url = f"data:image/png;base64,{base64_image}"
             messages = [
-                {"role": "system", "content": f"You MUST answer in {lang_name}. This is mandatory."},
+                {"role": "system", "content": analysis_system},
                 {"role": "user", "content": [
                     {"type": "text", "text": prompt_text},
                     {"type": "image_url", "image_url": {"url": image_url}}
@@ -526,11 +513,32 @@ class InstagramSkill(BaseSkill):
 
         logger.info(f"Bild generiert: {image_filename}")
 
-        # Enhanced Prompt (wie an ComfyUI gesendet) fuer Post-Metadaten uebernehmen
-        final_image_prompt = getattr(image_skill, 'last_enhanced_prompt', '') or image_prompt
+        # Enhanced Prompt (wie an ComfyUI gesendet) fuer Post-Metadaten uebernehmen.
+        # Thread-Local zuerst (race-safe) — siehe gen_meta-Block unten.
+        final_image_prompt = ""
+        try:
+            _tls_p = getattr(image_skill, '_meta_tls', None)
+            if _tls_p is not None:
+                final_image_prompt = getattr(_tls_p, 'last_enhanced_prompt', '') or ""
+        except Exception:
+            pass
+        if not final_image_prompt:
+            final_image_prompt = getattr(image_skill, 'last_enhanced_prompt', '') or image_prompt
 
-        # Generierungs-Metadaten vom Image-Skill uebernehmen
-        gen_meta = getattr(image_skill, 'last_image_meta', None) or {}
+        # Generierungs-Metadaten vom Image-Skill uebernehmen.
+        # WICHTIG: Thread-Local-Slot zuerst lesen — bei parallelen Generationen
+        # (z.B. Instagram-Post + Expression-Regen gleichzeitig) wuerde die
+        # Instance-Variante mit fremdem Meta ueberschrieben (race-condition,
+        # Yuki's expression-regen-Meta landet faelschlich in Kira's Post).
+        gen_meta = {}
+        try:
+            _tls = getattr(image_skill, '_meta_tls', None)
+            if _tls is not None:
+                gen_meta = getattr(_tls, 'last_image_meta', None) or {}
+        except Exception:
+            pass
+        if not gen_meta:
+            gen_meta = getattr(image_skill, 'last_image_meta', None) or {}
 
         # Bild von images/ nach instagram/ verschieben
         images_dir = get_character_images_dir(character_name)
@@ -611,6 +619,19 @@ class InstagramSkill(BaseSkill):
         # Referenzbilder in Metadaten übernehmen (für Regenerierung + Character-Erkennung)
         if gen_meta.get("reference_images"):
             image_meta["reference_images"] = gen_meta["reference_images"]
+        # Erweiterte Felder fuer Re-Creation-Dialog + Bild-Info-Panel —
+        # ohne diese laeuft Rebuild blind auf den aktuellen Character-State
+        # ("Keine Original-Werte gespeichert"-Hinweis im UI).
+        for _k in ("canonical", "canonical_source", "target_model",
+                   "template_prompt", "prompt_method",
+                   "character_names", "from_character",
+                   "model", "loras", "seed", "negative_prompt",
+                   "faceswap_method", "faceswap_fallback", "face_enhance",
+                   "guidance_scale", "num_inference_steps",
+                   "items_used", "location", "room_id"):
+            _v = gen_meta.get(_k)
+            if _v not in (None, "", [], {}):
+                image_meta[_k] = _v
         post = create_post(
             character_name=character_name,
             image_filename=image_filename,

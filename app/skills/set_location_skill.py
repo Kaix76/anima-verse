@@ -385,21 +385,15 @@ class SetLocationSkill(BaseSkill):
 
 
 def _trigger_access_denied_thought(character_name: str, location_label: str, reason: str) -> None:
-    """Stellt einen forcierten Gedanken ein, damit der Character
-    die Zugangs-Verweigerung intern verarbeitet und in seiner Chat-Zeile
-    reflektiert (statt nur stiller Diary-Eintrag)."""
+    """Bumps the character in the AgentLoop so they handle the access-
+    denied event in their next thought turn. The state_history entry
+    written by the caller carries the actual context (location, reason);
+    the recent_activity block in agent_thought.md surfaces it.
+    """
     try:
-        from app.core.background_queue import get_background_queue
-        hint = (
-            f"Du wolltest zu {location_label} gehen, aber der Zugang wurde "
-            f"verweigert: {reason}. Reflektiere kurz, wie du damit umgehst."
-        )
-        get_background_queue().submit("forced_thought", {
-            "user_id": "",
-            "character_name": character_name,
-            "context_hint": hint,
-        })
-        logger.info("Access-Denied -> forced_thought: %s @ %s",
+        from app.core.agent_loop import get_agent_loop
+        get_agent_loop().bump(character_name)
+        logger.info("Access-Denied -> AgentLoop bump: %s @ %s",
                     character_name, location_label)
     except Exception as e:
-        logger.debug("access_denied forced_thought submit failed: %s", e)
+        logger.debug("access_denied bump failed: %s", e)

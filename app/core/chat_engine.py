@@ -54,7 +54,7 @@ def build_chat_context(
     from app.models.character import (
         get_character_config,
         get_character_language_instruction)
-    from app.models.account import get_user_name, get_active_character
+    from app.models.account import get_user_name, get_active_character, get_chat_partner
     from app.models.chat import get_chat_history
     from app.utils.history_manager import get_time_based_history, get_cached_summary
     from app.routes.chat import _build_full_system_prompt, _strip_tool_hallucinations
@@ -68,7 +68,8 @@ def build_chat_context(
     if channel == "telegram":
         user_display_name = get_user_name() or owner_id
     else:
-        user_display_name = get_active_character() or get_user_name() or owner_id
+        # Avatar identity, never the login name — "admin" used to leak in here.
+        user_display_name = get_active_character() or get_chat_partner() or "user"
 
     # Auto-derive medium wenn nicht gesetzt
     if medium is None:
@@ -329,33 +330,22 @@ def run_chat_turn(
         "speaker": responder, "medium": medium,
     }, character_name=speaker, partner_name=responder)
 
-    # Sofort-Trigger: Hat der Speaker einen offenen pending_report mit diesem
-    # responder als target? Dann ist jetzt der richtige Moment, einen forcierten
-    # Gedanken zu triggern, damit der Speaker zurueckmelden kann.
+    # Pending-Report Sofort-Trigger: if the speaker owes someone a report
+    # back, bump them in the AgentLoop so they think on the next slot.
+    # The pending_reports block in their thought context shows the open
+    # obligation directly.
     try:
         from app.core.pending_reports import trigger_sofort_thought_if_applicable
-        hint = trigger_sofort_thought_if_applicable(speaker, responder)
-        if hint:
-            _schedule_forced_thought(speaker, hint)
+        if trigger_sofort_thought_if_applicable(speaker, responder):
+            try:
+                from app.core.agent_loop import get_agent_loop
+                get_agent_loop().bump(speaker)
+            except Exception as _be:
+                logger.debug("AgentLoop bump failed for %s: %s", speaker, _be)
     except Exception as e:
         logger.debug("pending_report Sofort-Trigger Fehler: %s", e)
 
     return clean
-
-
-def _schedule_forced_thought(owner_id: str, character_name: str, context_hint: str) -> None:
-    """Schedult einen forcierten Thought-Turn.
-
-    Laeuft asynchron im Hintergrund via BackgroundQueue — blockt run_chat_turn nicht.
-    """
-    try:
-        from app.core.background_queue import get_background_queue
-        get_background_queue().submit(
-            "forced_thought",
-            {"user_id": owner_id, "character_name": character_name, "context_hint": context_hint})
-        logger.info("Forcierter Gedanke eingestellt: %s (hint=%s)", character_name, context_hint[:80])
-    except Exception as e:
-        logger.warning("Konnte forcierten Gedanken nicht einstellen: %s", e)
 
 
 def clean_response(full_response: str) -> str:
@@ -388,7 +378,8 @@ def post_process_response(
     full_chat_history: list,
     history_window: int = 0,
     old_history: list = None,
-    extraction_context: Dict[str, Any] = None) -> Dict[str, Any]:
+    extraction_context: Dict[str, Any] = None,
+    executed_tools: list = None) -> Dict[str, Any]:
     """
     Run all post-processing after a chat response: mood, location, activity,
     memory extraction, relationship updates, intent extraction.
@@ -501,29 +492,22 @@ def post_process_response(
                 ri_char = get_romantic_interests(character_name)
                 romantic_context = ""
                 if ri_user or ri_char:
-                    romantic_context = "\n\nRomantic interest context:\n"
+                    romantic_context = "\nRomantic interest context:\n"
                     if ri_user:
                         romantic_context += f"- {user_display_name}'s romantic interests: {ri_user}\n"
                     if ri_char:
                         romantic_context += f"- {character_name}'s romantic interests: {ri_char}\n"
-                    romantic_context += "Only set romantic_delta > 0 if the conversation matches these interests.\n"
-
-                rel_system_prompt = (
-                    "Analyze this conversation between a user and a fictional character. "
-                    "Return ONLY a JSON object with these fields:\n"
-                    '"sentiment_a": how the user feels about the character after this (-0.3 to 0.3)\n'
-                    '"sentiment_b": how the character feels about the user after this (-0.3 to 0.3)\n'
-                    '"romantic_delta": change in romantic tension (-0.1 to 0.15). '
-                    "Positive if flirting, affection, intimacy, love. Negative if cold/distant. Zero if neutral.\n\n"
-                    "Values close to 0 for casual/neutral interactions. "
-                    + romantic_context
-                    + "Output ONLY the JSON, nothing else."
-                )
-                conversation_text = f"{user_display_name}: {user_input[:300]}"
-                if cleaned:
-                    conversation_text += f"\n{character_name}: {cleaned[:300]}"
+                    romantic_context += "Only set romantic_delta > 0 if the conversation matches these interests."
 
                 from app.core.llm_router import llm_call as _llm_call
+                from app.core.prompt_templates import render_task
+                rel_system_prompt, conversation_text = render_task(
+                    "relationship_summary",
+                    user_display_name=user_display_name,
+                    character_name=character_name,
+                    user_input=user_input[:300],
+                    cleaned=cleaned[:300] if cleaned else "",
+                    romantic_context=romantic_context)
                 try:
                     resp = _llm_call(
                         task="relationship_summary",
@@ -572,7 +556,8 @@ def post_process_response(
         _sched = getattr(_pl, '_scheduler', None) if _pl else None
         asyncio.ensure_future(
             process_response_intents_async(full_response, character_name,
-                                           agent_config, _sched)
+                                           agent_config, _sched,
+                                           executed_tools=executed_tools)
         )
     except Exception as e:
         logger.error("[%s] Intent extraction error: %s", character_name, e)

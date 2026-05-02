@@ -830,14 +830,19 @@ def _apply_one_outfit(char_name: str, outfit: Dict[str, Any]) -> Dict[str, Any]:
         piece_ids: List[str] = []
         created = reused = 0
         for p in raw_pieces:
-            slot = (p.get("slot") or "").strip().lower()
+            # Schema: {slots: [...], name, prompt_fragment, outfit_types, covers, partially_covers}.
+            # Falls der Caller noch den alten "slot"+"additional_slots"-Stil schickt, werten wir
+            # das nicht aus — das schlaegt in add_item() mit "needs non-empty 'slots' list" fehl.
+            slots = [str(s or "").strip().lower() for s in (p.get("slots") or []) if s]
+            slots = [s for s in slots if s in VALID_PIECE_SLOTS]
             name = (p.get("name") or "").strip()
             fragment = (p.get("prompt_fragment") or "").strip()
-            if not slot or not name or slot not in VALID_PIECE_SLOTS:
-                logger.warning("WorldDev outfit '%s': Piece skipped (slot=%r, name=%r)",
-                               outfit.get("name"), slot, name)
+            if not slots or not name:
+                logger.warning("WorldDev outfit '%s': Piece skipped (slots=%r, name=%r)",
+                               outfit.get("name"), slots, name)
                 continue
-            existing = find_inventory_piece_by_name_slot(char_name, name, slot)
+            existing = find_inventory_piece_by_name_slot(
+                char_name, name, slots[0], prompt_fragment=fragment)
             if existing:
                 piece_ids.append(existing)
                 reused += 1
@@ -849,9 +854,8 @@ def _apply_one_outfit(char_name: str, outfit: Dict[str, Any]) -> Dict[str, Any]:
                 image_prompt="",
                 prompt_fragment=fragment,
                 outfit_piece={
-                    "slot": slot,
+                    "slots": slots,
                     "outfit_types": p.get("outfit_types") or [],
-                    "additional_slots": p.get("additional_slots") or [],
                     "covers": p.get("covers") or [],
                     "partially_covers": p.get("partially_covers") or [],
                 })
@@ -994,26 +998,24 @@ def _get_pause_state() -> Dict[str, bool]:
     Ersetzt llm_queue.paused: statt globaler LLM-Pause nutzen wir das
     Runtime-Preset "world_dev" im llm_task_state (disabled Tasks).
     """
-    from app.core.thoughts import get_thought_loop
     from app.core.task_queue import get_task_queue
     from app.routes.scheduler import get_scheduler_manager
     from app.core.llm_task_state import runtime_disabled_tasks
 
-    thought = get_thought_loop()
     task_queue = get_task_queue()
     scheduler_mgr = get_scheduler_manager()
 
-    thought_paused = thought.paused if thought else False
     queue_paused = task_queue._is_paused("default") if task_queue else False
     llm_paused = bool(runtime_disabled_tasks())
     scheduler_paused = False
     if scheduler_mgr and hasattr(scheduler_mgr, '_global_paused'):
         scheduler_paused = scheduler_mgr._global_paused
 
-    all_paused = thought_paused and queue_paused and scheduler_paused and llm_paused
+    # AgentLoop pause state mirrors task_queue 'default' pause flag, so
+    # ``queue_paused`` already covers it.
+    all_paused = queue_paused and scheduler_paused and llm_paused
     return {
         "paused": all_paused,
-        "thought_paused": thought_paused,
         "queue_paused": queue_paused,
         "llm_paused": llm_paused,
         "scheduler_paused": scheduler_paused,
@@ -1027,7 +1029,6 @@ async def pause_all():
     Ersetzt llm_queue.pause durch Runtime-Preset "world_dev" (Task-Disable).
     Chat/Story bleiben aktiv — nur Hintergrund-Tasks werden deaktiviert.
     """
-    from app.core.thoughts import get_thought_loop
     from app.core.task_queue import get_task_queue
     from app.routes.scheduler import get_scheduler_manager
     from app.core.llm_task_state import activate_preset_runtime
@@ -1035,9 +1036,8 @@ async def pause_all():
     disabled = activate_preset_runtime("world_dev")
     logger.info("LLM-Task-Disable aktiv (world_dev): %d Tasks aus", len(disabled))
 
-    thought = get_thought_loop()
-    if thought:
-        thought.pause()
+    # Note: ThoughtLoop.pause() removed — pausing the task_queue 'default'
+    # below also halts the AgentLoop (its pause source).
 
     task_queue = get_task_queue()
     if task_queue:
@@ -1057,16 +1057,11 @@ async def pause_all():
 @router.post("/resume-all")
 async def resume_all():
     """Resumes all LLM and background activities."""
-    from app.core.thoughts import get_thought_loop
     from app.core.task_queue import get_task_queue
     from app.routes.scheduler import get_scheduler_manager
     from app.core.llm_task_state import clear_runtime
 
     clear_runtime()
-
-    thought = get_thought_loop()
-    if thought:
-        thought.resume()
 
     task_queue = get_task_queue()
     if task_queue:

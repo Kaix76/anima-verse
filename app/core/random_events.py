@@ -301,24 +301,20 @@ def _try_generate_secret_hint_event(loc_id: str,
     lang_name = LANG_NAMES.get(_lang, _lang)
 
     observers = [c for c in char_names if c != target_char]
-    prompt = (
-        f"Generate a subtle event hint about a secret.\n"
-        f"Location: {location.get('name', loc_id)}\n"
-        f"The hidden secret belongs to {target_char}: \"{secret.get('content', '')}\"\n"
-        f"Observers at this location: {', '.join(observers)}\n\n"
-        f"Rules:\n"
-        f"- Do NOT reveal the secret directly.\n"
-        f"- Write a 1-2 sentence event that could make {', '.join(observers)} suspicious.\n"
-        f"- Subtle clue, ambiguous sign — leaves room for interpretation.\n"
-        f"- Write in {lang_name}, max 140 characters.\n"
-        f"- Reply with ONLY the event text, nothing else."
-    )
+    from app.core.prompt_templates import render_task
+    sys_prompt, user_prompt = render_task(
+        "random_event_secret_hint",
+        location_name=location.get("name", loc_id),
+        target_character=target_char,
+        secret_content=secret.get("content", ""),
+        observers_list=", ".join(observers),
+        language_name=lang_name)
 
     try:
         response = llm_call(
             task="random_event",
-            system_prompt="You generate subtle event hints that suggest a secret without revealing it. Output only the event text.",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name="system")
         text = (response.content or "").strip()
         text = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', text).strip().strip('"').strip("'").strip()
@@ -386,7 +382,6 @@ def _generate_event(loc_id: str,
 
     # Blacklist
     blacklist = settings.get("event_blacklist", [])
-    blacklist_hint = f"\nDo NOT mention: {', '.join(blacklist)}" if blacklist else ""
 
     cat_info = CATEGORIES.get(category, {})
     cat_desc = cat_info.get("description", category)
@@ -398,35 +393,27 @@ def _generate_event(loc_id: str,
     LANG_NAMES = {"de": "German", "en": "English", "fr": "French", "es": "Spanish", "it": "Italian", "ja": "Japanese"}
     lang_name = LANG_NAMES.get(_lang, _lang)
 
-    prompt = (
-        f"Generate a random event for the location \"{loc_name}\".\n"
-        f"Category: {category} — {cat_desc}\n"
-        f"Time of day: {time_desc}\n"
-        f"Location: {loc_desc}\n"
-    )
-    if rooms:
-        prompt += f"Rooms: {', '.join(rooms[:6])}\n"
-    if char_infos:
-        prompt += f"Characters present: {', '.join(char_infos)}\n"
-    if hazard_texts:
-        prompt += f"Known hazards: {', '.join(hazard_texts)}\n"
-    if last_event:
-        prompt += f"Last event here (avoid repetition): \"{last_event}\"\n"
-    prompt += blacklist_hint
-    prompt += (
-        f"\n\nWrite ONE short event description (1-2 sentences, max 120 characters).\n"
-        f"Write in {lang_name}.\n"
-        f"Write from a neutral narrator perspective.\n"
-        f"The event should feel natural for this location and time.\n"
-        f"Reply with ONLY the event text, nothing else."
-    )
+    from app.core.prompt_templates import render_task
+    sys_prompt, user_prompt = render_task(
+        "random_event_general",
+        location_name=loc_name,
+        category=category,
+        category_description=cat_desc,
+        time_of_day=time_desc,
+        location_description=loc_desc,
+        rooms_block=f"Rooms: {', '.join(rooms[:6])}" if rooms else "",
+        characters_block=f"Characters present: {', '.join(char_infos)}" if char_infos else "",
+        hazards_block=f"Known hazards: {', '.join(hazard_texts)}" if hazard_texts else "",
+        last_event_block=f'Last event here (avoid repetition): "{last_event}"' if last_event else "",
+        blacklist_block=f"Do NOT mention: {', '.join(blacklist)}" if blacklist else "",
+        language_name=lang_name)
 
     # LLM aufrufen
     try:
         response = llm_call(
             task="random_event",
-            system_prompt="You generate short, atmospheric event descriptions for a roleplay world. Reply with ONLY the event text.",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name="system")
 
         text = (response.content or "").strip()
@@ -458,6 +445,7 @@ def _generate_event(loc_id: str,
 def _escalate_event(event: Dict[str, Any]):
     """Eskaliert ein unbeantwortetes disruption/danger Event."""
     from app.core.llm_router import llm_call
+    from app.core.prompt_templates import render_task
     from app.models.events import add_event
 
     old_cat = event.get("category", "disruption")
@@ -472,22 +460,17 @@ def _escalate_event(event: Dict[str, Any]):
     LANG_NAMES = {"de": "German", "en": "English", "fr": "French", "es": "Spanish", "it": "Italian", "ja": "Japanese"}
     lang_name = LANG_NAMES.get(_lang, _lang)
 
-    prompt = (
-        f"An event happened but nobody reacted:\n"
-        f"\"{old_text}\"\n\n"
-        f"The situation has escalated. Write the NEXT event — "
-        f"more urgent, more serious, demanding immediate action.\n"
-        f"Category: {new_cat}\n"
-        f"Write in {lang_name}.\n"
-        f"Write ONE short sentence (max 120 characters).\n"
-        f"Reply with ONLY the escalated event text."
-    )
+    sys_prompt, user_prompt = render_task(
+        "random_event_escalation",
+        old_text=old_text,
+        new_category=new_cat,
+        language_name=lang_name)
 
     try:
         response = llm_call(
             task="random_event",
-            system_prompt="You escalate roleplay events. Make them more urgent.",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name="system")
 
         text = (response.content or "").strip()
@@ -569,29 +552,20 @@ def validate_solution(event: Dict[str, Any],
     joint_with_caps = [format_character_with_hints(j) for j in (actors_joint or [])]
     joint_txt = f" (together with {', '.join(joint_with_caps)})" if joint_with_caps else ""
 
-    prompt = (
-        f"An event is happening: \"{event.get('text', '')}\"\n"
-        f"Category: {event.get('category', '')}\n\n"
-        f"{actor_with_caps}{joint_txt} attempted to resolve it with this action:\n"
-        f"\"{solution_text.strip()}\"\n\n"
-        f"Evaluate plausibility: does this action realistically resolve the event?\n"
-        f"Consider:\n"
-        f"- For a fire: extinguishing/evacuating = resolve; running away = no\n"
-        f"- For a break-in: confronting/calling police = resolve; hiding = no\n"
-        f"- For a water leak: shutting main valve/plumber = resolve; watching = no\n"
-        f"- Character traits matter on edge cases: a 'mutig' character pulls off risky "
-        f"interventions; an 'aengstlich' character fails when courage is needed; "
-        f"'aufmerksam' helps with subtle/social events; 'erschoepft' reduces effectiveness.\n"
-        f"Generally: resolution requires ACTIVE, EFFECTIVE action — not just awareness.\n\n"
-        f"Reply with ONLY a JSON object (no prose): "
-        f"{{\"resolved\": true|false, \"reason\": \"<short reason>\"}}"
-    )
+    from app.core.prompt_templates import render_task
+    sys_prompt, user_prompt = render_task(
+        "random_event_validate_solution",
+        event_text=event.get("text", ""),
+        event_category=event.get("category", ""),
+        actor_with_caps=actor_with_caps,
+        joint_block=joint_txt,
+        solution_text=solution_text.strip())
 
     try:
         response = llm_call(
             task="random_event",
-            system_prompt="You validate whether a roleplay action resolves an event. Reply ONLY with JSON.",
-            user_prompt=prompt,
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name=actor_name)
         raw = (response.content or "").strip()
         raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', raw).strip()
@@ -695,21 +669,21 @@ def _generate_solution_rp(actor: str, event: Dict[str, Any],
     from app.core.llm_router import llm_call
 
     personality = get_character_personality(actor) or ""
-    joint_txt = f" Du bist mit {', '.join(joint)} zusammen." if joint else ""
+    joint_txt = f" You are with {', '.join(joint)}." if joint else ""
 
-    system = (
-        f"Du bist {actor}. {personality}\n"
-        f"Es passiert gerade: \"{event.get('text', '')}\"\n"
-        f"{joint_txt}\n"
-        f"Beschreibe in 1-2 Saetzen was du JETZT konkret tust um die Situation zu loesen. "
-        f"Nur konkrete Handlung, keine Gedanken, keine Zweifel."
-    )
+    from app.core.prompt_templates import render_task
+    sys_prompt, user_prompt = render_task(
+        "random_event_solution_rp",
+        actor=actor,
+        personality=personality,
+        event_text=event.get("text", ""),
+        joint_block=joint_txt)
 
     try:
         response = llm_call(
             task="thought",
-            system_prompt=system,
-            user_prompt="Was tust du?",
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt,
             agent_name=actor)
         text = (response.content or "").strip()
         text = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', text).strip()

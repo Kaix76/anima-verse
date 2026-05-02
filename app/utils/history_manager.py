@@ -186,25 +186,24 @@ def _create_history_summary(
     if character_name and user_display_name != "Player":
         context_line = f"This is a conversation between {user_display_name} (user) and {character_name} (character).\n\n"
 
-    # Prompt für die Zusammenfassung
-    summary_prompt = f"""Summarize the following conversation in 2-3 sentences, focusing on:
-- Main topics discussed
-- Important information shared by {user_display_name}
-- Any decisions or conclusions made
+    from app.core.prompt_templates import render_task
 
-IMPORTANT: Write ONLY a plain text summary. Do NOT include any tool calls, commands, image URLs or code.
-Use the actual names ({user_display_name}, {character_name or 'Assistant'}) in the summary.{lang_instruction}
+    def _build(text: str) -> tuple:
+        return render_task(
+            "consolidation_history_summary",
+            user_display_name=user_display_name,
+            character_name=character_name or "Assistant",
+            context_line=context_line,
+            lang_instruction=lang_instruction,
+            history_text=text)
 
-{context_line}Conversation:
-{history_text}
-
-Summary:"""
+    sys_prompt, summary_prompt = _build(history_text)
 
     try:
         from app.core.llm_router import llm_call
         response = llm_call(
             task="consolidation",
-            system_prompt="",
+            system_prompt=sys_prompt,
             user_prompt=summary_prompt,
             agent_name=character_name)
         summary = (response.content or "").strip()
@@ -221,11 +220,11 @@ Summary:"""
             shorter = "\n".join(cleaned_parts[-30:])
             if len(shorter) > 12000:
                 shorter = shorter[-12000:]
-            retry_prompt = f"{summary_prompt.split('Conversation:')[0]}Conversation:\n{shorter}\n\nSummary:"
+            _, retry_prompt = _build(shorter)
             try:
                 response = llm_call(
                     task="consolidation",
-                    system_prompt="",
+                    system_prompt=sys_prompt,
                     user_prompt=retry_prompt,
                     agent_name=character_name)
                 summary = _clean_message_for_summary((response.content or "").strip())
@@ -265,7 +264,7 @@ def get_cached_summary(character_name: str) -> str:
 
 
 def _save_cached_summary(character_name: str, summary: str, message_count: int = 0):
-    """Speichert eine History-Summary in DB (und als JSON-Backup)."""
+    """Speichert eine History-Summary in der DB."""
     now = datetime.now().isoformat()
     try:
         with transaction() as conn:
@@ -283,15 +282,6 @@ def _save_cached_summary(character_name: str, summary: str, message_count: int =
             ))
     except Exception as e:
         logger.error("_save_cached_summary DB-Fehler fuer %s: %s", character_name, e)
-
-    # JSON-Backup
-    from app.models.character import get_character_dir
-    path = get_character_dir(character_name) / "history_summary.json"
-    try:
-        data = {"summary": summary, "message_count": message_count, "updated_at": now}
-        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
 
 
 _SUMMARY_THROTTLE_MINUTES = 30  # Mindestabstand zwischen Summary-Updates
@@ -367,7 +357,7 @@ def load_daily_summaries(character_name: str) -> Dict[str, str]:
 
 
 def save_daily_summary(character_name: str, date_str: str, summary: str):
-    """Speichert/ueberschreibt eine Tages-Summary in DB (und JSON-Backup)."""
+    """Speichert/ueberschreibt eine Tages-Summary in der DB."""
     try:
         with transaction() as conn:
             conn.execute("""
@@ -379,24 +369,9 @@ def save_daily_summary(character_name: str, date_str: str, summary: str):
     except Exception as e:
         logger.error("save_daily_summary DB-Fehler fuer %s: %s", character_name, e)
 
-    # JSON-Backup (append-style)
-    from app.models.character import get_character_dir
-    path = get_character_dir(character_name) / "daily_summaries.json"
-    try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            data = {}
-        summaries = data.get("summaries", {})
-        summaries[date_str] = summary
-        data["summaries"] = summaries
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
 
 def delete_daily_summaries(character_name: str, date_keys: List[str]):
-    """Loescht Tages-Summaries aus DB und JSON-Backup."""
+    """Loescht Tages-Summaries aus der DB."""
     if not date_keys:
         return
     try:
@@ -409,18 +384,6 @@ def delete_daily_summaries(character_name: str, date_keys: List[str]):
             )
     except Exception as e:
         logger.error("delete_daily_summaries DB-Fehler fuer %s: %s", character_name, e)
-
-    from app.models.character import get_character_dir
-    path = get_character_dir(character_name) / "daily_summaries.json"
-    if not path.exists():
-        return
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        summaries = {d: s for d, s in data.get("summaries", {}).items() if d not in date_keys}
-        data["summaries"] = summaries
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def get_recent_daily_summaries(character_name: str, days: int = 0) -> List[Dict[str, str]]:
@@ -593,27 +556,20 @@ def _create_daily_summary(messages: List[Dict[str, str]],
     if character_name and user_display_name != "Player":
         context_line = f"This is a conversation between {user_display_name} and {character_name}.\n\n"
 
-    summary_prompt = f"""{context_line}Summarize what happened TODAY in this roleplay conversation in 5-8 sentences.
-Focus on:
-- Key events and what happened (not just topics)
-- Emotional moments and reactions of {character_name or 'the character'} and {user_display_name}
-- Decisions made and their outcomes
-- Where {user_display_name} and {character_name or 'the character'} went and what they did
-
-Use the actual names ({user_display_name}, {character_name or 'Assistant'}) in the summary, not generic labels like "User" or "Assistant".
-Write as a narrative summary in past tense.
-Do NOT include any tool calls, commands, image URLs or code.{lang_instruction}
-
-Today's conversation:
-{history_text}
-
-Summary:"""
+    from app.core.prompt_templates import render_task
+    sys_prompt, summary_prompt = render_task(
+        "consolidation_today",
+        user_display_name=user_display_name,
+        character_name=character_name or "the character",
+        context_line=context_line,
+        lang_instruction=lang_instruction,
+        history_text=history_text)
 
     try:
         from app.core.llm_router import llm_call
         response = llm_call(
             task="consolidation",
-            system_prompt="",
+            system_prompt=sys_prompt,
             user_prompt=summary_prompt,
             agent_name=character_name)
         summary = (response.content or "").strip()

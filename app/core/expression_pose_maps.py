@@ -207,26 +207,15 @@ def _llm_generate_prompt(prompt_type: str, value: str) -> Optional[str]:
     """Generate an expression or pose prompt via LLM call."""
     try:
         from app.core.llm_router import llm_call
+        from app.core.prompt_templates import render_task
 
-        if prompt_type == "expression":
-            instruction = (
-                f"Describe the facial expression for someone feeling '{value}' "
-                f"in one short English sentence. Focus on eyes, eyebrows, mouth, jaw. "
-                f"Example: 'warm genuine smile, bright sparkling eyes, raised cheeks, relaxed brow'. "
-                f"Reply ONLY with the description, no explanation."
-            )
-        else:
-            instruction = (
-                f"Describe the body pose for someone who is '{value}' "
-                f"in one short English sentence. Focus on body position, arms, legs, posture. "
-                f"Example: 'sitting comfortably in a chair, legs crossed, hands resting on lap'. "
-                f"Reply ONLY with the description, no explanation."
-            )
+        sys_prompt, user_prompt = render_task(
+            "expression_map", prompt_type=prompt_type, value=value)
 
         response = llm_call(
             task="expression_map",
-            system_prompt="",
-            user_prompt=instruction)
+            system_prompt=sys_prompt,
+            user_prompt=user_prompt)
         text = (response.content or "").strip().strip('"').strip("'")
         if text and len(text) < 300:
             logger.info("LLM %s-Prompt fuer '%s': %s", prompt_type, value, text[:80])
