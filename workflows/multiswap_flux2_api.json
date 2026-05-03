@@ -41,8 +41,14 @@
   },
   "304": {
     "inputs": {
-      "width": 1024,
-      "height": 1024,
+      "width": [
+        "325",
+        0
+      ],
+      "height": [
+        "325",
+        1
+      ],
       "batch_size": 1
     },
     "class_type": "EmptyFlux2LatentImage",
@@ -64,7 +70,7 @@
   },
   "306": {
     "inputs": {
-      "text": "swap face and hair from woman and men from the reference pictures",
+      "text": "Identity transfer task. Replace only the facial identity and hairstyle of each person in the target image using the reference images. All other properties of the target image must remain pixel-faithful to the original: head size, head position within the frame, body proportions, pose, head tilt, camera angle, lighting direction, and the original mouth state, eye state, and gaze of each person. Do not invent new facial dynamics. The output is the target image with only identity changed.",
       "clip": [
         "335",
         0
@@ -136,7 +142,7 @@
   },
   "312": {
     "inputs": {
-      "sampler_name": "ddpm"
+      "sampler_name": "dpmpp_2m"
     },
     "class_type": "KSamplerSelect",
     "_meta": {
@@ -145,7 +151,7 @@
   },
   "313": {
     "inputs": {
-      "steps": 4,
+      "steps": 6,
       "width": [
         "325",
         0
@@ -162,7 +168,7 @@
   },
   "320": {
     "inputs": {
-      "image": "",
+      "image": "Diego_1772140790_c3aeaaaf_1.png",
       "resize": true,
       "width": [
         "325",
@@ -227,7 +233,7 @@
   },
   "326": {
     "inputs": {
-      "image": ""
+      "image": "Diego_1775477640_0a215f54_1.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -265,7 +271,7 @@
   },
   "333": {
     "inputs": {
-      "value": 199367686838722
+      "value": -926297153143217
     },
     "class_type": "PrimitiveInt",
     "_meta": {
@@ -274,7 +280,7 @@
   },
   "334": {
     "inputs": {
-      "gguf_name": ""
+      "gguf_name": "Flux.2-9B-Q8.gguf"
     },
     "class_type": "LoaderGGUF",
     "_meta": {
@@ -283,7 +289,7 @@
   },
   "335": {
     "inputs": {
-      "clip_name": "",
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
       "type": "flux2",
       "device": "default"
     },
@@ -294,7 +300,7 @@
   },
   "336": {
     "inputs": {
-      "image": "",
+      "image": "Kira_1771187718.png",
       "resize": true,
       "width": [
         "325",

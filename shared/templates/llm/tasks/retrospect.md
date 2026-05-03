@@ -4,6 +4,7 @@ purpose: Character self-reflection — extract new beliefs + improvements from r
 placeholders:
   character_name: Character doing the reflecting
   personality: Their stated personality (so the reflection sounds like them)
+  language_name: Display name of the character's language (e.g. "German", "English")
   recent_summaries: Pre-formatted bullet list of the last few daily summaries
   recent_memories: Pre-formatted bullet list of recent significant memories
   existing_beliefs: Existing beliefs lines (so we don't duplicate). May be empty.
@@ -11,6 +12,8 @@ placeholders:
 ---
 ## system
 You help a fictional character reflect on their own recent experience and notice what shifted in how they see the world or themselves. Be conservative: only emit insights that are clearly grounded in the events shown. Do not invent dramatic life lessons.
+
+The ``text`` and ``target`` fields of beliefs and improvements MUST be written in {{ language_name }} — that is the character's native language. JSON keys (``beliefs``, ``improvements``, ``text``, ``target``) stay in English.
 
 ## user
 Character: {{ character_name }}
@@ -29,12 +32,12 @@ Recent significant memories:
 {{ existing_improvements }}
 {% endif %}
 Reflect from {{ character_name }}'s point of view. Identify:
-- 0 to 3 NEW beliefs about the world, themselves, or specific people. Each is one short first-person sentence (e.g. "I think Diego doesn't tell me everything"). Add ``target`` (a character name or empty) when the belief is about a specific person.
-- 0 to 3 NEW improvement intentions. Each is one short first-person sentence (e.g. "Next time I should stop and listen before reacting").
+- 0 to 3 NEW beliefs about the world, themselves, or specific people. Each is one short first-person sentence in {{ language_name }}. Add ``target`` (a character name or empty) when the belief is about a specific person.
+- 0 to 3 NEW improvement intentions. Each is one short first-person sentence in {{ language_name }}.
 
 Skip categories that have nothing genuinely new. If nothing meaningful changed, return empty arrays.
 
-Reply with ONLY this JSON, no prose:
+Reply with ONLY this JSON, no prose. All ``text`` and ``target`` values MUST be in {{ language_name }}:
 {
   "beliefs": [{"text": "...", "target": "<name or empty>"}, ...],
   "improvements": [{"text": "..."}, ...]

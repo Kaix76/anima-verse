@@ -513,14 +513,10 @@ def regenerate_image(character_name: str,
             fs_vram = int(float(os.environ.get("COMFY_FACESWAP_VRAM_REQUIRED", "0")) * 1024) or vram_needed
 
             if _swap_mode == "multiswap":
-                # MultiSwap-Bereich aus Per-Character-Skill-Config (Default face_hair).
-                _ms_mode = (_regen_skill_cfg.get("multiswap_mode") or "face_hair").strip()
-                if _ms_mode not in skill.MULTISWAP_MODES:
-                    _ms_mode = "face_hair"
-                logger.info("Regen MultiSwap-Mode: %s", _ms_mode)
-                # MultiSwap: face_refs durchreichen (iteriert ueber alle Characters)
+                # Bildbereich-Auswahl (face/hair/clothes/...) lebt im
+                # ComfyUI-Workflow, nicht mehr im Code.
                 _ms_fn = lambda: skill._apply_multiswap(
-                    [output_file.name], output_file.parent, face_refs, _ms_mode, backend
+                    [output_file.name], output_file.parent, face_refs, backend
                 )
                 swapped = None
                 _faceswap_method = "multiswap"

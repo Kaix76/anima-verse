@@ -57,6 +57,19 @@ SCHEMA_STATEMENTS = [
         name   TEXT NOT NULL,
         effect TEXT DEFAULT '{}'
     )""",
+    # Prompt-Filter: pro Zustand (drunk, exhausted, ...) wird definiert
+    # welche Bloecke aus dem Thought-Prompt rausfliegen + welcher Modifier-
+    # Text dem LLM stattdessen gezeigt wird. Ueberschreibt by id den
+    # gleichnamigen Eintrag aus shared/prompt_filters/filters.json.
+    """CREATE TABLE IF NOT EXISTS prompt_filters (
+        id              TEXT PRIMARY KEY,
+        condition       TEXT NOT NULL,
+        label           TEXT DEFAULT '',
+        drop_blocks     TEXT DEFAULT '[]',
+        prompt_modifier TEXT DEFAULT '',
+        enabled         INTEGER NOT NULL DEFAULT 1,
+        meta            TEXT DEFAULT '{}'
+    )""",
 
     # ── Characters ─────────────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS characters (

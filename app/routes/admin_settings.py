@@ -695,7 +695,11 @@ async def agent_loop_bump(request: Request, user=Depends(require_admin)):
 @router.get("/agent-loop", response_class=HTMLResponse)
 async def agent_loop_page(user=Depends(require_admin)):
     """Minimal HTML panel for the AgentLoop: status + pause toggle + recent turns."""
-    return """<!DOCTYPE html>
+    from fastapi.responses import HTMLResponse as _HTMLResp
+    return _HTMLResp(_AGENT_LOOP_HTML, headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
+
+
+_AGENT_LOOP_HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -715,6 +719,7 @@ h1 { font-size:18px; margin-top:0; }
 .recent th { color:#8b949e; font-weight:500; }
 .outcome-ok { color:#3fb950; }
 .outcome-timeout { color:#d29922; }
+.outcome-skip    { color:#6e7681; }
 .outcome-err { color:#f85149; }
 .tag { display:inline-block; padding:1px 6px; margin:1px 3px 1px 0; border-radius:3px; font-size:11px; background:#21262d; color:#8b949e; }
 .tag.tool { background:#1f3a5f; color:#79c0ff; }
@@ -753,14 +758,48 @@ h1 { font-size:18px; margin-top:0; }
 <script>
 let _state = null;
 
+let _loadCounter = 0;
+
 async function load() {
+  _loadCounter++;
+  const lbl = document.getElementById('status-label');
+  if (lbl && lbl.textContent === 'loading…') {
+    lbl.textContent = 'fetching… (#' + _loadCounter + ')';
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const r = await fetch('/admin/agent-loop/status');
-    if (!r.ok) { document.getElementById('status-label').textContent = 'auth required (open /admin/settings first)'; return; }
+    const r = await fetch('/admin/agent-loop/status', {
+      signal: ctrl.signal,
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    clearTimeout(timer);
+    if (!r.ok) {
+      let body = '';
+      try { body = (await r.text()).slice(0, 200); } catch(_) {}
+      if (lbl) lbl.textContent = 'HTTP ' + r.status + (body ? ' — ' + body : '');
+      return;
+    }
     _state = await r.json();
     render();
-  } catch(e) { document.getElementById('status-label').textContent = 'error: ' + e.message; }
+  } catch(e) {
+    clearTimeout(timer);
+    if (lbl) lbl.textContent = (e.name === 'AbortError')
+      ? "timeout — server didn't respond in 8s (call #" + _loadCounter + ")"
+      : "error: " + e.message + " (call #" + _loadCounter + ")";
+    console.error('[agent-loop load failed]', e);
+  }
 }
+
+// Verifiziere dass der Script ueberhaupt laeuft — wenn 'loading…' nach 1s
+// nicht ersetzt wurde, gab es einen Pre-Init-Error.
+setTimeout(() => {
+  const lbl = document.getElementById('status-label');
+  if (lbl && lbl.textContent === 'loading…') {
+    lbl.textContent = 'JS ran but fetch never started (check console)';
+  }
+}, 1500);
 
 function render() {
   const s = _state || {};
@@ -773,7 +812,7 @@ function render() {
   } else if (s.standby) {
     btn.textContent = 'Pause';
     btn.classList.remove('paused');
-    lbl.textContent = 'STANDBY — no \'thought\' LLM reachable. Loop polls every 30s.';
+    lbl.textContent = "STANDBY — no 'thought' LLM reachable. Loop polls every 30s.";
   } else if (s.running) {
     btn.textContent = 'Pause';
     btn.classList.remove('paused');
@@ -795,6 +834,7 @@ function render() {
     let cls = 'outcome-ok';
     if (r.outcome && r.outcome.startsWith('error')) cls = 'outcome-err';
     else if (r.outcome === 'timeout' || r.outcome === 'no_llm') cls = 'outcome-timeout';
+    else if (r.outcome === 'in_chat_skip') cls = 'outcome-skip';
     const tools = (r.tools || []).map(t => `<span class="tag tool">${escapeHtml(t)}</span>`).join('');
     const intents = (r.intents || []).map(i => `<span class="tag intent">${escapeHtml(i)}</span>`).join('');
     const tagsCell = (tools + intents) || '<span class="muted">—</span>';
@@ -815,6 +855,230 @@ async function togglePause() {
 
 load();
 setInterval(load, 5000);
+</script>
+</body>
+</html>
+"""
+
+
+# ── Scheduler (admin-only background jobs) ────────────────────────────
+
+@router.get("/scheduler", response_class=HTMLResponse)
+async def scheduler_page(user=Depends(require_admin)):
+    """Admin scheduler view — lists all background jobs and lets the admin
+    create new ones for administrative actions only (extract_files, notify).
+
+    Per-character actions (send_message, set_status, execute_tool) are
+    intentionally excluded — those moved into the AgentLoop bump+hint
+    pattern. Daily-Schedule-Editing happens per character in the Character
+    Editor (Tab "Tagesablauf"), not here.
+    """
+    return """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Scheduler</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:20px; }
+h1 { font-size:18px; margin-top:0; }
+h2 { font-size:13px; margin:0 0 8px; color:#58a6ff; }
+.section { margin-bottom:14px; padding:10px; background:#161b22; border:1px solid #30363d; border-radius:6px; }
+.muted { color:#6e7681; font-size:12px; }
+table { width:100%; font-size:12px; border-collapse:collapse; }
+th, td { text-align:left; padding:5px 6px; border-bottom:1px solid #21262d; vertical-align:top; }
+th { color:#8b949e; font-weight:500; }
+.tag { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; background:#21262d; color:#8b949e; }
+.tag.admin { background:#1f3a5f; color:#79c0ff; }
+.tag.char  { background:#3a2f5f; color:#d2a8ff; }
+.action-buttons button { background:none; border:0; color:#8b949e; cursor:pointer; padding:2px 6px; }
+.action-buttons button:hover { color:#c9d1d9; }
+form.create-job { margin-top:10px; padding:10px; background:#0d1117; border:1px solid #30363d; border-radius:4px; }
+form.create-job .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+form.create-job .field { display:flex; flex-direction:column; gap:3px; min-width:140px; }
+form.create-job label { font-size:11px; color:#8b949e; }
+form.create-job input, form.create-job select, form.create-job textarea {
+  background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px; padding:5px 7px; font-size:12px;
+}
+form.create-job button { background:#238636; color:#fff; border:0; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:13px; }
+.outcome-ok { color:#3fb950; }
+.outcome-err { color:#f85149; }
+.outcome-paused { color:#6e7681; }
+</style>
+</head>
+<body>
+<h1>Scheduler — Background Jobs</h1>
+
+<div class="section">
+  <h2>All jobs</h2>
+  <p class="muted">Admin jobs (e.g. memory consolidation, file extraction) are highlighted as <span class="tag admin">admin</span>. Per-character jobs from the legacy scheduler still surface here for visibility and can be deleted, but should no longer be created — character actions belong in the AgentLoop.</p>
+  <table id="jobs-table">
+    <thead><tr><th>Job ID</th><th>Owner</th><th>Trigger</th><th>Action</th><th>Status</th><th></th></tr></thead>
+    <tbody><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Create admin job</h2>
+  <form class="create-job" onsubmit="createJob(event)">
+    <div class="row">
+      <div class="field">
+        <label>Trigger</label>
+        <select id="cj-trigger" required>
+          <option value="cron-hourly">Every hour at :00</option>
+          <option value="cron-daily">Once a day</option>
+          <option value="interval-minutes">Every N minutes</option>
+          <option value="date">One-shot at date/time</option>
+        </select>
+      </div>
+      <div class="field" id="cj-extra-wrap">
+        <label>Detail</label>
+        <input id="cj-extra" placeholder="e.g. 30 (minutes) or 03:00 (HH:MM)" />
+      </div>
+      <div class="field">
+        <label>Action</label>
+        <select id="cj-action" onchange="onActionChange()">
+          <option value="extract_files">extract_files (knowledge)</option>
+          <option value="notify">notify (UI message)</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1; min-width:240px;">
+        <label>Payload</label>
+        <input id="cj-payload" placeholder="extract: optional prompt — notify: message text" />
+      </div>
+      <div class="field">
+        <label>Agent (optional)</label>
+        <input id="cj-agent" placeholder="" />
+      </div>
+      <div>
+        <button type="submit">Create</button>
+      </div>
+    </div>
+    <p class="muted" style="margin:6px 0 0 0;">Per-character actions (send_message, set_status, execute_tool) are not exposed here — they belong in the AgentLoop. Daily Rhythm: Character Editor → Tagesablauf.</p>
+  </form>
+</div>
+
+<script>
+async function loadJobs() {
+  const tbody = document.querySelector('#jobs-table tbody');
+  try {
+    const r = await fetch('/scheduler/jobs', { cache: 'no-store' });
+    if (!r.ok) {
+      tbody.innerHTML = '<tr><td colspan="6">HTTP ' + r.status + '</td></tr>';
+      return;
+    }
+    const data = await r.json();
+    const jobs = (data && data.data) || [];
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No jobs scheduled.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    for (const j of jobs) {
+      const tr = document.createElement('tr');
+      const owner = (j.agent || j.character || '').trim();
+      const ownerLabel = owner ? `<span class="tag char">${escapeHtml(owner)}</span>` : '<span class="tag admin">admin</span>';
+      const trig = j.trigger ? JSON.stringify(j.trigger).slice(0, 80) : '';
+      const act = j.action ? (j.action.type || '?') : '?';
+      const enabled = j.enabled !== false;
+      const statusCls = enabled ? 'outcome-ok' : 'outcome-paused';
+      tr.innerHTML = `<td>${escapeHtml(j.id || '?')}</td>
+        <td>${ownerLabel}</td>
+        <td>${escapeHtml(trig)}</td>
+        <td>${escapeHtml(act)}</td>
+        <td class="${statusCls}">${enabled ? 'enabled' : 'paused'}</td>
+        <td class="action-buttons">
+          <button onclick="toggleJob('${escapeAttr(j.id)}')">${enabled ? 'Pause' : 'Resume'}</button>
+          <button onclick="deleteJob('${escapeAttr(j.id)}')">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6">error: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return String(s == null ? '' : s).replace(/[\\\\"']/g, '\\\\$&'); }
+
+async function deleteJob(id) {
+  if (!confirm('Delete job ' + id + '?')) return;
+  try { await fetch('/scheduler/jobs/' + encodeURIComponent(id), { method: 'DELETE' }); } catch(e) {}
+  await loadJobs();
+}
+
+async function toggleJob(id) {
+  try { await fetch('/scheduler/jobs/' + encodeURIComponent(id) + '/toggle', { method: 'PUT' }); } catch(e) {}
+  await loadJobs();
+}
+
+function onActionChange() {
+  // Placeholder hook for future per-action field tweaks.
+}
+
+function buildTrigger() {
+  const kind = document.getElementById('cj-trigger').value;
+  const extra = document.getElementById('cj-extra').value.trim();
+  if (kind === 'cron-hourly') {
+    return { type: 'cron', minute: 0 };
+  }
+  if (kind === 'cron-daily') {
+    const m = (extra.match(/^(\\d{1,2}):(\\d{2})$/) || []);
+    const h = m[1] ? parseInt(m[1],10) : 3;
+    const min = m[2] ? parseInt(m[2],10) : 0;
+    return { type: 'cron', hour: h, minute: min };
+  }
+  if (kind === 'interval-minutes') {
+    const min = parseInt(extra, 10) || 30;
+    return { type: 'interval', minutes: min };
+  }
+  if (kind === 'date') {
+    return { type: 'date', run_date: extra };
+  }
+  return { type: 'cron', minute: 0 };
+}
+
+function buildAction() {
+  const t = document.getElementById('cj-action').value;
+  const payload = document.getElementById('cj-payload').value.trim();
+  if (t === 'extract_files') {
+    return { type: 'extract_files', extraction_prompt: payload };
+  }
+  if (t === 'notify') {
+    return { type: 'notify', message: payload || 'admin notify' };
+  }
+  return { type: t };
+}
+
+async function createJob(ev) {
+  ev.preventDefault();
+  const body = {
+    agent: document.getElementById('cj-agent').value.trim(),
+    trigger: buildTrigger(),
+    action: buildAction(),
+    enabled: true,
+  };
+  try {
+    const r = await fetch('/scheduler/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      alert('Create failed: HTTP ' + r.status + ' — ' + t.slice(0, 200));
+      return;
+    }
+  } catch (e) {
+    alert('Create failed: ' + e.message);
+    return;
+  }
+  document.getElementById('cj-extra').value = '';
+  document.getElementById('cj-payload').value = '';
+  document.getElementById('cj-agent').value = '';
+  await loadJobs();
+}
+
+loadJobs();
+setInterval(loadJobs, 15000);
 </script>
 </body>
 </html>
@@ -1311,6 +1575,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     <a href="#" data-section="_outfit_rules" onclick="event.preventDefault(); activateIframe('_outfit_rules', '/admin/outfit-rules', 'Outfit-Regeln')"><span class="nav-icon">👗</span> Outfit-Regeln</a>
     <a href="#" data-section="_models" onclick="event.preventDefault(); activateIframe('_models', '/admin/models', 'Model Capabilities')"><span class="nav-icon">🧩</span> Model Capabilities</a>
     <a href="#" data-section="_agent_loop" onclick="event.preventDefault(); activateIframe('_agent_loop', '/admin/agent-loop', 'Agent Loop')"><span class="nav-icon">🔄</span> Agent Loop</a>
+    <a href="#" data-section="_scheduler" onclick="event.preventDefault(); activateIframe('_scheduler', '/admin/scheduler', 'Scheduler')"><span class="nav-icon">⏱</span> Scheduler</a>
     <a href="#" data-section="_templates" onclick="event.preventDefault(); activateIframe('_templates', '/admin/templates', 'LLM Templates')"><span class="nav-icon">📄</span> LLM Templates</a>
     <div class="nav-section-label">Logs & Monitoring</div>
     <a href="#" data-section="_dashboard" onclick="event.preventDefault(); activateIframe('_dashboard', '/dashboard', 'Dashboard')"><span class="nav-icon">📊</span> Dashboard</a>

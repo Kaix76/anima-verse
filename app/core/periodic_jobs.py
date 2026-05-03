@@ -105,20 +105,6 @@ async def _job_relationship_decay():
         logger.debug("relationship_decay submit error: %s", e)
 
 
-async def _job_character_evolution():
-    """Submit character-evolution jobs at the configured interval."""
-    try:
-        from app.core.character_evolution import ENABLED, INTERVAL_HOURS
-        if not ENABLED:
-            return
-        from app.core.background_queue import get_background_queue
-        await asyncio.to_thread(
-            lambda: get_background_queue().submit(
-                "character_evolution", {"user_id": ""}, deduplicate=True))
-    except Exception as e:
-        logger.debug("character_evolution submit error: %s", e)
-
-
 # ---------------------------------------------------------------------------
 # Scheduler
 # ---------------------------------------------------------------------------
@@ -132,7 +118,6 @@ _JOB_TABLE = [
     (_job_random_events_escalate,  300,   90, "random_events_escalate"),
     (_job_random_events_resolve,   300,   210, "random_events_resolve"),
     (_job_relationship_decay,      24 * 3600, 600, "relationship_decay"),
-    (_job_character_evolution,     6 * 3600, 900, "character_evolution"),
 ]
 
 

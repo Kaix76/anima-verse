@@ -750,7 +750,7 @@ class StreamingAgent:
             except Exception as _init_err:
                 self._log_llm_error(
                     active_llm, system_content, user_input, llm_label,
-                    _init_err, _iter_start)
+                    _init_err, _iter_start, history=history)
                 raise
 
             _stream_done = False
@@ -773,7 +773,8 @@ class StreamingAgent:
                     _pending_task = None
                     self._log_llm_error(
                         active_llm, system_content, user_input, llm_label,
-                        _chunk_err, _iter_start, partial_response=iteration_response)
+                        _chunk_err, _iter_start, partial_response=iteration_response,
+                        history=history)
                     raise _chunk_err
                 _pending_task = None
                 if chunk is _STREAM_END:
@@ -874,7 +875,7 @@ class StreamingAgent:
         # --- LLM-Logging ---
         self._log_llm_call(
             active_llm, system_content, user_input, iteration_response,
-            llm_label, _iter_start)
+            llm_label, _iter_start, history=history)
 
         # --- Tool-Matches extrahieren ---
         if detect_tools and iteration_response:
@@ -1027,7 +1028,7 @@ class StreamingAgent:
     # ------------------------------------------------------------------
 
     def _log_llm_call(self, active_llm, system_content, user_input,
-                      response, llm_label, start_time):
+                      response, llm_label, start_time, history=None):
         """Logs a completed LLM call."""
         if not self.log_task:
             return
@@ -1046,12 +1047,14 @@ class StreamingAgent:
                 tokens_input=estimate_tokens(system_content + user_input),
                 tokens_output=estimate_tokens(response),
                 max_tokens=get_max_tokens(active_llm),
+                messages=history or None,
                 llm_role=llm_label)
         except Exception as e:
             logger.error("LLM-Log Fehler: %s", e)
 
     def _log_llm_error(self, active_llm, system_content, user_input,
-                       llm_label, error, start_time, partial_response=""):
+                       llm_label, error, start_time, partial_response="",
+                       history=None):
         """Logs a failed LLM call."""
         if not self.log_task:
             return
@@ -1069,6 +1072,7 @@ class StreamingAgent:
                 duration_s=time.monotonic() - start_time,
                 tokens_input=estimate_tokens(system_content + user_input),
                 max_tokens=get_max_tokens(active_llm),
+                messages=history or None,
                 error=str(error),
                 llm_role=llm_label)
         except Exception:

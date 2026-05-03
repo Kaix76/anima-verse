@@ -1,4 +1,4 @@
-"""ThoughtLoop - Autonomes NachdenkSystem fuer Characters.
+"""ThoughtRunner - Autonomes NachdenkSystem fuer Characters.
 
 Characters koennen periodisch selbststaendig "nachdenken" und basierend auf
 ihrer Aufgabe (character_task) entscheiden, ob sie den User benachrichtigen
@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from app.core.log import get_logger
 logger = get_logger("thought")
 
-_thought_loop: Optional["ThoughtLoop"] = None
+_thought_runner: Optional["ThoughtRunner"] = None
 
 
 def _check_cascade_brake(tool_input, allowed_target: str) -> str:
@@ -53,52 +53,28 @@ def _check_cascade_brake(tool_input, allowed_target: str) -> str:
     return target
 
 
-def get_thought_loop() -> Optional["ThoughtLoop"]:
-    return _thought_loop
+def get_thought_runner() -> Optional["ThoughtRunner"]:
+    return _thought_runner
 
 
-def set_thought_loop(loop: "ThoughtLoop"):
-    global _thought_loop
-    _thought_loop = loop
+def set_thought_runner(loop: "ThoughtRunner"):
+    global _thought_runner
+    _thought_runner = loop
 
 
-class ThoughtLoop:
-    """Asyncio Background-Loop der Characters autonom agieren laesst."""
+class ThoughtRunner:
+    """Container fuer ``run_thought_turn`` — die gemeinsame Einstiegsfunktion
+    fuer Gedanken-Turns. Scheduling laeuft im ``AgentLoop``, dieser Class
+    haelt nur noch die Turn-Ausfuehrung.
 
-    def __init__(self, scheduler_manager):
-        # Scheduler-Referenz nicht mehr noetig (alter _is_scheduler_clear-Pfad weg).
-        self._scheduler = scheduler_manager
+    Name "Loop" ist historisch (frueher periodischer Tick); kein Background
+    Task mehr. Rename auf z.B. ``ThoughtRunner`` ist optional und wuerde
+    Anpassungen in agent_loop.py / chat_engine.py / memory_service.py /
+    world_dev.py erfordern.
+    """
+
+    def __init__(self):
         self._lock = asyncio.Lock()
-        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    async def start(self):
-        """Initializes the ThoughtLoop singleton.
-
-        With the AgentLoop in charge of scheduling, this class is now only
-        a container for ``run_thought_turn`` — the shared entry point that
-        builds + runs a single thought turn. No periodic tick is started
-        here, no forced_thought handler is registered.
-        """
-        self._main_loop = asyncio.get_running_loop()
-        logger.info("ThoughtLoop initialisiert (Scheduling laeuft im AgentLoop)")
-
-    async def stop(self):
-        """No-op — there is no periodic task to stop in this class anymore."""
-        logger.debug("ThoughtLoop.stop (no-op, AgentLoop handles scheduling)")
-
-    # ------------------------------------------------------------------
-    # Removed in cleanup: periodic tick (_loop, _tick), eligibility roll
-    # (_get_eligible_characters, _roll_character), urgent-event picker
-    # (_find_urgent_event_character), scheduler/group-chat clearance checks
-    # (_is_scheduler_clear, _is_in_active_group_chat), event-context helper
-    # (_build_thought_events), seed/record_interaction/pause-resume API.
-    # All replaced by AgentLoop (importance-weighted round-robin) +
-    # task_queue 'default' pause flag + bump() for priority triggers.
-    # ------------------------------------------------------------------
 
 
     # ------------------------------------------------------------------
@@ -209,12 +185,14 @@ class ThoughtLoop:
         from app.core.streaming import StreamingAgent, ContentEvent, ToolResultEvent
         from app.core.tool_formats import build_tool_instruction, get_format_for_model
         from app.models.notifications import create_notification
-        from app.models.chat import save_message, get_chat_history
+        from app.models.chat import save_message
 
         profile = get_character_profile(character_name)
         config = get_character_config(character_name)
-        from app.models.account import get_user_name
-        user_name = get_user_name() or ""
+        from app.models.account import get_player_identity
+        # Avatar-Identitaet, niemals Login-Name. Wuerde sonst als "admin"
+        # in den System-Prompt sickern.
+        user_name = get_player_identity("user")
 
         # Turn-Summary fuer den Agent-Loop / Admin-Panel.
         # tools = list of tool-name strings actually invoked (stream + narrative).
@@ -454,25 +432,12 @@ class ThoughtLoop:
             return await asyncio.to_thread(tool_func, tool_input)
         agent.tool_executor = _tool_executor
 
-        # Letzte Chat-Messages laden (damit Tool-LLM und Chat-LLM
-        # Versprechen, Anweisungen und Kontext aus dem letzten Gespraech kennen)
-        _THOUGHT_HISTORY_WINDOW = 6
-        recent_history = []
-        try:
-            # Partner-Name explizit setzen: User-Name (nicht aktiver Character,
-            # da dieser wechseln kann waehrend der Gedanken-Call laeuft)
-            from app.models.account import get_user_name as _get_uname
-            _thought_partner = _get_uname() or ""
-            full_history = get_chat_history(character_name, partner_name=_thought_partner)
-            if full_history:
-                recent_history = [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in full_history[-_THOUGHT_HISTORY_WINDOW:]
-                    if m.get("role") in ("user", "assistant") and m.get("content")
-                ]
-                logger.debug("Gedanken-History geladen: %d Messages", len(recent_history))
-        except Exception as hist_err:
-            logger.debug("History laden fehlgeschlagen: %s", hist_err)
+        # Thoughts haben keine recent_history. Frischer Gespraechsfaden
+        # kommt ueber den Inbox-Block, Versprechen ueber Commitments,
+        # Fakten ueber Memory — alles im System-Prompt gebuendelt. Echte
+        # Conversation-Turns wuerden hier nur Avatar-zentrierten Bias und
+        # alte (stale) Wortlaute reinbringen.
+        recent_history: List[Dict[str, str]] = []
 
         # Agent ausfuehren und Response sammeln
         full_response = ""
@@ -732,12 +697,12 @@ class ThoughtLoop:
                     return _turn_info
                 ts = datetime.now()
                 date_str = ts.strftime("%d.%m.%Y %H:%M")
-                from app.models.account import get_user_name as _get_un_save
+                from app.models.account import get_player_identity as _get_pi_save
                 save_message({
                     "role": "assistant",
                     "content": f"[Gedanken-Nachricht | {location_name} | {date_str}] {clean_content}",
                     "timestamp": ts.isoformat(),
-                }, character_name, partner_name=_get_un_save() or "")
+                }, character_name, partner_name=_get_pi_save(""))
                 logger.info("%s: In Chat-History gespeichert", character_name)
 
             except Exception as e:
@@ -770,8 +735,10 @@ class ThoughtLoop:
         if full_response or notification_content:
             try:
                 from app.core.intent_engine import process_response_intents
+                from app.routes.scheduler import get_scheduler_manager
                 _intents = process_response_intents(
-                    full_response or notification_content, character_name, config, self._scheduler,
+                    full_response or notification_content, character_name, config,
+                    get_scheduler_manager(),
                     executed_tools=_tool_executions,
                 )
                 try:

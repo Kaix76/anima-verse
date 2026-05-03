@@ -1175,13 +1175,13 @@ def classify_activity_background(character_name: str, raw_activity: str):
 
             from app.core.prompt_templates import render_task
             sys_prompt, user_prompt = render_task(
-                "intent_activity",
+                "classify_activity",
                 raw_activity=raw_activity,
                 known_list=known_list)
 
             try:
                 response = llm_call(
-                    task="intent_activity",
+                    task="classify_activity",
                     system_prompt=sys_prompt,
                     user_prompt=user_prompt,
                     agent_name=character_name)

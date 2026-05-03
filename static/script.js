@@ -3651,7 +3651,7 @@ function _closeOverlayPanels() {
 }
 
 function setAgentButtonsVisible(visible) {
-    const ids = ['btn-edit-agent', 'btn-scheduler', 'btn-knowledge'];
+    const ids = ['btn-edit-agent', 'btn-knowledge'];
     const display = visible ? '' : 'none';
     ids.forEach(id => {
         const el = document.getElementById(id);
@@ -3734,11 +3734,20 @@ function setChatBusy(busy) {
     if (!busy) {
         try { _chatLastSeenTs = new Date().toISOString(); } catch (_) {}
         _chatPollMuteUntil = Date.now() + 7000;
-        fetch('/chat/default/history?limit=1')
+        // limit=5 deckt Multi-Message-Persistenz (User-Send + Assistant-
+        // Reply +/- Notification etc.) ab — Diff-Poller braucht die
+        // hoechste DB-id als Baseline, sonst rendert er die eben optimistisch
+        // angezeigten Bubbles spaeter erneut.
+        fetch('/chat/default/history?limit=5')
             .then(r => r.ok ? r.json() : null)
             .then(d => {
-                const m = (d && d.messages && d.messages[d.messages.length - 1]) || null;
-                if (m && m.timestamp) _chatLastSeenTs = m.timestamp;
+                const arr = (d && d.messages) || [];
+                if (!arr.length) return;
+                const last = arr[arr.length - 1];
+                if (last && last.timestamp) _chatLastSeenTs = last.timestamp;
+                let maxId = _chatLastSeenId;
+                for (const m of arr) { if ((m.id || 0) > maxId) maxId = m.id; }
+                _chatLastSeenId = maxId;
             })
             .catch(() => {})
             .finally(() => { _chatPollMuteUntil = 0; });
@@ -4051,10 +4060,6 @@ async function loadPlayerAvatar() {
 document.getElementById('btn-player-edit')?.addEventListener('click', () => {
     const c = getPlayerCharacterName();
     if (c) openCharacterModal(c);
-});
-document.getElementById('btn-scheduler-player')?.addEventListener('click', () => {
-    const c = getPlayerCharacterName();
-    if (c) openSchedulerModal(c);
 });
 document.getElementById('btn-knowledge-player')?.addEventListener('click', () => {
     const c = getPlayerCharacterName();
@@ -6245,6 +6250,12 @@ let _chatHistoryTotal = 0;    // total messages available on server
 
 function _renderHistoryMessage(msg, agentName) {
     const div = document.createElement('div');
+    // Stable DB id — used by the diff-poller to dedup against existing
+    // bubbles. Falls back to a generated marker so we never produce a
+    // collidable selector.
+    if (msg.id != null) {
+        div.dataset.msgId = String(msg.id);
+    }
     // Phone-Chat-Markierung: Nachrichten mit medium=messaging bekommen eine
     // visuelle Unterscheidung (Border + Phone-Icon), damit klar ist dass
     // diese Nachricht remote/per Chat gefuehrt wurde, nicht im selben Raum.
@@ -6307,6 +6318,7 @@ function _updateLoadMoreButton() {
 // der Chat-Partner uns angesprochen hat (TalkTo, Notification, etc.). Pausiert
 // waehrend isChatBusy (aktiver eigener Stream) und ohne Chat-Partner.
 let _chatLastSeenTs = '';
+let _chatLastSeenId = 0;     // highest chat_messages.id currently rendered
 let _chatPollMuteUntil = 0;  // epoch ms — poller skips while > Date.now()
 let _chatPollInterval = null;
 const CHAT_POLL_INTERVAL_MS = 5000;
@@ -6401,7 +6413,23 @@ async function _pollUnreadChats() {
         const r = await fetch('/chat/unread-summary');
         if (!r.ok) return;
         const d = await r.json();
+        const wasEmpty = !Object.keys(_unreadChats).length;
         _unreadChats = d.chats || {};
+
+        // Erste Befuellung in diesem Browser: localStorage kennt keine
+        // seen-ts (frischer Browser, Inkognito, Cache geloescht). Statt
+        // alle Chats als "neu" zu zeigen, markieren wir hier den
+        // aktuellen Stand pro Character als gesehen — neue Nachrichten
+        // ab JETZT erzeugen den Badge.
+        if (wasEmpty && Object.keys(_unreadChats).length) {
+            for (const name of Object.keys(_unreadChats)) {
+                if (localStorage.getItem(_seenKey(name)) === null) {
+                    const latest = _latestFor(name);
+                    if (latest) localStorage.setItem(_seenKey(name), latest);
+                }
+            }
+        }
+
         if (typeof loadCharacterSidebar === 'function') {
             loadCharacterSidebar();
         }
@@ -6422,29 +6450,49 @@ async function _pollChatForUpdates() {
     if (Date.now() < _chatPollMuteUntil) return;
     if (typeof currentCharacterName === 'undefined' || !currentCharacterName
             || currentCharacterName === 'KI') return;
+    // Diff-Polling braucht eine valide Baseline — vor dem ersten
+    // loadChatHistory ist sie 0, dann wuerde since_id=0 die ganze
+    // History zurueckliefern. Beim leeren Chat (kein Initial-Load
+    // wegen leerer DB) bleibt die Baseline 0; das ist korrekt, ein
+    // erstes since_id=0 liefert dann genau alles was inzwischen kam.
     try {
-        const r = await fetch(`/chat/default/history?limit=1`);
+        const since = _chatLastSeenId || 0;
+        const r = await fetch(`/chat/default/history?since_id=${since}`);
         if (!r.ok) return;
         const d = await r.json();
         const msgs = d.messages || [];
         if (!msgs.length) return;
-        const newest = msgs[msgs.length - 1];
-        const ts = newest.timestamp || '';
-        if (!ts || ts === _chatLastSeenTs) return;
 
-        // Neue Message — Baseline updaten
-        _chatLastSeenTs = ts;
+        // Scroll-Position erfassen BEVOR wir was anfuegen, damit wir bei
+        // bereits am Ende stehendem User automatisch nachziehen, sonst aber
+        // nicht den Lese-Punkt stoehren.
+        const nearBottom = (chatMessages.scrollHeight - chatMessages.scrollTop
+                            - chatMessages.clientHeight) < 120;
 
-        // Nur sichtbar machen wenn die Message vom Partner kam, nicht von uns selbst
-        // (eigene Sends laufen via isChatBusy + Stream-Handler, der setzt _chatLastSeenTs
-        // separat). Pollende Updates kommen typischerweise von TalkTo/SendMessage durch NPC.
-        if (newest.role !== 'assistant') return;
+        let appended = 0;
+        let hadAssistant = false;
+        for (const m of msgs) {
+            const id = m.id || 0;
+            if (id <= _chatLastSeenId) continue;
+            // Safety: schon im DOM (z.B. optimistisch gerendert)?
+            if (id && document.querySelector(
+                    `[data-msg-id="${CSS.escape(String(id))}"]`)) {
+                _chatLastSeenId = Math.max(_chatLastSeenId, id);
+                continue;
+            }
+            const div = _renderHistoryMessage(m, d.agent_name);
+            // Bot-Messages werden in _renderHistoryMessage selbst appended;
+            // User-Messages muessen wir hier einhaengen.
+            if (m.role === 'user') chatMessages.appendChild(div);
+            if (m.role === 'assistant') hadAssistant = true;
+            if (id) _chatLastSeenId = Math.max(_chatLastSeenId, id);
+            if (m.timestamp) _chatLastSeenTs = m.timestamp;
+            appended++;
+        }
 
-        // Idempotent neu laden: aktuelle History (bis _chatHistoryLoaded oder 5)
-        const _toLoad = Math.max(_chatHistoryLoaded || 0, 5);
-        chatMessages.innerHTML = '';
-        await loadChatHistory(_toLoad, /*fromPoll=*/ true);
-        showStatusToast('Neue Nachricht', 'info');
+        if (!appended) return;
+        if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
+        if (hadAssistant) showStatusToast('Neue Nachricht', 'info');
     } catch (e) {
         // ignore
     }
@@ -6477,11 +6525,14 @@ async function loadChatHistory(limit = 2, fromPoll = false) {
         _updateLoadMoreButton();
         chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        // Polling-Baseline: neueste Timestamp merken, damit der Poller nichts
-        // doppelt rendert. Nur setzen wenn nicht aus Polling getriggert (sonst
-        // ist die Baseline schon vor dem reload aktualisiert worden).
+        // Polling-Baseline aus den geladenen Messages ableiten — sowohl die
+        // hoechste DB-id (fuer den Diff-Poller) als auch den neuesten ts
+        // (fuer Unread-Logik). Nur setzen wenn nicht aus Polling getriggert.
         if (!fromPoll && msgs.length) {
             _chatLastSeenTs = (msgs[msgs.length - 1].timestamp || '');
+            let maxId = _chatLastSeenId;
+            for (const m of msgs) { if ((m.id || 0) > maxId) maxId = m.id; }
+            _chatLastSeenId = maxId;
         }
         _startChatPolling();
         _startUnreadPolling();
@@ -6572,10 +6623,6 @@ document.getElementById('btn-edit-agent').addEventListener('click', () => {
     openCharacterModal(currentCharacterName);
 });
 document.getElementById('btn-new-character').addEventListener('click', createNewCharacter);
-const btnScheduler = document.getElementById('btn-scheduler');
-if (btnScheduler) btnScheduler.addEventListener('click', () => {
-    openSchedulerModal(currentCharacterName);
-});
 
 // Character-Config laden (Relationships-Tab Sichtbarkeit etc.)
 async function _loadCharacterConfigState() {
@@ -6679,12 +6726,31 @@ async function openCharacterModal(targetCharacter) {
     document.getElementById('modal-agent-name').textContent = characterName;
     document.getElementById('agent-modal').style.display = 'flex';
 
+    // Tab beim Oeffnen auf Profil zuruecksetzen
+    switchAgentEditorTab('profil');
+
     // Lade Template und Profildaten, render Editor
     await renderCharacterEditor(characterName);
 }
 
 function closeCharacterModal() {
     document.getElementById('agent-modal').style.display = 'none';
+}
+
+function switchAgentEditorTab(tabName) {
+    document.querySelectorAll('.agent-editor-tab-btn').forEach(btn => {
+        btn.classList.toggle('tab-active', btn.dataset.agentEditorTab === tabName);
+    });
+    document.querySelectorAll('.agent-editor-tab-content').forEach(content => {
+        const id = content.id || '';
+        content.style.display = id === ('agent-editor-tab-' + tabName) ? '' : 'none';
+    });
+    if (tabName === 'tagesablauf') {
+        // Lazy-Load: Cache invalidieren damit aktuelle Locations frisch geladen werden,
+        // dann Tagesablauf des aktuell editierten Characters laden.
+        _cachedWorldLocations = null;
+        loadDailySchedule();
+    }
 }
 
 function exportCharacter() {

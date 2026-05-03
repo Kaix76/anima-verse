@@ -151,7 +151,6 @@ class EditSelfSkill(BaseSkill):
                 import re as _re
                 clean = _re.sub(r"<!--\s*[A-Z]+\s*-->\s*\n?", "", new_text).strip()
                 profile[field_key] = clean
-                profile["character_evolution_updated"] = datetime.now().isoformat()
                 save_character_profile(character_name, profile)
         except Exception as _pe:
             logger.debug("Profil-Spiegelung fehlgeschlagen: %s", _pe)

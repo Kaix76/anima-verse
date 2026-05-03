@@ -534,6 +534,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     font-size: 13px; line-height: 1.5; color: #e6edf3;
 }
 
+.msg-turn { margin-bottom: 10px; border-left: 2px solid #30363d; padding-left: 10px; }
+.msg-turn:last-child { margin-bottom: 0; }
+.msg-turn.role-user { border-left-color: #1f6feb; }
+.msg-turn.role-assistant { border-left-color: #2ea043; }
+.msg-turn.role-system { border-left-color: #d29922; }
+.msg-role { font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: #8b949e; margin-bottom: 4px; }
+.msg-turn.role-user .msg-role { color: #58a6ff; }
+.msg-turn.role-assistant .msg-role { color: #56d364; }
+.msg-turn.role-system .msg-role { color: #e3b341; }
+.msg-meta { color: #6e7681; font-size: 11px; margin-bottom: 8px; }
+
 .pager {
     display: flex; justify-content: center; gap: 8px; padding: 16px;
 }
@@ -663,6 +675,10 @@ function buildSections(e, searchTerm) {
     if (prompt.system) {
         html += buildSection('System Prompt', formatText(prompt.system, searchTerm), true);
     }
+    if (Array.isArray(prompt.messages) && prompt.messages.length) {
+        const title = `Conversation History (${prompt.messages.length} turns)`;
+        html += buildSection(title, formatMessages(prompt.messages, searchTerm), false);
+    }
     if (prompt.user) {
         html += buildSection('User / Input', formatText(prompt.user, searchTerm), !prompt.system);
     }
@@ -701,6 +717,18 @@ function formatText(text, searchTerm) {
         escaped = escaped.replace(regex, '<span class="highlight">$1</span>');
     }
     return '<pre>' + escaped + '</pre>';
+}
+
+function formatMessages(messages, searchTerm) {
+    return messages.map(m => {
+        const role = (m && m.role) || 'unknown';
+        const content = (m && m.content) || '';
+        const cls = 'role-' + role.replace(/[^a-z0-9]/gi, '');
+        return `<div class="msg-turn ${cls}">
+            <div class="msg-role">${escapeHtml(role)}</div>
+            ${formatText(content, searchTerm)}
+        </div>`;
+    }).join('');
 }
 
 function escapeHtml(s) {

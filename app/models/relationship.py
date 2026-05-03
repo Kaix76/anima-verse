@@ -367,8 +367,8 @@ def extract_romantic_interests() -> Dict[str, str]:
         return {}
 
     try:
-        from app.models.account import get_user_name
-        user_name = get_user_name() or ""
+        from app.models.account import get_player_identity
+        user_name = get_player_identity("")
     except Exception:
         user_name = ""
 
@@ -843,13 +843,13 @@ def build_graph_data(focus_character: Optional[str] = None) -> Dict[str, Any]:
     relationships (star topology).  Includes the user as a node when relevant.
     """
     from app.models.character import list_available_characters
-    from app.models.account import get_user_name, get_active_character
+    from app.models.account import get_player_identity
 
     characters = list_available_characters()
     # The player's active character is already in the characters list —
     # no separate "user" node needed.
-    user_name = get_active_character() or get_user_name() or ""
-    known_ids = set(characters) | {user_name}
+    user_name = get_player_identity("")
+    known_ids = set(characters) | ({user_name} if user_name else set())
     rels = load_relationships()
 
     # ── Filter edges ──
@@ -931,6 +931,29 @@ def build_relationship_prompt_section(character_name: str
     rels = get_character_relationships(character_name)
     if not rels:
         return ""
+
+    account_names: set[str] = set()
+    try:
+        from app.models.account import get_user_profile
+        from app.core.users import list_users
+        acc = (get_user_profile().get("user_name") or "").strip().lower()
+        if acc:
+            account_names.add(acc)
+        for u in list_users():
+            uname = (u.get("username") or "").strip().lower()
+            if uname:
+                account_names.add(uname)
+    except Exception:
+        pass
+
+    if account_names:
+        def _other(r: Dict[str, Any]) -> str:
+            a = (r.get("character_a") or "").lower()
+            b = (r.get("character_b") or "").lower()
+            return b if a == character_name.lower() else a
+        rels = [r for r in rels if _other(r) not in account_names]
+        if not rels:
+            return ""
 
     # Sort by strength descending, take top 8
     rels.sort(key=lambda r: r.get("strength", 0), reverse=True)

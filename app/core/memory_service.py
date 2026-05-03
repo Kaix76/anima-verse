@@ -53,8 +53,8 @@ def extract_memories_from_exchange(character_name: str,
 
     # Player's active character name
     try:
-        from app.models.account import get_active_character, get_user_name
-        user_display = get_active_character() or get_user_name() or "Player"
+        from app.models.account import get_player_identity
+        user_display = get_player_identity("Player")
     except Exception:
         user_display = "Player"
 
@@ -289,8 +289,8 @@ def _create_intent_from_commitment(character_name: str, content: str, delay: str
         # Scheduler holen fuer deferred Intents
         scheduler = None
         try:
-            from app.core.thoughts import get_thought_loop
-            pl = get_thought_loop()
+            from app.core.thoughts import get_thought_runner
+            pl = get_thought_runner()
             if pl:
                 scheduler = getattr(pl, '_scheduler', None)
         except Exception:

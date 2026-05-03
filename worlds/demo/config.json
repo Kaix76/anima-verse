@@ -132,11 +132,7 @@
           "order": 1
         },
         {
-          "task": "intent_location",
-          "order": 1
-        },
-        {
-          "task": "intent_activity",
+          "task": "classify_activity",
           "order": 1
         },
         {

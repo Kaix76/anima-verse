@@ -878,7 +878,14 @@ class CharacterBotPoller:
         try:
             from app.models.unified_chat import UnifiedChatManager
             from app.models.channel import Message, ChannelType
+            from app.models.character import get_character_config
             timestamp = datetime.now().isoformat()
+
+            # Partner = avatar controlled by the human on the Telegram side.
+            # Comes from the bot's character config (telegram_partner_character).
+            # Leerer Partner waere Limbo — Nachricht landet ohne Avatar-Tag.
+            cfg = get_character_config(self.character_name) or {}
+            partner = (cfg.get("telegram_partner_character") or "").strip()
 
             user_msg = Message(
                 content=user_input,
@@ -894,8 +901,10 @@ class CharacterBotPoller:
                 timestamp=timestamp,
                 speaker=self.character_name,
                 medium="telegram")
-            UnifiedChatManager.save_message(user_msg, self.character_name)
-            UnifiedChatManager.save_message(assistant_msg, self.character_name)
+            UnifiedChatManager.save_message(user_msg, self.character_name,
+                                            partner_name=partner)
+            UnifiedChatManager.save_message(assistant_msg, self.character_name,
+                                            partner_name=partner)
         except Exception as e:
             logger.error("[%s] Failed to save chat history: %s", self.character_name, e)
 

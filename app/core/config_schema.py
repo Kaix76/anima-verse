@@ -117,6 +117,7 @@ SECTIONS = {
             "mid_term_days": {"type": "int", "label": "Mittelzeit (Tage)", "default": 30, "min": 7, "max": 180, "description": "Ab diesem Alter werden Tages-Summaries zu Wochen-Summaries konsolidiert (Stufe 2 → 3)."},
             "long_term_days": {"type": "int", "label": "Langzeit (Tage)", "default": 90, "min": 30, "max": 365, "description": "Ab diesem Alter werden Wochen-Summaries zu Monats-Summaries konsolidiert."},
             "max_messages": {"type": "int", "label": "Max Nachrichten", "default": 100, "min": 10, "max": 500, "description": "Safety-Cap: Maximale Anzahl Chat-Nachrichten im Prompt."},
+            "session_gap_hours": {"type": "int", "label": "Session-Bruch (Stunden)", "default": 4, "min": 0, "max": 24, "description": "Zeitluecke zwischen Turns, ab der die Chat-History abgeschnitten wird — Turns vor der letzten solchen Luecke wandern in die Session-Summary. 0 = deaktiviert."},
             "max_semantic": {"type": "int", "label": "Max Fakten", "default": 50, "min": 10, "max": 200, "description": "Maximale Anzahl semantischer Memories pro Character (Hard-Cap)."},
             "commitment_max_days": {"type": "int", "label": "Commitment Max-Alter (Tage)", "default": 5, "min": 1, "max": 30, "description": "Offene Commitments ohne 'completed'/'important'-Tag und importance<4 werden nach diesem Alter beim Cleanup entfernt."},
             "commitment_completed_days": {"type": "int", "label": "Erledigtes Commitment (Tage)", "default": 3, "min": 1, "max": 14, "description": "Erledigte Commitments (Tag 'completed') werden nach diesem Alter entfernt."},
@@ -597,15 +598,6 @@ SECTIONS = {
             "base_probability": {"type": "int", "label": "Basis-Wahrscheinlichkeit %", "default": 5, "min": 0, "max": 50, "description": "Wahrscheinlichkeit pro Stunde pro Location. Pro Location ueberschreibbar."},
             "resolution_proactive": {"type": "bool", "label": "Proaktive Event-Aufloesung", "default": True, "description": "Characters an betroffener Location versuchen offene disruption/danger Events automatisch zu loesen (alle 5 Min)."},
             "resolution_cooldown_minutes": {"type": "int", "label": "Resolution Cooldown (min)", "default": 15, "min": 1, "max": 240, "description": "Mindestabstand zwischen zwei Loesungsversuchen am gleichen Event."},
-        },
-    },
-    "character_evolution": {
-        "label": "Character Evolution",
-        "icon": "🌱",
-        "fields": {
-            "enabled": {"type": "bool", "label": "Aktiviert", "default": True, "description": "Periodische Weiterentwicklung der Character-Persoenlichkeit (Beliefs, Lessons, Goals)"},
-            "interval_hours": {"type": "int", "label": "Interval (Stunden)", "default": 24, "min": 1, "description": "Wie oft die Evolution ausgefuehrt wird"},
-            "min_memories": {"type": "int", "label": "Min Memories", "default": 5, "min": 1, "description": "Mindestanzahl Memories bevor Evolution startet"},
         },
     },
     "story_engine": {

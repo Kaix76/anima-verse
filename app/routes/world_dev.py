@@ -1036,7 +1036,7 @@ async def pause_all():
     disabled = activate_preset_runtime("world_dev")
     logger.info("LLM-Task-Disable aktiv (world_dev): %d Tasks aus", len(disabled))
 
-    # Note: ThoughtLoop.pause() removed — pausing the task_queue 'default'
+    # Note: ThoughtRunner.pause() removed — pausing the task_queue 'default'
     # below also halts the AgentLoop (its pause source).
 
     task_queue = get_task_queue()
@@ -1098,10 +1098,10 @@ async def trigger_thought(character_name: str,
     Call: POST /world-dev/trigger-thought?user_id=XYZ&character_name=Kira
     Optional: context_hint, fast, tool_whitelist (kommasepariert), suppress_notification
     """
-    from app.core.thoughts import get_thought_loop
-    tl = get_thought_loop()
+    from app.core.thoughts import get_thought_runner
+    tl = get_thought_runner()
     if not tl:
-        raise HTTPException(status_code=503, detail="ThoughtLoop nicht aktiv")
+        raise HTTPException(status_code=503, detail="ThoughtRunner nicht aktiv")
 
     _whitelist = [t.strip() for t in tool_whitelist.split(",") if t.strip()] or None
 

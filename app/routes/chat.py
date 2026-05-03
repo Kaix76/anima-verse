@@ -17,7 +17,6 @@ logger = get_logger("chat")
 from app.core.dependencies import get_skill_manager
 from app.core.streaming import StreamingAgent, ContentEvent
 from app.models.account import (
-    get_user_name,
     get_user_profile,
     get_user_appearance)
 from app.models.character import (
@@ -27,7 +26,6 @@ from app.models.character import (
     get_character_profile,
     get_character_appearance,
     get_character_language_instruction,
-    get_location_changed_at,
     get_character_current_location,
     get_character_current_activity,
     get_character_current_room,
@@ -44,7 +42,7 @@ from app.models.chat import get_chat_history, save_message
 from app.models.memory import build_memory_prompt_section, record_mood as record_mood_history
 from app.models.events import build_events_prompt_section
 from app.utils.llm_logger import estimate_tokens, get_model_name
-from app.utils.history_manager import get_time_based_history, get_cached_summary, build_daily_summary_prompt_section
+from app.utils.history_manager import get_time_based_history, get_cached_summary, build_daily_summary_prompt_section, refresh_summary_if_uncovered, strip_history_artifacts
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -88,10 +86,14 @@ def _get_chat_partner() -> str:
 
 
 @router.get("/{user_id}/history")
-async def chat_history(limit: int = 2, offset: int = 0) -> Dict[str, Any]:
+async def chat_history(limit: int = 2, offset: int = 0,
+                       since_id: int = 0) -> Dict[str, Any]:
     """Gibt die letzten N Chat-Nachrichten zurueck (fuer Page-Reload).
 
     offset=0 bedeutet die neuesten Nachrichten, offset=2 ueberspringt die 2 neuesten usw.
+
+    since_id (optional): Wenn gesetzt, ignoriert limit/offset und liefert
+    NUR Messages mit id > since_id (Delta-Mode fuer Diff-Polling).
     """
     current_agent = _get_chat_partner()
     if not current_agent:
@@ -102,7 +104,9 @@ async def chat_history(limit: int = 2, offset: int = 0) -> Dict[str, Any]:
         return {"messages": [], "agent_name": current_agent, "total": 0}
 
     total = len(history)
-    if offset:
+    if since_id:
+        last_messages = [m for m in history if (m.get("id") or 0) > since_id]
+    elif offset:
         last_messages = history[-(limit + offset):-offset] if (limit + offset) <= total else history[:max(0, total - offset)]
     else:
         last_messages = history[-limit:] if limit else history
@@ -133,8 +137,8 @@ async def chat_unread_summary() -> Dict[str, Any]:
 
     Returns: {avatar, chats: {char: {latest, recent: [ts, ...]}}}
     """
-    from app.models.account import get_active_character, get_user_name
-    avatar = get_active_character() or get_user_name() or ""
+    from app.models.account import get_player_identity
+    avatar = get_player_identity("")
     if not avatar:
         return {"avatar": "", "chats": {}}
 
@@ -441,7 +445,8 @@ def _generate_image_prompt(
     _agent_name = (agent_config or {}).get("name", "")
     _user_name = ""
     try:
-        _user_name = get_user_name() or ""
+        from app.models.account import get_player_identity as _gpi
+        _user_name = _gpi("")
     except Exception:
         pass
 
@@ -1059,11 +1064,15 @@ async def chat(request: Request) -> StreamingResponse:
     _t0 = _t.perf_counter()
     current_agent = _get_chat_partner()
     _probe("_get_chat_partner", _t0)
-    # Display name = the player's active character (who is writing)
-    from app.models.account import get_active_character
+    # Display name = the player's active character (who is writing).
+    # Login-Name (z.B. "admin") ist HIER kein gueltiger Fallback — wuerde
+    # in chat_messages.partner und Relationships als Pseudo-Character
+    # auftauchen. Bei leerem active_character: "user"-Sentinel, der
+    # ueber den Reserved-Names-Filter spaeter ohnehin abgelehnt wird.
+    from app.models.account import get_player_identity, get_active_character
     _t0 = _t.perf_counter()
-    user_display_name = get_active_character() or get_user_name()
-    _probe("get_active_character+get_user_name", _t0)
+    user_display_name = get_player_identity("user")
+    _probe("get_player_identity", _t0)
 
     # Avatar-Mood aus User-Input ableiten (Keyword-Heuristik, kein LLM).
     # Silent Update ohne Toast — Expression regeneriert sich beim naechsten
@@ -1186,8 +1195,12 @@ async def chat(request: Request) -> StreamingResponse:
 
     # --- History Management (zeitgesteuert) ---
     recent_history, old_history = get_time_based_history(full_chat_history)
-    # Gecachte Summary laden (sofort, kein LLM-Aufruf)
-    history_summary = get_cached_summary(current_agent) if old_history else ""
+    # Summary laden — wenn old_history Eintraege juenger als die gecachte
+    # Summary enthaelt (z.B. nach Session-Gap-Cut), synchron neu generieren.
+    # Sonst Cache nutzen, kein LLM-Aufruf.
+    history_summary = (
+        refresh_summary_if_uncovered(current_agent, old_history)
+        if old_history else "")
 
     messages = []
     # Halluzinierter Send-Message-Template-Prefix bereinigen
@@ -1209,10 +1222,15 @@ async def chat(request: Request) -> StreamingResponse:
                 continue  # Leere Gedanken-Nachrichten ueberspringen
             # Halluzinierte Tool-Tags bereinigen (aus frueheren Responses)
             content = _strip_tool_hallucinations(content)
+            # Bild-Embeds raus — stoeren den LLM-Fluss
+            content = strip_history_artifacts(content)
             if not content:
                 continue
             messages.append({"role": "assistant", "content": content})
         else:
+            content = strip_history_artifacts(content)
+            if not content:
+                continue
             messages.append({"role": "user", "content": content})
 
     # Self-Reinforcement-Loop brechen: Wenn dieselbe Assistant-Antwort mehrfach
@@ -1997,26 +2015,28 @@ def _classify_activity_background(agent_name: str, raw_activity: str, known_acti
     classify_activity_background(agent_name, raw_activity)
 
 
-def _apply_extracted_outfit_to_pieces(character_name: str,
-                                       extracted_outfit: str) -> None:
-    """Gleicht den extrahierten Outfit-Freitext gegen die aktuell angelegten
-    Pieces ab. Pieces deren Name oder prompt_fragment NICHT im extrahierten
-    Text vorkommt, werden abgelegt (unequip).
+def _apply_removed_pieces(character_name: str,
+                          removed_names: List[str]) -> List[str]:
+    """Equipped Pieces ablegen, deren Name in ``removed_names`` vorkommt.
 
-    Kann keine neuen Pieces anlegen — dafuer muss das LLM OutfitCreation rufen.
+    Match: case-insensitiver Vergleich gegen den Item-Namen. Pieces die nicht
+    angelegt sind, werden ignoriert. Erfundene Namen (nicht equipped) werden
+    ignoriert. Returns Liste der tatsaechlich abgelegten Eintraege "Name (slot)".
     """
-    if not extracted_outfit or not character_name:
-        return
+    if not removed_names or not character_name:
+        return []
     try:
         from app.models.inventory import (
             get_equipped_pieces, get_item, unequip_piece)
         eq = get_equipped_pieces(character_name) or {}
         if not eq:
-            return
+            return []
 
-        text_lower = extracted_outfit.strip().lower()
-        unequipped = []
+        wanted = {n.strip().lower() for n in removed_names if n and n.strip()}
+        if not wanted:
+            return []
 
+        unequipped: List[str] = []
         for slot, iid in list(eq.items()):
             if not iid:
                 continue
@@ -2024,29 +2044,11 @@ def _apply_extracted_outfit_to_pieces(character_name: str,
             if not it:
                 continue
             name = (it.get("name") or "").strip().lower()
-            frag = (it.get("prompt_fragment") or "").strip().lower()
-
-            # Pruefen ob das Piece im extrahierten Text erwaehnt wird.
-            # Mehrere Heuristiken: voller Name, einzelne Woerter (>3 Zeichen),
-            # prompt_fragment-Teilstrings.
-            mentioned = False
-            if name and name in text_lower:
-                mentioned = True
-            elif frag:
-                # Jedes signifikante Wort aus dem Fragment pruefen
-                frag_words = [w for w in frag.split() if len(w) >= 4]
-                if frag_words:
-                    mentioned = sum(1 for w in frag_words if w in text_lower) >= len(frag_words) * 0.5
-            if not mentioned and name:
-                # Einzelne Wort-Pruefung: mindestens ein signifikantes Namens-Wort
-                name_words = [w for w in name.split() if len(w) >= 4]
-                if name_words:
-                    mentioned = any(w in text_lower for w in name_words)
-
-            if not mentioned:
-                r = unequip_piece(character_name, slot=slot)
-                if r.get("status") == "ok":
-                    unequipped.append(f"{it.get('name', iid)} ({slot})")
+            if not name or name not in wanted:
+                continue
+            r = unequip_piece(character_name, slot=slot)
+            if r.get("status") == "ok":
+                unequipped.append(f"{it.get('name', iid)} ({slot})")
 
         # KEIN Auto-Equip durch den Extractor — das wuerde manuell abgelegte
         # Pieces sofort wieder anziehen (Race-Condition mit Wardrobe-Aenderungen).
@@ -2091,9 +2093,11 @@ def _apply_extracted_outfit_to_pieces(character_name: str,
                     ignore_cooldown=True)
             except Exception as _te:
                 logger.debug("Expression-Trigger nach Extraktion fehlgeschlagen: %s", _te)
+        return unequipped
     except Exception as e:
         logger.warning("Chat-Extraktion [%s] Piece-Abgleich fehlgeschlagen: %s",
                         character_name, e)
+        return []
 
 
 def _extract_context_from_last_chat(agent_name: str,
@@ -2140,29 +2144,9 @@ def _extract_context_from_last_chat(agent_name: str,
     from app.models.account import get_active_character
     avatar_name = get_active_character() or ""
 
-    # Basis-Outfits fuer Delta-Rekonstruktion: ohne Baseline kann der Extractor
-    # aus "Ich ziehe die Jacke aus" nicht ableiten, was uebrig bleibt.
-    # Direkt aus equipped_pieces bauen (kein Legacy get_current_outfit).
-    from app.models.character import build_equipped_outfit_prompt
-    def _strip_wearing(text: str) -> str:
-        t = text.strip()
-        if t.lower().startswith("wearing: "):
-            return t[9:]
-        if t.lower().startswith("wearing:"):
-            return t[8:]
-        return t
-    agent_current_outfit = _strip_wearing(build_equipped_outfit_prompt(agent_name) or "")
-    avatar_current_outfit = (
-        _strip_wearing(build_equipped_outfit_prompt(avatar_name) or "")
-        if avatar_name else ""
-    )
-
-    def _same_outfit(a: str, b: str) -> bool:
-        return a.strip().lower() == b.strip().lower()
-
     def _extract_for_character(
         target_name: str, target_config: Optional[Dict[str, Any]],
-        target_baseline: str, source_text: str, is_avatar: bool):
+        source_text: str, is_avatar: bool):
         """Ein LLM-Call fuer EINEN Character aus EINER Quelle.
 
         - is_avatar=False: Quelle = Character-Antwort. Extrahiert Agent-Outfit + Activity.
@@ -2187,12 +2171,35 @@ def _extract_context_from_last_chat(agent_name: str,
                          target_name)
             return
 
+        # Piece-Liste fuer den Prompt — die einzigen Namen, die der LLM
+        # zurueckgeben darf. Nicht-equipped Items kann er nicht "ausziehen".
+        piece_list = ""
+        if not outfit_locked:
+            from app.models.inventory import get_equipped_pieces, get_item
+            _eq = get_equipped_pieces(target_name) or {}
+            _names: List[str] = []
+            _seen = set()
+            for _slot, _iid in _eq.items():
+                if not _iid or _iid in _seen:
+                    continue
+                _seen.add(_iid)
+                _it = get_item(_iid) or {}
+                _n = (_it.get("name") or "").strip()
+                if _n:
+                    _names.append(_n)
+            if not _names:
+                # Keine equipped Pieces → Outfit-Extraktion entfaellt; nur
+                # Activity ist relevant (und auch nur fuer Agent-Calls).
+                if is_avatar:
+                    return
+            piece_list = "\n".join(f"- {n}" for n in _names)
+
         source_label = "User input" if is_avatar else "Character reply"
         from app.core.prompt_templates import render_task
         sys_prompt, user_prompt = render_task(
             "extraction_chat_context",
             target_name=target_name,
-            target_baseline=target_baseline or "(unknown)",
+            piece_list=piece_list,
             source_label=source_label,
             source_text=source_text,
             outfit_locked=outfit_locked,
@@ -2223,8 +2230,12 @@ def _extract_context_from_last_chat(agent_name: str,
             logger.debug("Chat-Kontext [%s]: JSON-Parse-Fehler: %s", target_name, raw[:100])
             return
 
-        # Outfit wird ignoriert wenn Lock aktiv ist — kein Write, kein Expression-Trigger
-        extracted_outfit = "" if outfit_locked else (data.get("outfit") or "").strip()
+        # Removed-Liste wird ignoriert wenn Lock aktiv ist — kein Write,
+        # kein Expression-Trigger.
+        removed_raw = [] if outfit_locked else data.get("removed") or []
+        if not isinstance(removed_raw, list):
+            removed_raw = []
+        removed_names = [str(n).strip() for n in removed_raw if n and str(n).strip()]
 
         # Activity nur aus Character-Call
         if not is_avatar:
@@ -2236,25 +2247,23 @@ def _extract_context_from_last_chat(agent_name: str,
                     logger.info("Chat-Kontext [%s]: Activity '%s' -> '%s'",
                                  target_name, old_activity, extracted_activity)
 
-        # Extrahiertes Outfit gegen aktuell angelegte Pieces abgleichen:
-        # Pieces deren Name/Fragment NICHT im extrahierten Text vorkommt
-        # werden abgelegt (= Character hat sie im Narrativ ausgezogen).
+        # Pieces ablegen, deren Name in der removed-Liste steht.
         # Neue Pieces koennen nicht aus dem Freitext erzeugt werden —
         # dafuer muss das LLM den OutfitCreation-Skill rufen.
-        if extracted_outfit:
-            _apply_extracted_outfit_to_pieces(target_name, extracted_outfit)
+        if removed_names:
+            _apply_removed_pieces(target_name, removed_names)
 
     def _do_extraction():
         # Call 1: Character-Antwort → Agent-Outfit + Activity (unter Agent-Config)
         _extract_for_character(
-            agent_name, agent_config, agent_current_outfit,
+            agent_name, agent_config,
             source_text=character_source, is_avatar=False)
         # Call 2: User-Eingabe → Avatar-Outfit (unter Avatar-Config)
         if avatar_name and avatar_source:
             from app.models.character import get_character_config
             avatar_config = get_character_config(avatar_name)
             _extract_for_character(
-                avatar_name, avatar_config, avatar_current_outfit,
+                avatar_name, avatar_config,
                 source_text=avatar_source, is_avatar=True)
 
     import asyncio
@@ -2334,11 +2343,9 @@ def _build_full_system_prompt(character_name: str,
             if partner_address:
                 _partner_lines.append(f"Form of address: {partner_address}")
     elif not skip_partner:
-        # Fallback: no active character — use account username
-        _fallback_name = get_user_name() or ""
-        if _fallback_name:
-            _partner_name = _fallback_name
-            partner_mode = "fallback"
+        # Fallback: no active character — kein Login-Name, sonst rutscht
+        # "admin" als Pseudo-Partner in Prompts und Memory.
+        pass
 
     # ---- Self / partner wearing blocks --------------------------------
     def _strip_wearing_prefix(text: str) -> str:
@@ -2630,22 +2637,7 @@ def _build_full_system_prompt(character_name: str,
         daily_summary_section = build_daily_summary_prompt_section(character_name, max_days=5) or ""
 
         if history_summary:
-            location_changed = get_location_changed_at(character_name)
-            location_is_recent = False
-            if location_changed:
-                try:
-                    changed_dt = datetime.fromisoformat(location_changed)
-                    age_minutes = (datetime.now() - changed_dt).total_seconds() / 60
-                    location_is_recent = age_minutes < 10
-                except (ValueError, TypeError):
-                    pass
-            if location_is_recent:
-                short = history_summary[:200]
-                if len(history_summary) > 200:
-                    short = short.rsplit(" ", 1)[0]
-                history_summary_block = f"Previously: {short}"
-            else:
-                history_summary_block = f"Summary of previous conversations:\n{history_summary}"
+            history_summary_block = f"Summary of previous conversations:\n{history_summary}"
 
     # ---- Recent activity ----------------------------------------------
     recent_activity_section = ""

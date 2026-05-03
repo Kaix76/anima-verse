@@ -96,6 +96,7 @@
           ],
           "in_prompt": true,
           "prompt_label": "Personality",
+          "prompt_self_only": true,
           "llm_generable": true,
           "editor_visible": false,
           "source_file": "soul/personality.md"

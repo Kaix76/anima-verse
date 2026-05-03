@@ -33,7 +33,7 @@ from app.models.group_chat import (
     save_group_message)
 from app.models.memory import upsert_relationship_memory
 from app.models.relationship import record_interaction
-from app.models.account import get_user_name, get_user_profile, get_active_character
+from app.models.account import get_user_profile, get_active_character, get_player_identity
 from app.models.world import (
     get_location_name,
     resolve_location)
@@ -89,7 +89,7 @@ def _build_group_system_prompt(character_name: str,
     from app.models.relationship import get_relationship
     from app.models.character import get_character_current_activity
     from app.core.activity_engine import resolve_activity_visibility
-    user_name = get_active_character() or get_user_name() or "Player"
+    user_name = get_player_identity("Player")
 
     # Alle anwesenden Personen auflisten (NPCs + Spieler-Avatar)
     all_present = list(participants)
@@ -413,7 +413,7 @@ async def group_chat(request: Request):
         responders, passive = calculate_response_scores(
             user_message, participant_names, chat_context, **tt_kwargs)
 
-    user_display_name = get_active_character() or get_user_name() or "Player"
+    user_display_name = get_player_identity("Player")
 
     async def generate():
         """Generate group chat responses — one character at a time."""

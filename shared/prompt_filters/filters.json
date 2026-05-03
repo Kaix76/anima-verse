@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "purpose": "Shared prompt-filter baseline. Loaded by app/core/prompt_filters.py and merged with the per-world `prompt_filters` table (world overrides shared by id).",
+    "schema": {
+      "id": "stable identifier; world entries with the same id replace the shared one",
+      "condition": "expression evaluated by app.core.activity_engine.evaluate_condition (e.g. 'stamina<10', 'has_condition:drunk', 'has_item:foo', 'mood=happy')",
+      "label": "human-readable description for admin UI",
+      "drop_blocks": "list of *_block keys to clear from the thought context (block disappears from the prompt)",
+      "prompt_modifier": "text appended to the effects/state section so the LLM sees the active state",
+      "enabled": "if false, the filter is loaded but not applied"
+    }
+  },
+  "filters": [
+    {
+      "id": "drunk_memory_fog",
+      "condition": "has_condition:drunk",
+      "label": "Drunk — clouded memory",
+      "drop_blocks": ["recent_chat_block", "inbox_block"],
+      "prompt_modifier": "You are drunk. Recent conversations feel fuzzy and you can't remember details clearly.",
+      "enabled": true
+    },
+    {
+      "id": "exhausted_only_sleep",
+      "condition": "stamina<10",
+      "label": "Exhausted — only home and sleep matter",
+      "drop_blocks": [
+        "inbox_block",
+        "events_block",
+        "assignments_block",
+        "general_task",
+        "commitments_block",
+        "outfit_decision_block",
+        "instagram_pending_block",
+        "room_items_block",
+        "inventory_block",
+        "present_people_block",
+        "available_activities_block",
+        "arc_block",
+        "retrospective_block",
+        "recent_chat_block",
+        "outfit_self_block",
+        "outfit_avatar_block"
+      ],
+      "prompt_modifier": "You are exhausted. All you can think about is getting home and sleeping.",
+      "enabled": true
+    }
+  ]
+}

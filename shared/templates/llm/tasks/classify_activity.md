@@ -1,5 +1,5 @@
 ---
-task: intent_activity
+task: classify_activity
 purpose: Classify a free-text activity into a known activity name (activity_engine._do_classify)
 placeholders:
   raw_activity: Raw free-text activity

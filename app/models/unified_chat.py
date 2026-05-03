@@ -16,7 +16,9 @@ from app.core.db import get_connection, transaction
 
 logger = get_logger("unified_chat")
 
-from app.models.account import get_user_name
+# get_user_name absichtlich nicht importiert — Login-Name wuerde sonst als
+# Partner-Key in chat_messages leaken. Stattdessen wird get_player_identity
+# in _resolve_partner_key benutzt (lazy import dort).
 from app.models.channel import Message, ChannelType, ChannelInterface
 
 
@@ -78,13 +80,16 @@ class UnifiedChatManager:
         if partner_name:
             return partner_name
         try:
-            from app.models.account import get_active_character
-            active = get_active_character()
+            from app.models.account import get_player_identity
+            active = get_player_identity("")
             if active and active != character_name:
                 return active
         except Exception:
             pass
-        return get_user_name() or ""
+        # Login-Name (z.B. "admin") taugt nicht als Partner-Key — wuerde
+        # neue Chats unter dem Login speichern statt unter dem Avatar.
+        # Leerer String bedeutet hier: kein Partner-Filter.
+        return ""
 
     @staticmethod
     def get_chat_history(character_name: str = "",
@@ -111,21 +116,21 @@ class UnifiedChatManager:
             conn = get_connection()
             if partner:
                 q = """
-                    SELECT ts, role, content, channel, channel_message_id, metadata
+                    SELECT id, ts, role, content, channel, channel_message_id, metadata
                     FROM chat_messages
                     WHERE character_name=? AND partner=?
                     ORDER BY ts ASC
                 """
                 params = (character_name, partner)
                 rows = conn.execute(q, params).fetchall()
-                # Fallback: Suche mit altem Username als Partner
-                if not rows:
-                    old_partner = get_user_name() or ""
-                    if old_partner and old_partner != partner:
-                        rows = conn.execute(q, (character_name, old_partner)).fetchall()
+                # Frueher gab es einen Fallback auf den Account-Login-Namen
+                # (get_user_name) als Partner — der hat aber nur bestehende
+                # Admin-Chats sichtbar gemacht und neue Avatar-Chats blieben
+                # leer wenn jemand kurzzeitig keinen Avatar gewaehlt hatte.
+                # Entfernt: Login-Name ist kein gueltiger Partner-Key.
             else:
                 rows = conn.execute("""
-                    SELECT ts, role, content, channel, channel_message_id, metadata
+                    SELECT id, ts, role, content, channel, channel_message_id, metadata
                     FROM chat_messages
                     WHERE character_name=?
                     ORDER BY ts ASC
@@ -133,7 +138,7 @@ class UnifiedChatManager:
 
             history: List[Message] = []
             for r in rows:
-                ts, role, content, ch, ch_msg_id, meta_json = r
+                row_id, ts, role, content, ch, ch_msg_id, meta_json = r
                 try:
                     meta = json.loads(meta_json or "{}")
                 except Exception:
@@ -150,9 +155,10 @@ class UnifiedChatManager:
                     timestamp=ts,
                     channel=ch_type,
                     channel_message_id=ch_msg_id,
+                    id=row_id,
                     **{k: v for k, v in meta.items()
                        if k not in ("content", "role", "timestamp", "channel",
-                                    "channel_message_id")},
+                                    "channel_message_id", "id")},
                 )
                 if channel is None or msg.channel == channel:
                     history.append(msg)

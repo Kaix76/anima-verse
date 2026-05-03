@@ -89,6 +89,33 @@ def get_user_name() -> str:
     return get_user_profile().get("user_name", "")
 
 
+# Login-Namen die NIE als Character/Speaker durchsickern duerfen — sie
+# tauchen sonst in chat_messages.partner, relationships.from_char und in
+# Prompt-Templates als "Was admin gesagt hat..." auf. Reserviert spiegelt
+# app.models.character._RESERVED_NAMES wider, aber unabhaengig deklariert
+# damit keine Import-Zyklen entstehen.
+_RESERVED_LOGIN_NAMES = frozenset({"user", "admin", "system", "default", "player", ""})
+
+
+def get_player_identity(default: str = "user") -> str:
+    """Sichere Spieler-Identitaet fuer Character-Kontexte (Prompts,
+    chat_messages.partner, Relationships, Memories).
+
+    Bevorzugt den vom Player gewaehlten Avatar (``get_active_character``).
+    Wenn der nicht gesetzt ist oder einen reservierten Login-Namen
+    zurueckgibt, wird ``default`` verwendet — niemals der Account-Login
+    (z.B. "admin"), der sonst als pseudo-Character in die Welt leaken
+    wuerde.
+
+    Aufrufer die wirklich den Login-Namen brauchen (Admin-UI,
+    Authentifizierungs-Logging) sollten ``get_user_name`` direkt rufen.
+    """
+    ac = (get_active_character() or "").strip()
+    if ac and ac.lower() not in _RESERVED_LOGIN_NAMES:
+        return ac
+    return default
+
+
 def save_user_name(name: str):
     profile = get_user_profile()
     profile["user_name"] = name

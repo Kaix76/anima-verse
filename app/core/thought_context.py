@@ -37,6 +37,7 @@ def build_thought_context(character_name: str, tools_hint: str = "") -> Dict[str
 
     profile = get_character_profile(character_name)
     location_id = profile.get("current_location", "") or ""
+    room_id = profile.get("current_room", "") or ""
     location_name = get_location_name(location_id) if location_id else "Unknown"
 
     ctx: Dict[str, Any] = {
@@ -57,9 +58,33 @@ def build_thought_context(character_name: str, tools_hint: str = "") -> Dict[str
         "arc_block": _build_arc_block(character_name),
         "retrospective_block": _build_retrospective_block(character_name),
         "instagram_pending_block": _build_instagram_pending_block(character_name),
+        # Additional context — currently rendered in agent_thought_in_chat.md.
+        # Agent_thought.md ignores them silently (no template reference).
+        "effects_block": _build_effects_block(character_name),
+        "recent_chat_block": _build_recent_chat_block(character_name),
+        "outfit_self_block": _build_outfit_block(character_name, "Your outfit"),
+        "outfit_avatar_block": _build_avatar_outfit_block(),
+        "room_items_block": _build_room_items_block(location_id, room_id),
+        "inventory_block": _build_inventory_block(character_name),
+        "present_people_block": _build_present_people_block(character_name, location_id),
+        "known_locations_block": _build_known_locations_block(character_name, location_id),
+        "available_activities_block": _build_available_activities_block(character_name, location_id, room_id),
+        "daily_schedule_block": _build_daily_schedule_block(character_name),
         "tools_hint": tools_hint,
         "has_assignments": False,  # set below if assignments_block non-empty
     }
+    ctx["has_assignments"] = bool(ctx["assignments_block"])
+
+    # State-driven filters: drop blocks + inject modifier text based on
+    # active conditions/stats (drunk, exhausted, …). Replaces the old
+    # rules-based effects_block path.
+    try:
+        from app.core.prompt_filters import apply_filters
+        apply_filters(character_name, ctx, location_id=location_id)
+    except Exception as e:
+        logger.debug("prompt_filters apply failed for %s: %s", character_name, e)
+
+    # has_assignments may have changed if the filter dropped assignments_block
     ctx["has_assignments"] = bool(ctx["assignments_block"])
     return ctx
 
@@ -263,9 +288,14 @@ def _build_instagram_pending_block(character_name: str) -> str:
         if post.get("agent_name") == character_name:
             continue
         # Skip if this character already commented on the post.
+        # Saved comments use the field "author" (instagram.add_comment); legacy
+        # data may have "by" or "character" — check all three.
         comments = post.get("comments") or []
-        already = any(c.get("by") == character_name or c.get("character") == character_name
-                      for c in comments)
+        already = any(
+            c.get("author") == character_name
+            or c.get("by") == character_name
+            or c.get("character") == character_name
+            for c in comments)
         if already:
             continue
         relevant.append((post_dt, post))
@@ -319,10 +349,18 @@ def _build_retrospective_block(character_name: str) -> str:
     try:
         from app.skills.retrospect_skill import (
             get_beliefs_path, get_improvements_path,
+            get_seed_beliefs_path, get_seed_improvements_path,
             load_recent_lines, get_last_retrospect_at)
 
-        beliefs = load_recent_lines(get_beliefs_path(character_name), limit=5)
-        improvements = load_recent_lines(get_improvements_path(character_name), limit=5)
+        # Beliefs/Improvements aus zwei Quellen ziehen: manuell kurierte
+        # Seed-Datei + Retrospect-Output. Seed zuerst (Hintergrund/Identitaet),
+        # dann frische Retrospect-Eintraege (jüngste Reflexion).
+        seed_b = load_recent_lines(get_seed_beliefs_path(character_name), limit=5)
+        retro_b = load_recent_lines(get_beliefs_path(character_name), limit=5)
+        beliefs = seed_b + retro_b
+        seed_i = load_recent_lines(get_seed_improvements_path(character_name), limit=5)
+        retro_i = load_recent_lines(get_improvements_path(character_name), limit=5)
+        improvements = seed_i + retro_i
         last_at = get_last_retrospect_at(character_name)
 
         overdue = True
@@ -345,4 +383,294 @@ def _build_retrospective_block(character_name: str) -> str:
         return "\n".join(lines)
     except Exception as e:
         logger.debug("retrospective block failed for %s: %s", character_name, e)
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# In-Chat extras (also useful for the regular template)
+# ---------------------------------------------------------------------------
+
+def _build_effects_block(character_name: str) -> str:
+    """Active status modifiers + danger conditions (drunk, exhausted, etc.).
+
+    Reuses ``danger_system.build_status_prompt_section`` which already
+    knows how to combine stat-based modifiers, danger levels and active
+    conditions into a single prompt section.
+    """
+    try:
+        from app.core.danger_system import build_status_prompt_section
+        return (build_status_prompt_section(character_name) or "").strip()
+    except Exception as e:
+        logger.debug("effects block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_recent_chat_block(character_name: str, limit: int = 3) -> str:
+    """Last N chat messages between this character and the player's avatar.
+
+    The thought turn doesn't carry chat history by default — when the
+    character is mid-conversation we want them to see the latest exchanges
+    so a follow-up thought can refer to actual content. Newest first.
+    """
+    try:
+        from app.models.account import get_active_character
+        from app.core.db import get_connection
+        avatar = (get_active_character() or "").strip()
+        if not avatar:
+            return ""
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT ts, role, content FROM chat_messages "
+            "WHERE character_name=? AND partner=? "
+            "ORDER BY ts DESC LIMIT ?",
+            (character_name, avatar, limit),
+        ).fetchall()
+        if not rows:
+            return ""
+        lines: List[str] = []
+        # Reverse to chronological order so the LLM reads top-down.
+        for ts, role, content in reversed(rows):
+            speaker = avatar if role == "user" else character_name
+            content = (content or "").strip()
+            if not content:
+                continue
+            if len(content) > 400:
+                content = content[:400].rstrip() + " […]"
+            lines.append(f"  {speaker}: {content}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("recent_chat block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_outfit_block(character_name: str, label: str) -> str:
+    """Equipped outfit fragment for any character. Returns ``label: ...`` or ''."""
+    try:
+        from app.models.character import build_equipped_outfit_prompt
+        raw = (build_equipped_outfit_prompt(character_name) or "").strip()
+        if not raw:
+            return ""
+        # build_equipped_outfit_prompt returns "wearing: <fragments>". Strip
+        # the prefix so we can apply our own label.
+        if raw.lower().startswith("wearing:"):
+            raw = raw[len("wearing:"):].strip()
+        return f"{label}: {raw}"
+    except Exception as e:
+        logger.debug("outfit block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_avatar_outfit_block() -> str:
+    """Avatar outfit. Returns 'Avatar outfit (<name>): ...' or ''."""
+    try:
+        from app.models.account import get_active_character
+        avatar = (get_active_character() or "").strip()
+        if not avatar:
+            return ""
+        return _build_outfit_block(avatar, f"Avatar outfit ({avatar})")
+    except Exception as e:
+        logger.debug("avatar outfit block failed: %s", e)
+        return ""
+
+
+def _build_room_items_block(location_id: str, room_id: str) -> str:
+    """Items present in the current room (visible only — hidden ones skipped).
+
+    Format: bullet list of "name (xN) — short description". Cap at 8.
+    """
+    if not location_id or not room_id:
+        return ""
+    try:
+        from app.models.inventory import get_room_items, get_item
+        items = get_room_items(location_id, room_id) or []
+        if not items:
+            return ""
+        lines: List[str] = []
+        for ri in items:
+            if ri.get("hidden"):
+                continue
+            iid = ri.get("item_id") or ""
+            qty = ri.get("quantity", 1) or 1
+            item = get_item(iid) or {}
+            name = (item.get("name") or iid or "?").strip()
+            desc = (item.get("description") or "").strip()
+            if len(desc) > 80:
+                desc = desc[:80].rstrip() + "…"
+            qty_str = f" (x{qty})" if qty > 1 else ""
+            line = f"- {name}{qty_str}"
+            if desc:
+                line += f" — {desc}"
+            lines.append(line)
+            if len(lines) >= 8:
+                break
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("room_items block failed (%s/%s): %s", location_id, room_id, e)
+        return ""
+
+
+def _build_inventory_block(character_name: str) -> str:
+    """Character's carried inventory (excludes equipped pieces). Cap at 8.
+
+    ``get_character_inventory`` enriches each entry with ``item_name`` /
+    ``item_description`` (resolved from the items table). Falls back to
+    item_id only if the lookup failed.
+    """
+    try:
+        from app.models.inventory import get_character_inventory
+        inv = get_character_inventory(character_name, include_equipped=False) or {}
+        items = inv.get("inventory") if isinstance(inv, dict) else inv
+        if not items:
+            return ""
+        lines: List[str] = []
+        for entry in items[:8]:
+            iid = entry.get("item_id") or ""
+            qty = entry.get("quantity", 1) or 1
+            name = (entry.get("item_name") or iid or "?").strip()
+            qty_str = f" (x{qty})" if qty > 1 else ""
+            lines.append(f"- {name}{qty_str}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("inventory block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_present_people_block(character_name: str, location_id: str) -> str:
+    """Characters at the same location, excluding self. Avatar marked."""
+    if not location_id:
+        return ""
+    try:
+        from app.models.group_chat import get_characters_at_location
+        from app.models.account import get_active_character
+        avatar = (get_active_character() or "").strip()
+        people = get_characters_at_location(location_id) or []
+        names = []
+        for p in people:
+            n = (p.get("name") or "").strip()
+            if not n or n == character_name:
+                continue
+            label = f"{n} (avatar)" if n == avatar else n
+            names.append(label)
+        if not names:
+            return ""
+        return ", ".join(names)
+    except Exception as e:
+        logger.debug("present_people block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_known_locations_block(character_name: str, current_location_id: str) -> str:
+    """Visibility-filtered location list the character can travel to.
+
+    Uses ``list_locations_for_character`` (respects knowledge-item gating).
+    Marks the current location with a chevron so the LLM doesn't propose
+    "moving" there. Cap at 12 locations to keep the prompt slim.
+    """
+    try:
+        from app.models.world import list_locations_for_character
+        locs = list_locations_for_character(character_name) or []
+        if not locs:
+            return ""
+        lines: List[str] = []
+        for loc in locs[:12]:
+            lid = (loc.get("id") or "").strip()
+            name = (loc.get("name") or lid or "?").strip()
+            marker = " (you are here)" if lid and lid == current_location_id else ""
+            lines.append(f"- {name}{marker}")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("known_locations block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_available_activities_block(character_name: str,
+                                       location_id: str,
+                                       room_id: str) -> str:
+    """Activities the character can pick at the current location/room.
+
+    Filters by conditions/cooldowns so we don't suggest unreachable ones.
+    Cap at 10 to keep prompt slim. Activities marked ``auto_pick=false``
+    are excluded — they're meant for explicit narrative triggers, not
+    casual selection.
+    """
+    if not location_id:
+        return ""
+    try:
+        from app.models.activity_library import get_available_activities
+        acts = get_available_activities(
+            character_name, location_id, room_id, filter_conditions=True) or []
+        names: List[str] = []
+        for a in acts:
+            if a.get("auto_pick") is False:
+                continue
+            n = (a.get("name") or a.get("id") or "").strip()
+            if n and n not in names:
+                names.append(n)
+            if len(names) >= 10:
+                break
+        if not names:
+            return ""
+        return ", ".join(names)
+    except Exception as e:
+        logger.debug("available_activities block failed for %s: %s", character_name, e)
+        return ""
+
+
+def _build_daily_schedule_block(character_name: str) -> str:
+    """Soft hint about the character's typical rhythm at the current hour.
+
+    Reads ``daily_schedules`` (per character) and surfaces the slot for
+    the current hour plus the next slot — as a guideline, NOT as enforced
+    state. ``__sleep__`` slots become "you usually sleep around now" so
+    the energy-based rule can decide separately whether sleep is actually
+    needed. Returns '' if the character has no schedule or it's disabled.
+    """
+    try:
+        from app.models.character import get_character_daily_schedule
+        schedule = get_character_daily_schedule(character_name) or {}
+        if not schedule.get("enabled"):
+            return ""
+        slots = schedule.get("slots") or []
+        if not slots:
+            return ""
+        slot_by_hour: Dict[int, Dict[str, Any]] = {}
+        for s in slots:
+            try:
+                h = int(s.get("hour"))
+            except (TypeError, ValueError):
+                continue
+            slot_by_hour[h] = s
+
+        now = datetime.now()
+        cur_h = now.hour
+        next_h = (cur_h + 1) % 24
+
+        def _fmt(slot: Dict[str, Any], hour: int) -> str:
+            loc = (slot.get("location") or "").strip()
+            act = (slot.get("activity") or "").strip()
+            if loc == "__sleep__" or act == "__sleep__":
+                return f"  {hour:02d}:00 — you usually sleep around now"
+            parts = []
+            if loc and not loc.startswith("__"):
+                parts.append(f"location: {loc}")
+            if act and not act.startswith("__"):
+                parts.append(f"activity: {act}")
+            if not parts:
+                return ""
+            return f"  {hour:02d}:00 — " + ", ".join(parts)
+
+        lines: List[str] = []
+        cur = slot_by_hour.get(cur_h)
+        if cur:
+            line = _fmt(cur, cur_h)
+            if line:
+                lines.append(line)
+        nxt = slot_by_hour.get(next_h)
+        if nxt and nxt is not cur:
+            line = _fmt(nxt, next_h)
+            if line:
+                lines.append(line)
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("daily_schedule block failed for %s: %s", character_name, e)
         return ""

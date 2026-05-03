@@ -101,8 +101,8 @@ def calculate_response_scores(
     def _get_strength(char_name: str) -> float:
         try:
             from app.models.relationship import get_relationship
-            from app.models.account import get_active_character, get_user_name
-            user_name = get_active_character() or get_user_name() or "Player"
+            from app.models.account import get_player_identity
+            user_name = get_player_identity("Player")
             rel = get_relationship(char_name, user_name)
             if rel:
                 return rel.get("strength", 10)

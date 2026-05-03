@@ -47,8 +47,6 @@
                             <button id="btn-edit-agent" class="reset-btn" title="Edit current character profile">⚙️</button>
                             <button id="btn-new-character" class="reset-btn" title="Create a new character">➕ New</button>
                         </div>
-                        <button id="btn-scheduler" class="reset-btn" title="Zeitplan">⏱️</button>
-
                         <button id="btn-knowledge" class="reset-btn" title="Wissen des Characters">🧠</button>
                         <div id="header-activity-display" title="Aktuelle Aktivitaet">
                             <div id="header-room-line"></div>
@@ -64,7 +62,6 @@
                     <div class="player-info-col">
                         <div class="player-btn-col">
                             <button id="btn-player-edit" class="reset-btn" title="Character Profil">⚙️</button>
-                            <button id="btn-scheduler-player" class="reset-btn" title="Zeitplan">⏱️</button>
                             <button id="btn-knowledge-player" class="reset-btn" title="Wissen">🧠</button>
                         </div>
                         <div class="player-activity-display" id="player-activity-display">
@@ -445,214 +442,22 @@
                 </div>
             </div>
             <div class="modal-body">
-                <div id="editor-sections">
-                    <!-- Sections are rendered dynamically from template -->
-                    <p class="scheduler-empty">Lade Template...</p>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Scheduler-Modal -->
-    <div id="scheduler-modal" class="modal" style="display: none;">
-        <div class="modal-content modal-content-wide">
-            <div class="modal-header">
-                <h2>Zeitplan: <span id="scheduler-agent-name">—</span></h2>
-                <div class="editor-header-actions">
-                    <button class="modal-close" onclick="closeSchedulerModal()">&times;</button>
-                </div>
-            </div>
-            <div class="modal-body">
-                <!-- Tab-Leiste -->
+                <!-- Tab bar -->
                 <div class="scheduler-tabs">
-                    <button class="tab-btn scheduler-tab-btn tab-active" data-scheduler-tab="jobs" onclick="switchSchedulerTab('jobs')">Geplante Aufgaben</button>
-                    <button class="tab-btn scheduler-tab-btn" data-scheduler-tab="tagesablauf" onclick="switchSchedulerTab('tagesablauf')">Tagesablauf</button>
+                    <button class="tab-btn agent-editor-tab-btn tab-active" data-agent-editor-tab="profil" onclick="switchAgentEditorTab('profil')">Profil</button>
+                    <button class="tab-btn agent-editor-tab-btn" data-agent-editor-tab="tagesablauf" onclick="switchAgentEditorTab('tagesablauf')">Tagesablauf</button>
                 </div>
 
-                <!-- Tab 1: Geplante Aufgaben -->
-                <div id="scheduler-tab-jobs" class="scheduler-tab-content">
-                <div class="scheduler-grid">
-                    <!-- Linke Spalte: Job-Liste -->
-                    <div class="scheduler-grid-col">
-                        <div class="modal-section">
-                            <div class="scheduler-header">
-                                <h3>Geplante Aufgaben</h3>
-                                <button id="btn-toggle-job-form" class="save-btn" onclick="toggleJobForm()">+ Neuer Job</button>
-                            </div>
-                            <div id="scheduler-jobs-list" class="scheduler-jobs-list">
-                                <p class="scheduler-empty">Keine Jobs vorhanden</p>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Rechte Spalte: Job-Editor -->
-                    <div class="scheduler-grid-col">
-                        <div id="scheduler-job-form" class="modal-section scheduler-job-form" style="display: none;">
-                            <h3 id="job-form-title">Neuer Job</h3>
-
-                            <!-- Trigger-Typ -->
-                            <div class="form-group">
-                                <label for="job-trigger-type">Trigger-Typ:</label>
-                                <select id="job-trigger-type" class="auth-input" onchange="updateTriggerFields()">
-                                    <option value="interval">Intervall (wiederkehrend)</option>
-                                    <option value="cron">Cron (Zeitplan)</option>
-                                    <option value="date">Einmalig (Datum)</option>
-                                </select>
-                            </div>
-
-                            <!-- Trigger-Felder: Intervall -->
-                            <div id="trigger-interval-fields" class="trigger-fields">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="job-interval-hours">Stunden:</label>
-                                        <input type="number" id="job-interval-hours" class="auth-input" value="0" min="0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="job-interval-minutes">Minuten:</label>
-                                        <input type="number" id="job-interval-minutes" class="auth-input" value="30" min="0">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="job-interval-seconds">Sekunden:</label>
-                                        <input type="number" id="job-interval-seconds" class="auth-input" value="0" min="0">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Trigger-Felder: Cron -->
-                            <div id="trigger-cron-fields" class="trigger-fields" style="display: none;">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="job-cron-hour">Stunde (0-23):</label>
-                                        <input type="number" id="job-cron-hour" class="auth-input" value="8" min="0" max="23">
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="job-cron-minute">Minute (0-59):</label>
-                                        <input type="number" id="job-cron-minute" class="auth-input" value="0" min="0" max="59">
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-cron-dow">Wochentage:</label>
-                                    <select id="job-cron-dow" class="auth-input">
-                                        <option value="*">Jeden Tag</option>
-                                        <option value="mon-fri">Mo-Fr (Werktage)</option>
-                                        <option value="sat,sun">Sa-So (Wochenende)</option>
-                                        <option value="mon">Montag</option>
-                                        <option value="tue">Dienstag</option>
-                                        <option value="wed">Mittwoch</option>
-                                        <option value="thu">Donnerstag</option>
-                                        <option value="fri">Freitag</option>
-                                        <option value="sat">Samstag</option>
-                                        <option value="sun">Sonntag</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- Random Offset (fuer Intervall und Cron) -->
-                            <div id="trigger-offset-fields" class="trigger-fields">
-                                <div class="form-row">
-                                    <div class="form-group">
-                                        <label for="job-random-offset">Zufaelliger Offset (Minuten):</label>
-                                        <input type="number" id="job-random-offset" class="auth-input" value="0" min="0" max="120" placeholder="0">
-                                        <small class="field-hint">Versetzt die Ausfuehrung zufaellig um 0 bis X Minuten</small>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Trigger-Felder: Einmalig -->
-                            <div id="trigger-date-fields" class="trigger-fields" style="display: none;">
-                                <div class="form-group">
-                                    <label for="job-date-datetime">Datum und Uhrzeit:</label>
-                                    <input type="datetime-local" id="job-date-datetime" class="auth-input">
-                                </div>
-                            </div>
-
-                            <!-- Aktions-Typ -->
-                            <div class="form-group">
-                                <label for="job-action-type">Aktion:</label>
-                                <select id="job-action-type" class="auth-input" onchange="updateActionFields()">
-                                    <option value="send_message">Nachricht senden</option>
-                                    <option value="execute_tool">Tool ausfuehren</option>
-                                    <option value="set_status">Status setzen (Ort/Aktivitaet)</option>
-                                    <option value="extract_files">Dateien lesen</option>
-                                </select>
-                            </div>
-
-                            <!-- Aktions-Felder: Nachricht -->
-                            <div id="action-message-fields" class="action-fields">
-                                <div class="form-group">
-                                    <label for="job-message">Nachricht / Prompt:</label>
-                                    <textarea id="job-message" class="agent-textarea" rows="3" placeholder="z.B. 'Erinnere mich an meine Aufgaben'"></textarea>
-                                </div>
-                            </div>
-
-                            <!-- Aktions-Felder: Tool ausfuehren -->
-                            <div id="action-tool-fields" class="action-fields" style="display: none;">
-                                <div class="form-group">
-                                    <label for="job-tool-name">Tool / Skill:</label>
-                                    <select id="job-tool-name" class="auth-input">
-                                        <option value="Instagram">Instagram</option>
-                                        <option value="ImageGenerator">ImageGenerator</option>
-                                        <option value="WebSearch">WebSearch</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-tool-input">Tool-Input:</label>
-                                    <textarea id="job-tool-input" class="agent-textarea" rows="3" placeholder="z.B. 'Ein kreatives Foto passend zur Stimmung'"></textarea>
-                                </div>
-                            </div>
-
-                            <!-- Aktions-Felder: Status setzen -->
-                            <div id="action-status-fields" class="action-fields" style="display: none;">
-                                <div class="form-group">
-                                    <label for="job-status-location">Ort:</label>
-                                    <select id="job-status-location" class="auth-input" onchange="onSchedulerLocationChange()">
-                                        <option value="">-- Ort waehlen --</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-status-activity">Aktivitaet:</label>
-                                    <select id="job-status-activity" class="auth-input">
-                                        <option value="">-- Aktivitaet waehlen --</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-status-mood">Stimmung:</label>
-                                    <input type="text" id="job-status-mood" class="auth-input" placeholder="z.B. gluecklich, nachdenklich">
-                                </div>
-                            </div>
-
-                            <!-- Aktions-Felder: Dateien lesen -->
-                            <div id="action-extract-fields" class="action-fields" style="display: none;">
-                                <div class="field-hint" style="margin-bottom:8px;">
-                                    Ordner, Pattern, Filter, Modell etc. werden aus der <strong>Skill-Konfiguration</strong> des Characters gelesen (Character-Editor &rarr; Skills &rarr; KnowledgeExtract).
-                                </div>
-                                <div class="form-group">
-                                    <label for="job-extract-prompt">Extraktions-Anweisung (optional):</label>
-                                    <textarea id="job-extract-prompt" class="agent-textarea" rows="2" placeholder="z.B. Extrahiere Namen, Orte und Ereignisse"></textarea>
-                                    <div class="field-hint">
-                                        Beispiele:<br>
-                                        &bull; <em>Extrahiere alle Personen, Orte und wichtige Ereignisse</em><br>
-                                        &bull; <em>Finde Termine, Deadlines und Aufgaben</em><br>
-                                        &bull; <em>Sammle Rezepte: Zutaten und Zubereitungsschritte</em><br>
-                                        &bull; <em>Extrahiere Beziehungen zwischen Personen</em><br>
-                                        Ohne Anweisung werden allgemeine Fakten extrahiert.
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="form-actions">
-                                <button id="btn-job-submit" class="save-btn" onclick="submitSchedulerJob()">Job erstellen</button>
-                                <button class="reset-btn" onclick="cancelJobForm()">Abbrechen</button>
-                            </div>
-                        </div>
-                        <div id="scheduler-editor-placeholder" class="scheduler-empty">
-                            Klicke auf + oder ✏️ um einen Job zu bearbeiten
-                        </div>
+                <!-- Tab 1: Profil -->
+                <div id="agent-editor-tab-profil" class="agent-editor-tab-content">
+                    <div id="editor-sections">
+                        <!-- Sections are rendered dynamically from template -->
+                        <p class="scheduler-empty">Lade Template...</p>
                     </div>
                 </div>
-                </div><!-- /scheduler-tab-jobs -->
 
-                <!-- Tab 2: Tagesablauf -->
-                <div id="scheduler-tab-tagesablauf" class="scheduler-tab-content" style="display: none;">
+                <!-- Tab 2: Tagesablauf (rhythm hint, no longer enforced) -->
+                <div id="agent-editor-tab-tagesablauf" class="agent-editor-tab-content" style="display: none;">
                     <div class="tagesablauf-header">
                         <div style="display: flex; align-items: center; gap: 12px;">
                             <h3 style="margin: 0;">Tagesablauf</h3>
@@ -663,11 +468,13 @@
                         </div>
                         <button class="save-btn" onclick="saveDailySchedule()">Speichern</button>
                     </div>
+                    <p class="field-hint" style="margin: 6px 0 12px 0; color: #888;">
+                        Der Tagesablauf ist ein <em>Hint</em> für den Charakter — er entscheidet selbst, ob er ihm folgt. Schlafen hängt am Energie-Level, nicht mehr an festen Slots.
+                    </p>
                     <div id="tagesablauf-grid" class="tagesablauf-grid">
                         <p class="scheduler-empty">Lade Tagesablauf...</p>
                     </div>
                 </div>
-
             </div>
         </div>
     </div>

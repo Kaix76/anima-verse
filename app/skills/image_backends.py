@@ -792,18 +792,43 @@ class ComfyUIBackend(ImageBackend):
         if not empty_node_ids:
             return
 
-        # Verbindungen zu leeren Nodes aus allen anderen Nodes entfernen
+        # Verbindungen zu leeren Nodes aus allen anderen Nodes entfernen.
+        # Crystools-Switches haben on_true UND on_false beide als required —
+        # wenn nur einer gekappt wuerde, validiert ComfyUI den Switch nicht mehr.
+        # Daher: vor dem Entfernen eines on_true-Wires den noch gueltigen
+        # on_false-Wire kopieren (und umgekehrt), damit der Switch wohlgeformt
+        # bleibt. Der boolean-Flag (vom Upload-Pfad gesetzt) entscheidet weiter
+        # welche Quelle tatsaechlich genutzt wird.
         for node_id, node in workflow.items():
             if node_id in empty_node_ids:
                 continue
             inputs = node.get("inputs", {})
+            is_switch = node.get("class_type") == "Switch any [Crystools]"
             keys_to_remove = []
             for key, value in inputs.items():
-                # Verbindungen sind Arrays: [node_id_str, output_index]
-                if isinstance(value, list) and len(value) == 2 and str(value[0]) in empty_node_ids:
-                    title = node.get("_meta", {}).get("title", node_id)
-                    logger.debug(f"Verbindung '{key}' in '{title}' (Node {node_id}) -> Node {value[0]} entfernt")
-                    keys_to_remove.append(key)
+                if not (isinstance(value, list) and len(value) == 2):
+                    continue
+                if str(value[0]) not in empty_node_ids:
+                    continue
+                title = node.get("_meta", {}).get("title", node_id)
+                if is_switch and key in ("on_true", "on_false"):
+                    other = "on_false" if key == "on_true" else "on_true"
+                    other_val = inputs.get(other)
+                    if (isinstance(other_val, list) and len(other_val) == 2
+                            and str(other_val[0]) not in empty_node_ids):
+                        # Rewire auf die noch gueltige Quelle (deepcopy nicht
+                        # noetig — die Liste wird nicht mutiert).
+                        inputs[key] = list(other_val)
+                        logger.debug(
+                            "Switch '%s' (Node %s): %s -> Node %s entfernt, rewired auf %s (Node %s)",
+                            title, node_id, key, value[0], other, other_val[0])
+                        # boolean so setzen, dass die jetzt KORREKTE Quelle
+                        # genutzt wird (key=on_true gekappt → boolean=False).
+                        if "boolean" in inputs:
+                            inputs["boolean"] = (key == "on_false")
+                        continue
+                logger.debug(f"Verbindung '{key}' in '{title}' (Node {node_id}) -> Node {value[0]} entfernt")
+                keys_to_remove.append(key)
             for key in keys_to_remove:
                 del inputs[key]
 
@@ -986,6 +1011,18 @@ class ComfyUIBackend(ImageBackend):
             workflow[size_node]["inputs"]["width"] = w
             workflow[size_node]["inputs"]["height"] = h
             logger.info(f"input_size: {w}x{h}")
+
+        # Flux2Scheduler haerten: im Workflow-Design sind width/height oft an
+        # ein LoadAndResizeImage (input_reference_image_background) verkabelt.
+        # Wenn dieses Bild leer ist, wird der Node spaeter durch
+        # _remove_empty_load_images entfernt — und Flux2Scheduler verliert
+        # damit seine width/height-Verbindungen. Praeventiv: Literal-Werte
+        # direkt setzen, dann ist die Verkabelung nicht mehr noetig.
+        scheduler_node = self._find_node_by_class(workflow, "Flux2Scheduler")
+        if scheduler_node:
+            workflow[scheduler_node]["inputs"]["width"] = w
+            workflow[scheduler_node]["inputs"]["height"] = h
+            logger.debug("Flux2Scheduler width/height auf Literal-Werte gesetzt: %dx%d", w, h)
 
         # Model-Name in input_model Node setzen (PrimitiveString, CheckpointLoaderSimple oder UNETLoader)
         model_name = params.get("model", "")

@@ -347,12 +347,21 @@ def build_prompt_section(
                 if not value:
                     continue
 
-        # Mehrzeiliger Wert (z.B. strukturiertes MD): Label auf eigene Zeile
+        # Mehrzeiliger Wert (z.B. strukturiertes MD): Label auf eigene Zeile.
+        # Multiline-Bloecke werden visuell separiert (Leerzeile davor + danach),
+        # damit nachfolgende Single-Line-Felder (Attention, Appearance, ...) nicht
+        # an den Body kleben.
         if isinstance(value, str) and "\n" in value:
+            if lines and lines[-1] != "":
+                lines.append("")
             lines.append(f"{label}:")
             lines.append(value)
+            lines.append("")
         else:
             lines.append(f"{label}: {value}")
+    # Trailing-Blank wegtrimmen
+    while lines and lines[-1] == "":
+        lines.pop()
     return lines
 
 

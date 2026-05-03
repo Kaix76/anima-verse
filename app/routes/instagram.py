@@ -110,8 +110,8 @@ def delete_post_image(post_id: str, image_filename: str) -> Dict[str, Any]:
 def like_post(post_id: str, liker_name: str = "") -> Dict[str, Any]:
     """Erhoeht den Like-Zaehler eines Posts."""
     if not liker_name:
-        from app.models.account import get_active_character, get_user_name
-        liker_name = get_active_character() or get_user_name() or "Player"
+        from app.models.account import get_player_identity
+        liker_name = get_player_identity("Player")
     # Nutze add_character_like fuer named tracking, Fallback auf toggle_like
     liked = add_character_like(post_id, liker_name)
     if not liked:
@@ -145,8 +145,8 @@ async def comment_post(post_id: str, request: Request) -> Dict[str, Any]:
     if not text:
         raise HTTPException(status_code=400, detail="Kommentartext erforderlich")
     if not commenter_name:
-        from app.models.account import get_active_character, get_user_name
-        commenter_name = get_active_character() or get_user_name() or "Player"
+        from app.models.account import get_player_identity
+        commenter_name = get_player_identity("Player")
 
     comment = add_comment(post_id, commenter_name, text)
     if comment:

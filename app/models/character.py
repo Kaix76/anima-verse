@@ -184,7 +184,7 @@ _STATE_COLS = ("current_location", "current_room", "current_activity",
 # in profile_json. Inject/Extract analog zu _STATE_COLS.
 _STATE_META_KEYS = ("equipped_pieces", "equipped_items", "equipped_pieces_meta",
                     "active_conditions", "status_effects", "activity_cooldowns",
-                    "runtime_outfit_skip", "character_evolution_updated",
+                    "runtime_outfit_skip",
                     "current_activity_detail")
 
 # Per-Character User-Config (nicht Stamm) — wandern in config_json, nicht profile_json.
@@ -574,6 +574,11 @@ def _get_character_defaults() -> Dict[str, Any]:
     """Character-Default-Config. LLM-Wahl erfolgt zentral ueber den Router."""
     return {
         "telegram_bot_token": "",
+        # Telegram has no avatar selector — every incoming message must
+        # belong to SOME in-world character. Set this to the avatar that
+        # the human on the other end controls; otherwise messages get
+        # tagged with an empty partner and disappear into limbo.
+        "telegram_partner_character": "",
         "tts_enabled": True,
         "tts_auto": False,
         "tts_voice": "",
@@ -1176,6 +1181,40 @@ def save_character_current_feeling(character_name: str, feeling: str):
     # Character-Wechsel schon ein aktuelles Bild bereitsteht. Low-Prio GPU-Task.
     if feeling and feeling != old_feeling:
         _schedule_background_variant(character_name)
+
+
+def force_set_status(character_name: str,
+                     location: Optional[str] = None,
+                     room: Optional[str] = None,
+                     activity: Optional[str] = None,
+                     feeling: Optional[str] = None) -> Dict[str, Any]:
+    """Direct write of character state — no LLM, no AgentLoop, no guards.
+
+    For plot/admin overrides where the story or world needs to put a
+    character somewhere/in some state regardless of in-progress activities,
+    chat sessions, or partner locks. Use sparingly — bypasses every safety
+    that the scheduler-driven ``_action_set_status`` and the AgentLoop
+    bump+hint pattern provide.
+
+    Returns a dict with the keys that were actually written.
+    """
+    if not character_name:
+        return {}
+    written: Dict[str, Any] = {}
+    if location is not None:
+        save_character_current_location(character_name, location=location)
+        written["location"] = location
+    if room is not None:
+        save_character_current_room(character_name, room)
+        written["room"] = room
+    if activity is not None:
+        save_character_current_activity(
+            character_name, activity, detail="", _skip_classify=True)
+        written["activity"] = activity
+    if feeling is not None:
+        save_character_current_feeling(character_name, feeling)
+        written["feeling"] = feeling
+    return written
 
 
 def is_outfit_locked(character_name: str) -> bool:

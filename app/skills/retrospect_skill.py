@@ -2,14 +2,16 @@
 
 Loads recent daily/weekly summaries plus episodic memories, asks the LLM to
 extract new beliefs and improvement intentions, and appends them to two
-plain-text MD files in the character directory:
+plain-text MD files under the character's ``soul/`` directory:
 
-    worlds/<world>/characters/<char>/beliefs.md
-    worlds/<world>/characters/<char>/improvements.md
+    worlds/<world>/characters/<char>/soul/retrospect_beliefs.md
+    worlds/<world>/characters/<char>/soul/retrospect_improvements.md
 
-Each line is timestamped. The agent_thought prompt loads recent entries
-back as context, so beliefs and improvements influence future decisions
-without us touching the character_personality field.
+Separated from the manually-curated ``soul/beliefs.md`` (seed file written
+by the author) so Retrospect-output can grow without clobbering hand-tuned
+content. The agent_thought prompt loads recent entries from BOTH the seed
+and retrospect files as context, so beliefs and improvements influence
+future decisions without touching the character_personality field.
 
 Tool exposure: takes no arguments — the agent just decides "I want to
 reflect now". The thought-context layer hints at this option when enough
@@ -29,13 +31,29 @@ logger = get_logger("retrospect")
 
 
 def get_beliefs_path(character_name: str) -> Path:
+    """Retrospect-output beliefs file. Lebt im soul/ Ordner getrennt von
+    der manuell gepflegten ``beliefs.md`` (= seed). So kann Retrospect
+    appenden ohne Hand-Inhalt zu ueberschreiben."""
     from app.models.character import get_character_dir
-    return get_character_dir(character_name) / "beliefs.md"
+    return get_character_dir(character_name) / "soul" / "retrospect_beliefs.md"
 
 
 def get_improvements_path(character_name: str) -> Path:
     from app.models.character import get_character_dir
-    return get_character_dir(character_name) / "improvements.md"
+    return get_character_dir(character_name) / "soul" / "retrospect_improvements.md"
+
+
+def get_seed_beliefs_path(character_name: str) -> Path:
+    """Manuell kuratierte Seed-Beliefs ('# Ueberzeugungen'-Datei). Wird
+    von ``_build_retrospective_block`` zusaetzlich zur Retrospect-Output-
+    Datei gelesen, damit beide Quellen den Prompt fuettern."""
+    from app.models.character import get_character_dir
+    return get_character_dir(character_name) / "soul" / "beliefs.md"
+
+
+def get_seed_improvements_path(character_name: str) -> Path:
+    from app.models.character import get_character_dir
+    return get_character_dir(character_name) / "soul" / "improvements.md"
 
 
 def load_recent_lines(path: Path, limit: int = 10) -> List[str]:
@@ -88,6 +106,11 @@ class RetrospectSkill(BaseSkill):
 
     SKILL_ID = "retrospect"
     ALWAYS_LOAD = True
+    # ALWAYS_LOAD=True heisst: Skill wird in den Manager geladen, aber
+    # versteckt fuer Characters die keinen `<char>/skills/retrospect.json`
+    # mit `{"enabled": true}` haben. Die Migration in
+    # migrations/2026-05-retrospect-enable.py legt diese Config beim ersten
+    # Server-Start (oder per Hand) fuer alle bestehenden Chars an.
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
@@ -111,9 +134,14 @@ class RetrospectSkill(BaseSkill):
         if not character_name:
             return "Error: agent_name missing."
 
-        from app.models.character import get_character_profile
+        from app.models.character import (
+            get_character_profile, get_character_language, LANGUAGE_MAP)
         profile = get_character_profile(character_name)
         personality = (profile.get("character_personality", "") or "").strip()
+        # Char-Sprache: bestimmt in welcher Sprache beliefs/improvements
+        # geschrieben werden. Fallback "English" wenn Code nicht gemappt.
+        lang_code = (get_character_language(character_name) or "en").strip()
+        language_name = LANGUAGE_MAP.get(lang_code, "English")
 
         recent_summaries = self._gather_recent_summaries(character_name)
         recent_memories = self._gather_recent_memories(character_name)
@@ -132,6 +160,7 @@ class RetrospectSkill(BaseSkill):
                 "retrospect",
                 character_name=character_name,
                 personality=personality or "(not specified)",
+                language_name=language_name,
                 recent_summaries=recent_summaries or "(none)",
                 recent_memories=recent_memories or "(none)",
                 existing_beliefs=existing_beliefs,

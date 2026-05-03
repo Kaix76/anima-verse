@@ -506,6 +506,15 @@
           "store": "config",
           "hint": "Telegram Bot Token from @BotFather. Each character needs its own bot. After saving, use the Reload button to start polling.",
           "hint_de": "Telegram Bot-Token von @BotFather. Jeder Character braucht einen eigenen Bot. Nach dem Speichern den Reload-Button drücken."
+        },
+        {
+          "key": "telegram_partner_character",
+          "label": "Controlled Avatar",
+          "label_de": "Gesteuerter Avatar",
+          "type": "character_select",
+          "store": "config",
+          "hint": "The in-world character that the human on the other side of this Telegram bot is controlling. Used as partner identity for chat/relationship history. Leave empty to skip identity tagging.",
+          "hint_de": "Welcher Charakter in der Welt vom Menschen auf der Telegram-Seite gesteuert wird. Wird als Partner-Identitaet fuer Chat/Beziehungs-Historie genutzt. Leer lassen um keinen Avatar zu setzen."
         }
       ]
     },
@@ -729,15 +738,6 @@
           "hint": "Short-term and long-term personal goals (auto-generated, in soul/goals.md)",
           "hint_de": "Kurz- und langfristige persönliche Ziele (automatisch, soul/goals.md)",
           "editor_visible": false
-        },
-        {
-          "key": "character_evolution_updated",
-          "label": "Last Evolution Update",
-          "label_de": "Letzte Aktualisierung",
-          "type": "text",
-          "editor_visible": false,
-          "hint": "Timestamp of last automatic evolution update",
-          "hint_de": "Zeitpunkt der letzten automatischen Aktualisierung"
         }
       ]
     }

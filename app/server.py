@@ -111,8 +111,6 @@ async def lifespan(app: FastAPI):
     from app.core.memory_service import register_consolidation_handler, register_migration_handler
     register_consolidation_handler()
     register_migration_handler()
-    from app.core.character_evolution import register_character_evolution_handler
-    register_character_evolution_handler()
 
     logger.info("Initializing TTS Service...")
     tts_service = initialize_tts_service()
@@ -189,12 +187,13 @@ async def lifespan(app: FastAPI):
     _telegram_polling = get_polling_manager()
     await _telegram_polling.start()
 
-    # Gedanken-System starten (registriert forced_thought Handler)
-    from app.core.thoughts import ThoughtLoop, set_thought_loop
-    _thought_loop = ThoughtLoop(scheduler_manager=_scheduler_manager)
-    set_thought_loop(_thought_loop)
-    await _thought_loop.start()
-    logger.info("ThoughtLoop bereit!")
+    # Gedanken-Container instanziieren — kein Background-Task mehr,
+    # nur Zugriffsobjekt fuer ``run_thought_turn``. AgentLoop ruft die
+    # Funktion ueber ``get_thought_runner()``.
+    from app.core.thoughts import ThoughtRunner, set_thought_runner
+    _thought_runner = ThoughtRunner()
+    set_thought_runner(_thought_runner)
+    logger.info("ThoughtRunner initialisiert")
 
     # AgentLoop starten — kontinuierliche Gedanken-Schleife mit
     # importance-gewichtetem Round-Robin. Ersetzt den alten periodischen
@@ -265,7 +264,7 @@ async def lifespan(app: FastAPI):
 
     _consolidation_task = _aio.create_task(_periodic_consolidation())
 
-    # Periodic background jobs (replace old ThoughtLoop tick).
+    # Periodic background jobs (replace old ThoughtRunner tick).
     from app.core import periodic_jobs
     periodic_jobs.start()
 
@@ -292,7 +291,7 @@ async def lifespan(app: FastAPI):
         await get_agent_loop().stop()
     except Exception as _ae:
         logger.debug("AgentLoop stop failed: %s", _ae)
-    await _thought_loop.stop()
+    # ThoughtRunner hat keinen Background-Task mehr → kein stop() noetig
     if _scheduler_manager:
         logger.info("Fahre Scheduler herunter...")
         _scheduler_manager.shutdown()

@@ -173,38 +173,107 @@ def _last_exchange(agent: str, partner: str) -> Tuple[str, str]:
 
 def _drive_agent_thought(agent: str, avatar: str) -> PreviewResult:
     """Same path as AgentLoop._run_turn: build_thought_context + render."""
+    return _drive_agent_thought_template(agent, "chat/agent_thought.md")
+
+
+def _drive_agent_thought_in_chat(agent: str, avatar: str) -> PreviewResult:
+    """In-chat-Variante (10–30min seit letztem Chat-Turn). Selbe Datenbasis."""
+    return _drive_agent_thought_template(agent, "chat/agent_thought_in_chat.md")
+
+
+def _drive_agent_thought_template(agent: str, template_rel: str) -> PreviewResult:
     from app.core.thought_context import build_thought_context
     from app.core.prompt_templates import render
     tools_hint = "# Available tools: SendMessage, TalkTo, Retrospect, OutfitChange, SetActivity, SetLocation, ImageGeneration"
     ctx = build_thought_context(agent, tools_hint=tools_hint)
-    out = render("chat/agent_thought.md", **ctx)
+    out = render(template_rel, **ctx)
     return {"ok": True, "output": out,
-            "note": "Production path: agent_loop.AgentLoop._run_turn → "
-                    "thought_context.build_thought_context → render('chat/agent_thought.md'). "
-                    "Avatar selection is unused by this template."}
+            "note": (f"Production path: agent_loop.AgentLoop._run_turn → "
+                     f"thought_context.build_thought_context → render('{template_rel}'). "
+                     f"Avatar selection is unused by this template.")}
 
 
 # --- chat/chat_stream.md (production: _build_full_system_prompt) ----------
 
 def _drive_chat_stream(agent: str, avatar: str) -> PreviewResult:
-    """Same path as routes/chat.py uses to build the chat-stream prompt."""
+    """Same path as routes/chat.py uses to build the chat-stream prompt.
+
+    Liefert System-Prompt + messages-Array (recent_history nach Gap-Cut).
+    Die Summary wird aus dem Cache gelesen — kein synchroner LLM-Refresh,
+    auch wenn die Summary stale ist (Hinweis im note-Feld).
+    """
     from app.routes.chat import _build_full_system_prompt
     from app.models.character import get_character_config
+    from app.models.chat import get_chat_history
+    from app.utils.history_manager import (
+        get_time_based_history, get_cached_summary,
+        _summary_updated_at, get_memory_thresholds)
+    from datetime import datetime
+
     cfg = get_character_config(agent)
-    out = _build_full_system_prompt(
+
+    # Recent_history wie im Production-Pfad rechnen (inkl. Session-Gap-Cut)
+    full_history = get_chat_history(agent, partner_name=avatar) or []
+    recent, old = get_time_based_history(full_history)
+    summary = get_cached_summary(agent) if old else ""
+
+    # Stale-Hinweis: wuerde Production einen synchronen Refresh ausloesen?
+    stale_hint = ""
+    if old:
+        updated_at = _summary_updated_at(agent)
+        newest_old = None
+        for m in old:
+            ts = m.get("timestamp") or ""
+            try:
+                t = datetime.fromisoformat(ts)
+                if newest_old is None or t > newest_old:
+                    newest_old = t
+            except (ValueError, TypeError):
+                continue
+        if not summary:
+            stale_hint = "⚠ Cached Summary leer — beim Chat wird sie sync generiert."
+        elif updated_at and newest_old and newest_old > updated_at:
+            stale_hint = (f"⚠ Cached Summary deckt nicht alle old_messages ab "
+                          f"(newest_old {newest_old.isoformat(timespec='minutes')} > "
+                          f"updated_at {updated_at.isoformat(timespec='minutes')}). "
+                          f"Beim Chat wird sie sync regeneriert.")
+
+    sys_prompt = _build_full_system_prompt(
         character_name=agent,
         lang_instruction="Respond in English.",
-        history_summary="",
+        history_summary=summary,
         tools_enabled=False,
         agent_config=cfg,
         channel="web",
         partner_override=avatar,
         medium="in_person",
     )
-    return {"ok": True, "output": out,
-            "note": f"Production path: routes/chat._build_full_system_prompt("
-                    f"agent={agent!r}, partner_override={avatar!r}, "
-                    f"medium='in_person', tools_enabled=False)."}
+
+    # Messages-Block formatieren
+    gap_h = get_memory_thresholds().get("session_gap_hours", 4)
+    parts = [f"## task: chat_stream\n\n## system\n{sys_prompt}"]
+    if recent:
+        parts.append(
+            f"\n\n## messages ({len(recent)} turn{'s' if len(recent) != 1 else ''} "
+            f"nach Session-Gap-Cut > {gap_h}h)")
+        for i, m in enumerate(recent, 1):
+            role = m.get("role", "?")
+            ts = m.get("timestamp", "")
+            ts_short = ts[:16] if ts else "no-ts"
+            parts.append(f"\n--- [{i}] {role} @ {ts_short} ---\n{m.get('content', '')}")
+    else:
+        parts.append("\n\n## messages\n(empty — keine Turns nach Gap-Cut)")
+
+    note_lines = [
+        f"Production path: routes/chat._build_full_system_prompt(agent={agent!r}, "
+        f"partner_override={avatar!r}, medium='in_person', tools_enabled=False).",
+        f"Recent: {len(recent)} turn(s), Old (in Summary): {len(old)} turn(s).",
+    ]
+    if stale_hint:
+        note_lines.append(stale_hint)
+
+    return {"ok": True, "output": "".join(parts),
+            "note": " ".join(note_lines)}
 
 
 # --- task drivers via capture ---------------------------------------------
@@ -335,7 +404,7 @@ def _drive_relationship_summary_romantic_interests(agent: str, avatar: str) -> P
                     "build (kwargs assembled inline before llm_call)."}
 
 
-def _drive_intent_activity(agent: str, avatar: str) -> PreviewResult:
+def _drive_classify_activity(agent: str, avatar: str) -> PreviewResult:
     """activity_engine has a complex async classifier. The prompt build
     happens inside _do_classify which runs in an executor. We invoke it
     by triggering save_character_current_activity which runs the
@@ -359,23 +428,13 @@ def _drive_intent_activity(agent: str, avatar: str) -> PreviewResult:
             known_lines.append(f"- {n}: {d}" if (n and d) else f"- {n}")
         known_list = "\n".join(known_lines) if known_lines else "(none)"
         from app.core.prompt_templates import render_task
-        sys, user = render_task("intent_activity",
+        sys, user = render_task("classify_activity",
             raw_activity=raw, known_list=known_list)
-        return {"ok": True, "output": _format("intent_activity", sys, user),
+        return {"ok": True, "output": _format("classify_activity", sys, user),
                 "note": (f"Production kwargs reproduced from activity_engine._do_classify. "
                          f"Sample raw_activity={raw!r}, real known_list from agent's location.")}
     except Exception as e:
         return {"ok": False, "output": "", "note": f"Failed: {e}"}
-
-
-def _drive_intent_location(agent: str, avatar: str) -> PreviewResult:
-    from app.routes.scheduler import get_scheduler_manager
-    sched = get_scheduler_manager()
-    if not sched:
-        return {"ok": False, "output": "", "note": "SchedulerManager not initialized."}
-    task, sys, user = _capture_render(lambda: sched._llm_choose_location(agent))
-    return {"ok": True, "output": _format(task, sys, user),
-            "note": "Production: scheduler_manager._llm_choose_location."}
 
 
 def _drive_retrospect(agent: str, avatar: str) -> PreviewResult:
@@ -587,14 +646,26 @@ def _drive_extraction_chat_context(agent: str, avatar: str) -> PreviewResult:
     _, asst_msg = _last_exchange(agent, avatar)
     if not asst_msg:
         return {"ok": False, "output": "", "note": "No recent assistant message."}
+    piece_list = ""
     try:
-        from app.models.character import build_equipped_outfit_prompt
-        baseline = (build_equipped_outfit_prompt(agent) or "").removeprefix("wearing: ")
+        from app.models.inventory import get_equipped_pieces, get_item
+        _eq = get_equipped_pieces(agent) or {}
+        _names: List[str] = []
+        _seen = set()
+        for _slot, _iid in _eq.items():
+            if not _iid or _iid in _seen:
+                continue
+            _seen.add(_iid)
+            _it = get_item(_iid) or {}
+            _n = (_it.get("name") or "").strip()
+            if _n:
+                _names.append(_n)
+        piece_list = "\n".join(f"- {n}" for n in _names)
     except Exception:
-        baseline = ""
+        piece_list = ""
     sys, user = render_task("extraction_chat_context",
         target_name=agent,
-        target_baseline=baseline or "(unknown)",
+        piece_list=piece_list,
         source_label="Character reply",
         source_text=asst_msg,
         outfit_locked=False,
@@ -672,6 +743,7 @@ def _drive_instagram_caption(agent: str, avatar: str) -> PreviewResult:
 
 _PREVIEW_DRIVERS: Dict[str, PreviewDriver] = {
     "chat/agent_thought.md": _drive_agent_thought,
+    "chat/agent_thought_in_chat.md": _drive_agent_thought_in_chat,
     "chat/chat_stream.md": _drive_chat_stream,
     "tasks/extraction_memory.md": _drive_extraction_memory,
     "tasks/extraction_chat_context.md": _drive_extraction_chat_context,
@@ -684,8 +756,7 @@ _PREVIEW_DRIVERS: Dict[str, PreviewDriver] = {
     "tasks/relationship_summary.md": _drive_relationship_summary,
     "tasks/relationship_summary_pair.md": _drive_relationship_summary_pair,
     "tasks/relationship_summary_romantic_interests.md": _drive_relationship_summary_romantic_interests,
-    "tasks/intent_activity.md": _drive_intent_activity,
-    "tasks/intent_location.md": _drive_intent_location,
+    "tasks/classify_activity.md": _drive_classify_activity,
     "tasks/retrospect.md": _drive_retrospect,
     "tasks/secret_generation.md": _drive_secret_generation,
     "tasks/outfit_generation.md": _drive_outfit_generation,

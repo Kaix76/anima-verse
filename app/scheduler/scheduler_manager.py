@@ -212,62 +212,22 @@ class SchedulerManager:
                         self._schedule_job(job)
 
     def _resync_daily_schedules(self):
-        """Stellt den globalen world_hourly_tick-Job sicher.
+        """Phase-2/4 Cleanup: Daily-Schedule-Force ist weg, der Tagesablauf
+        wirkt nur noch als Hint im AgentLoop (``daily_schedule_block``).
 
-        Legacy per-character Jobs ({char}_daily) werden entfernt, da sie
-        parallel ausgefuehrt wurden (Race-Condition). Stattdessen arbeitet
-        der world_hourly_tick alle Characters sequenziell ab.
+        Hier werden noch Legacy-Cron-Job-Eintraege aus der jobs-Liste
+        entfernt (per-char ``daily_schedule`` Type + ``daily_schedule_marker``
+        Stubs), aber keine neuen Marker mehr angelegt. Der globale
+        ``world_hourly_tick`` bleibt fuer administrative Aufgaben.
         """
         try:
-            from app.models.character import (
-                list_available_characters, get_character_daily_schedule)
-
-            # 1. Legacy per-character daily-Jobs entfernen
-            legacy_jobs = [
-                j for j in list(self.jobs_data["jobs"])
-                if j.get("source") == "daily_schedule"
-                and j.get("action", {}).get("type") == "daily_schedule"
-                and j.get("character")  # per-char jobs haben einen character-Namen
-            ]
-            for j in legacy_jobs:
-                logger.info("Entferne Legacy per-char daily-Job: %s", j.get("id"))
+            stale_types = {"daily_schedule", "daily_schedule_marker"}
+            stale = [j for j in list(self.jobs_data["jobs"])
+                     if (j.get("action", {}) or {}).get("type") in stale_types]
+            for j in stale:
+                logger.info("Entferne Legacy daily-Job: %s", j.get("id"))
                 self.remove_job(j["id"])
-
-            # 2. Pruefen ob mindestens ein Character einen aktiven Tagesablauf hat
-            has_active_schedule = False
-            try:
-                all_chars = list_available_characters()
-            except Exception:
-                all_chars = []
-
-            for char in all_chars:
-                try:
-                    schedule = get_character_daily_schedule(char)
-                    if not (schedule and schedule.get("enabled", False) and schedule.get("slots")):
-                        continue
-                    has_active_schedule = True
-                    # Marker sicherstellen (falls er nach Umbau fehlt)
-                    marker_id = f"daily_schedule_{char}"
-                    if not any(j.get("id") == marker_id for j in self.jobs_data["jobs"]):
-                        self.jobs_data["jobs"].append({
-                            "id": marker_id,
-                            "character": char,
-                            "enabled": True,
-                            "source": "daily_schedule",
-                            "trigger": {"type": "marker"},
-                            "action": {"type": "daily_schedule_marker",
-                                       "slots_count": len(schedule.get("slots", []))},
-                            "created_at": datetime.now().isoformat(),
-                        })
-                        try:
-                            self._save_jobs_for_character(char)
-                        except Exception:
-                            pass
-                except Exception:
-                    continue
-
-            if has_active_schedule:
-                self._ensure_world_hourly_job()
+            self._ensure_world_hourly_job()
         except Exception as e:
             logger.warning("Daily-Schedule Resync fehlgeschlagen: %s", e)
 
@@ -413,9 +373,8 @@ class SchedulerManager:
 
         logger.info("Fuehre Job aus: %s (%s)", job_id, action_type)
 
-        # Sleep-Check: Schlafende Characters fuehren keine Jobs aus
-        # (daily_schedule wird separat in _execute_daily_schedule behandelt)
-        if agent and user_id and action_type != 'daily_schedule':
+        # Sleep-Check: Schlafende Characters fuehren keine Jobs aus.
+        if agent and user_id:
             from app.models.character import is_character_sleeping
             if is_character_sleeping(agent):
                 logger.info("Job %s uebersprungen: %s schlaeft", job_id, agent)
@@ -430,17 +389,32 @@ class SchedulerManager:
             elif action_type == 'notify':
                 result = self._action_notify(action, agent)
             elif action_type == 'execute_tool':
-                result = self._action_execute_tool(action, agent)
+                # Phase-4 Cleanup: execute_tool als Char-getriebene Action
+                # entfernt — Tool-Use laeuft ueber den AgentLoop (Char
+                # entscheidet selbst). Bestehende Jobs werden ignoriert.
+                logger.warning("Action 'execute_tool' ist deaktiviert (Phase-4 Cleanup) — "
+                               "Job %s ignoriert (tool=%s)", job_id,
+                               action.get("tool_name") or "?")
+                result = {"success": False, "error": "execute_tool action is deactivated"}
             elif action_type == 'set_status':
                 result = self._action_set_status(action, agent)
             elif action_type == 'daily_schedule':
-                result = self._execute_daily_schedule(agent)
+                # Phase-2 Cleanup: daily_schedule wird nicht mehr enforced —
+                # AgentLoop liest die Daten als Hint via daily_schedule_block.
+                logger.warning("Action 'daily_schedule' ist deaktiviert (Phase-2 Cleanup) — "
+                               "Char %s wird vom AgentLoop selbst gesteuert", agent)
+                result = {"success": False, "error": "daily_schedule action is deactivated"}
             elif action_type == 'world_hourly_tick':
                 result = self._execute_world_hourly_tick()
             elif action_type == 'extract_files':
                 result = self._action_extract_files(action, agent)
             elif action_type == 'custom':
-                result = self._action_custom(action)
+                # Phase-1 Cleanup: 'custom' war ein totes Stub-Feature ohne
+                # echte Funktion. Bestehende custom-Jobs werden mit Warning
+                # ignoriert; das Action-Handler-Method ist entfernt.
+                logger.warning("Action 'custom' ist deaktiviert (Phase-1 Cleanup) — Job %s ignoriert",
+                               action.get("function") or "?")
+                result = {"success": False, "error": "action 'custom' is disabled"}
             else:
                 logger.warning("Unbekannter Action-Typ: %s", action_type)
                 result = {"success": False, "error": f"Unknown action type: {action_type}"}
@@ -478,42 +452,39 @@ class SchedulerManager:
                 logger.error("Fehler beim Speichern von last_execution: %s", e)
 
     def _action_send_message(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
-        """Speichert die Nachricht in der Character→Spieler History und erstellt Notification.
+        """Phase-3: Statt der Nachricht hart in die History zu schreiben,
+        bump'en wir den Charakter im AgentLoop mit einem Hint.
 
-        WICHTIG: Postet NICHT an den aktiven Chat-Endpoint — das wuerde die
-        Nachricht in den falschen Chat-Kontext injizieren (z.B. wenn der User
-        gerade mit einem anderen Character chattet, wuerde die Nachricht dort
-        als User-Input erscheinen).
+        Der Char sieht beim naechsten Thought-Turn den Hint "Du wolltest
+        diese Nachricht senden: <text>" und entscheidet selbst ob er sie
+        sendet (per SendMessage Tool), die Wortwahl anpasst oder skippt
+        weil's nicht mehr passt.
         """
-        message = action.get('message', '')
+        message = (action.get('message') or '').strip()
         if not message:
             return {"success": False, "error": "Keine Nachricht angegeben"}
+        if not agent:
+            return {"success": False, "error": "Kein Agent gesetzt"}
 
-        logger.info("send_message Action: %s sendet '%s...'", agent, message[:80])
-
-        # 1) In Character-Spieler Chat-History speichern
         try:
-            from app.models.chat import save_message
+            from app.core.agent_loop import get_agent_loop
             from app.models.account import get_active_character
-            partner = get_active_character() or ""
-            ts = datetime.now().isoformat()
-            save_message({"role": "assistant", "content": message, "timestamp": ts},
-                character_name=agent,
-                partner_name=partner)
-        except Exception as save_err:
-            logger.error("send_message: Chat-History speichern fehlgeschlagen: %s", save_err)
-
-        # 2) Notification fuer den User erstellen
-        try:
-            from app.models.notifications import create_notification
-            nid = create_notification(
-                character=agent,
-                content=message[:500],
-                notification_type="message",
-                metadata={"trigger": "scheduler"})
-            return {"success": True, "action": "send_message", "notification_id": nid}
+            avatar = (get_active_character() or "user").strip()
+            hint = (
+                f"You scheduled a message for {avatar}: \"{message}\". "
+                f"Decide now whether to send it via SendMessage (you may "
+                f"adjust the wording), or skip if it's no longer relevant."
+            )
+            ok = get_agent_loop().bump(agent, hint=hint)
+            if ok:
+                logger.info("send_message: %s gebumpt mit hint (%d chars)",
+                            agent, len(message))
+                return {"success": True, "action": "send_message",
+                        "delivered_via": "agent_loop_bump"}
+            return {"success": False,
+                    "error": f"AgentLoop.bump abgelehnt fuer {agent} (ineligible)"}
         except Exception as e:
-            logger.error("send_message: Notification-Erstellung fehlgeschlagen: %s", e)
+            logger.error("send_message bump fehlgeschlagen: %s", e)
             return {"success": False, "error": str(e)}
 
     def _action_notify(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
@@ -539,127 +510,6 @@ class SchedulerManager:
             logger.error("Fehler bei notify: %s", e)
             return {"success": False, "error": str(e)}
 
-    def _llm_choose_location(self, character: str) -> Optional[str]:
-        """Fragt das LLM als Character, welche Location er besuchen moechte.
-
-        Gibt die Location-ID zurueck oder None bei Fehler.
-        """
-        try:
-            from app.models.character import (
-                get_character_profile,
-                get_character_current_location, get_character_current_activity,
-                get_character_current_feeling)
-            from app.models.world import get_location_name
-            from app.core.llm_router import llm_call
-            from app.models.memory import load_memories
-
-            profile = get_character_profile(character)
-
-            # Sichtbare Locations: ueber Wissens-Items gefiltert (Character
-            # sieht nur Orte deren knowledge_item_id er im Inventar hat, oder
-            # die keinen Item-Gate haben).
-            from app.models.world import list_locations_for_character
-            locations = list_locations_for_character(character)
-            if not locations:
-                logger.warning("_llm_choose_location: Keine Locations fuer %s", character)
-                return None
-
-            # Aktuelle Situation
-            cur_loc_id = get_character_current_location(character)
-            cur_loc_name = get_location_name(cur_loc_id) if cur_loc_id else "Unbekannt"
-            cur_activity = get_character_current_activity(character) or "Keine"
-            cur_feeling = get_character_current_feeling(character) or "Neutral"
-            now = datetime.now()
-            time_str = now.strftime("%H:%M")
-            char_name = profile.get("name", character)
-            personality = profile.get("personality", "")
-
-            # Location-Liste fuer Prompt
-            loc_lines = []
-            for loc in locations:
-                loc_id = loc.get("id", "")
-                loc_name = loc.get("name", "")
-                loc_desc = loc.get("description", "")
-                loc_lines.append(f"- ID: {loc_id} | Name: {loc_name} | Beschreibung: {loc_desc}")
-            loc_list_str = "\n".join(loc_lines)
-
-            # Tageserlebnisse und Commitments aus Memories laden
-            memory_context = ""
-            try:
-                all_memories = load_memories(character)
-                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                todays_episodes = []
-                open_commitments = []
-                for mem in all_memories:
-                    mtype = mem.get("memory_type", "")
-                    content = mem.get("content", "")
-                    if not content:
-                        continue
-                    if mtype == "commitment":
-                        open_commitments.append(f"  - {content}")
-                    elif mtype == "episodic":
-                        try:
-                            mem_ts = datetime.fromisoformat(mem.get("timestamp", ""))
-                            if mem_ts >= today_start:
-                                todays_episodes.append(f"  - {content}")
-                        except (ValueError, TypeError):
-                            pass
-                if todays_episodes:
-                    memory_context += "\nToday's experiences:\n" + "\n".join(todays_episodes[-10:])
-                if open_commitments:
-                    memory_context += "\nOpen promises/plans:\n" + "\n".join(open_commitments[-5:])
-            except Exception as mem_err:
-                logger.debug("_llm_choose_location: Memory-Kontext Fehler: %s", mem_err)
-
-            from app.core.prompt_templates import render_task
-            system_prompt, user_prompt = render_task(
-                "intent_location",
-                character_name=char_name,
-                personality=personality,
-                time_str=time_str,
-                current_location_name=cur_loc_name,
-                current_activity=cur_activity,
-                current_feeling=cur_feeling,
-                memory_context=memory_context,
-                location_list=loc_list_str)
-
-            try:
-                result = llm_call(
-                    task="intent_location",
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    agent_name=character)
-            except RuntimeError:
-                logger.warning("_llm_choose_location: Kein LLM fuer %s", character)
-                return None
-
-            response_text = (result.content or "").strip() if result else ""
-
-            # ID aus Antwort extrahieren (8-stelliger Hex-Code)
-            import re
-            match = re.search(r'[0-9a-f]{8}', response_text)
-            if match:
-                chosen_id = match.group(0)
-                # Validieren dass die ID tatsaechlich existiert
-                valid_ids = {l.get("id") for l in locations}
-                if chosen_id in valid_ids:
-                    logger.info("LLM waehlte Location %s fuer %s", chosen_id, character)
-                    return chosen_id
-                else:
-                    logger.warning("LLM waehlte ungueltige Location-ID: %s", chosen_id)
-
-            # Fallback: versuche per Name zu matchen
-            from app.models.world import resolve_location
-            loc_obj = resolve_location(response_text)
-            if loc_obj:
-                return loc_obj.get("id")
-
-            logger.warning("_llm_choose_location: Konnte Antwort nicht parsen: %s", response_text)
-            return None
-
-        except Exception as e:
-            logger.error("_llm_choose_location Fehler: %s", e)
-            return None
 
     def _action_set_status(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
         """Setzt Location, Activity und/oder Mood eines Characters direkt.
@@ -734,13 +584,12 @@ class SchedulerManager:
                 logger.error("Duration auto-complete Fehler: %s", e)
                 return {"success": False, "error": str(e)}
 
-        # __llm_choice__: Character waehlt per LLM selbst wo er hin will
+        # Phase-2 Cleanup: __llm_choice__ als Force-Slot entfernt — wenn ein
+        # alter set_status-Job mit __llm_choice__ ankommt, abbrechen statt
+        # einen LLM-Call zu triggern. Der AgentLoop entscheidet selbst.
         if location == "__llm_choice__":
-            chosen = self._llm_choose_location(agent)
-            if chosen:
-                location = chosen
-            else:
-                return {"success": False, "error": "LLM konnte keine Location waehlen"}
+            return {"success": False, "error":
+                    "__llm_choice__ slot ignored — AgentLoop chooses autonomously"}
 
         # Location per ID/Name aufloesen — sicherstellen dass wir eine ID haben
         from app.models.world import get_location, get_location_name as _get_loc_name, resolve_location
@@ -1054,81 +903,32 @@ class SchedulerManager:
                 "location": location,
             })
 
-    def _action_execute_tool(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
-        """Fuehrt ein Tool/Skill direkt aus (ohne Chat/LLM-Umweg).
+    def _action_extract_files(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
+        """Administrative File-Extraction-Action.
 
-        Generischer Skill-Lookup per tool_name. Spezial-Logik fuer bestimmte
-        Tools (z.B. ImageGenerator auto-enhance) wird als Pre-Processing behandelt.
+        Phase-4 Cleanup: ruft den KnowledgeExtract-Skill jetzt direkt auf
+        (vorher Bruecke ueber das entfernte ``_action_execute_tool``).
+        Bleibt admin-only — kein Char-Verhalten, kein LLM-im-Char-Namen.
         """
-        tool_name = action.get('tool_name', '')
-        tool_input = action.get('tool_input', '')
-
-        if not tool_name:
-            return {"success": False, "error": "tool_name erforderlich"}
-
-        logger.info("Direkter Tool-Aufruf: %s (input: %s)", tool_name, tool_input[:80] if tool_input else "")
-
         try:
             from app.core.dependencies import get_skill_manager
             sm = get_skill_manager()
-            skill = sm.get_skill_by_name(tool_name)
+            skill = sm.get_skill_by_name("KnowledgeExtract")
             if not skill:
-                return {"success": False, "error": f"Skill '{tool_name}' nicht geladen"}
-
-            # Pre-Processing: Tool-spezifische Anpassungen
-            payload_data = {
-                "input": tool_input,
+                return {"success": False, "error": "KnowledgeExtract Skill nicht geladen"}
+            payload = json.dumps({
+                "input": action.get("extraction_prompt", ""),
                 "agent_name": agent,
                 "user_id": "",
-            }
-
-            skill_name_lower = tool_name.lower()
-
-            if skill_name_lower in ("imagegenerator", "image_generator"):
-                # Character-Name im Prompt sicherstellen fuer Smart Appearance Injection
-                prompt = tool_input
-                if agent and agent.lower() not in prompt.lower():
-                    prompt = f"{agent}: {prompt}"
-                payload_data = {
-                    "prompt": prompt,
-                    "agent_name": agent,
-                    "user_id": "",
-                    "set_profile": False,
-                    "skip_gallery": False,
-                    "auto_enhance": True,
-                }
-
-            payload = json.dumps(payload_data)
+            })
             result = skill.execute(payload)
-            logger.info("%s-Ergebnis: %s", tool_name, result[:200] if result else "")
-
-            # Ergebnis als Memory speichern wenn der Skill es unterstuetzt
-            if result and hasattr(skill, 'memorize_result'):
-                try:
-                    saved = skill.memorize_result(result, agent)
-                    if saved:
-                        logger.info("%s: Ergebnis als Memory gespeichert", tool_name)
-                except Exception as mem_err:
-                    logger.warning("%s: memorize_result fehlgeschlagen: %s", tool_name, mem_err)
-
-            return {"success": True, "action": "execute_tool", "tool": tool_name, "result": result[:500] if result else ""}
-
+            logger.info("KnowledgeExtract-Ergebnis: %s",
+                        result[:200] if result else "")
+            return {"success": True, "action": "extract_files",
+                    "result": result[:500] if result else ""}
         except Exception as e:
-            logger.error("Fehler bei Tool '%s': %s", tool_name, e)
+            logger.error("Fehler bei extract_files: %s", e)
             return {"success": False, "error": str(e)}
-
-    def _action_extract_files(self, action: Dict[str, Any], agent: str) -> Dict[str, Any]:
-        """Backward-Compat: Leitet extract_files an execute_tool + KnowledgeExtract weiter."""
-        return self._action_execute_tool({
-            "tool_name": "KnowledgeExtract",
-            "tool_input": action.get("extraction_prompt", ""),
-        }, agent)
-
-    def _action_custom(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """Fuehrt eine benutzerdefinierte Funktion aus."""
-        function_name = action.get('function')
-        logger.info("Custom Function: %s", function_name)
-        return {"success": True, "action": "custom", "function": function_name}
 
     def _log_execution(self, job_id: str, status: str, result: Any):
         """Loggt Job-Ausfuehrung in per-Character Log-Datei"""
@@ -1322,22 +1122,29 @@ class SchedulerManager:
     def _was_recently_chatting(self, character: str, minutes: int = 10) -> bool:
         """Prueft ob der Character in den letzten N Minuten im Chat mit dem User war.
 
-        Beruecksichtigt sowohl 1:1 Chats als auch Gruppenchats.
+        Beruecksichtigt sowohl 1:1 Chats (chat_messages-Tabelle) als auch Gruppenchats.
         """
         threshold = minutes * 60  # in Sekunden
-        now_ts = datetime.now().timestamp()
+        now = datetime.now()
 
-        # 1:1 Chat pruefen: mtime der letzten Chat-Datei
+        # 1:1 Chat: juengster ts in chat_messages fuer diesen Character.
+        # (Frueher Filesystem-mtime; nach DB-only-Migration nicht mehr nutzbar.)
         try:
-            from app.models.character import get_character_dir
-            chat_dir = get_character_dir(character) / "chats"
-            if chat_dir.exists():
-                chat_files = sorted(chat_dir.glob("*_chat_*.json"))
-                if chat_files:
-                    last_chat_mtime = chat_files[-1].stat().st_mtime
-                    if (now_ts - last_chat_mtime) < threshold:
+            from app.core.db import get_connection
+            row = get_connection().execute(
+                "SELECT ts FROM chat_messages WHERE character_name=? "
+                "ORDER BY ts DESC LIMIT 1",
+                (character,)).fetchone()
+            if row and row[0]:
+                try:
+                    last_ts = datetime.fromisoformat(row[0])
+                except (ValueError, TypeError):
+                    last_ts = None
+                if last_ts:
+                    age_s = (now - last_ts).total_seconds()
+                    if 0 <= age_s < threshold:
                         logger.info("Location-Wechsel blockiert: %s war vor %.0f Min im 1:1 Chat",
-                                    character, (now_ts - last_chat_mtime) / 60)
+                                    character, age_s / 60)
                         return True
         except Exception as e:
             logger.debug("Fehler beim Pruefen der 1:1 Chat-Aktivitaet: %s", e)
@@ -1364,215 +1171,21 @@ class SchedulerManager:
         return False
 
     def _execute_world_hourly_tick(self) -> Dict[str, Any]:
-        """Aggregate-Job: Arbeitet alle Characters mit aktivem Tagesablauf seriell ab.
+        """Administrative Hourly-Tick.
 
-        Reihenfolge: alphabetisch. Zwischen jedem Character 10s Pause, damit
-        Status-Aenderungen (Location, Activity, Partner) vollstaendig
-        persistiert sind bevor der naechste Character sie liest.
+        Phase-2 Cleanup: der frueher per-Character Daily-Schedule-Loop
+        (mit ``__llm_choice__`` Force-Move via ``intent_location``) wurde
+        entfernt. Die Tagesablauf-Daten werden jetzt im AgentLoop nur
+        noch als Hint-Block gerendert (``daily_schedule_block`` in
+        ``thought_context.py``). Charaktere entscheiden selbst, ob sie
+        ihrem Rhythmus folgen.
+
+        Dieser Tick bleibt als Stub fuer rein administrative Hourly-
+        Aufgaben (z.B. spaetere Memory-Consolidation-Trigger). Aktuell
+        ein No-Op.
         """
-        import time as _time
-        from app.models.character import (
-            list_available_characters,
-            get_character_daily_schedule)
-        from app.models.account import is_player_controlled
-        results = []
-        try:
-            all_chars = sorted(list_available_characters(), key=str.lower)
-        except Exception as e:
-            logger.error("world_hourly_tick: Character-Liste fehlgeschlagen: %s", e)
-            return {"success": False, "error": str(e)}
-
-        # Aktueller Chat-Partner + Zeitpunkt der letzten Chat-Aktivitaet —
-        # wenn der User gerade mit einem NPC geredet hat, darf der Scheduler
-        # diesen NPC nicht mitten im Gespraech wegschicken.
-        _current_partner = ""
-        try:
-            from app.routes.chat import _get_chat_partner
-            _current_partner = _get_chat_partner() or ""
-        except Exception:
-            _current_partner = ""
-
-        # Kandidaten: Characters mit aktivem Tagesablauf, ABER ohne den
-        # Spieler-Avatar (der folgt dem User, nicht dem Scheduler).
-        # Feature-Gate: activities_enabled muss true sein.
-        from app.models.character_template import is_feature_enabled as _feat
-        candidates = []
-        for char in all_chars:
-            try:
-                if is_player_controlled(char):
-                    continue
-                if not _feat(char, "activities_enabled"):
-                    continue
-                # Aktueller Chat-Partner mit Chat-Aktivitaet <10min ? -> skip
-                if char == _current_partner and _was_chatted_recently(char, within_minutes=10):
-                    logger.info(
-                        "world_hourly_tick: %s uebersprungen "
-                        "(aktueller Chat-Partner, letzte Aktivitaet <10min)",
-                        char)
-                    continue
-                sched = get_character_daily_schedule(char)
-                if sched and sched.get("enabled", False) and sched.get("slots"):
-                    candidates.append(char)
-            except Exception:
-                continue
-
-        logger.info("world_hourly_tick: %d Character(s) in dieser Runde: %s",
-                    len(candidates), ", ".join(candidates))
-
-        pause_s = 10  # feste Pause zwischen den Characters
-        for idx, character in enumerate(candidates):
-            if idx > 0:
-                _time.sleep(pause_s)
-            try:
-                logger.info("world_hourly_tick [%d/%d]: %s",
-                            idx + 1, len(candidates), character)
-                res = self._execute_daily_schedule(character)
-                results.append({"character": character, "result": res})
-                _r = (res or {}).get("result", res)
-                _act = (res or {}).get("activity", "") if isinstance(res, dict) else ""
-                if isinstance(res, dict):
-                    _act = res.get("activity", _act)
-                logger.info("world_hourly_tick [%d/%d]: %s -> %s",
-                            idx + 1, len(candidates), character,
-                            (res or {}).get("reason") or (res or {}).get("action") or "done")
-            except Exception as e:
-                logger.error("world_hourly_tick: Fehler bei %s: %s", character, e)
-                results.append({"character": character, "error": str(e)})
         return {"success": True, "action": "world_hourly_tick",
-                "processed": len(results), "results": results}
-
-    def _execute_daily_schedule(self, character: str) -> Dict[str, Any]:
-        """Fuehrt den Tagesablauf fuer die aktuelle Stunde aus.
-
-        Liest den gespeicherten Schedule, findet den Slot fuer die aktuelle Stunde
-        und setzt Location/Activity entsprechend.
-
-        Player-controlled characters (der aktive Avatar) werden uebersprungen —
-        sie werden ausschliesslich manuell vom User gesteuert.
-        """
-        from app.models.account import is_player_controlled
-        if is_player_controlled(character):
-            return {"success": True, "action": "daily_schedule", "skipped": True,
-                    "reason": "Character player-controlled (Avatar)"}
-        from app.models.character import get_character_daily_schedule
-        from app.models.account import is_player_controlled
-
-        # Player-controlled Characters brauchen keinen autonomen Tagesablauf
-        if is_player_controlled(character):
-            logger.debug("Tagesablauf %s: Uebersprungen (player-controlled)", character)
-            return {"success": True, "action": "daily_schedule", "skipped": True,
-                    "reason": "Character ist player-controlled"}
-
-        schedule = get_character_daily_schedule(character)
-        if not schedule or not schedule.get("enabled", False):
-            return {"success": False, "error": "Kein aktiver Tagesablauf"}
-
-        # Pruefen ob Character kuerzlich im Chat war (10 Min) -> Location-Wechsel verschieben
-        if self._was_recently_chatting(character):
-            logger.info("Tagesablauf %s: Location-Wechsel verschoben (kuerzlich im Chat)", character)
-            return {"success": True, "action": "daily_schedule", "skipped": True,
-                    "reason": "Character war in den letzten 10 Minuten im Chat"}
-
-        # Partner-Lock pruefen: wenn Character gerade in einer partner-basierten
-        # Aktivitaet mit laufender Dauer ist, nicht aendern
-        if self._is_partner_locked(character):
-            logger.info("Tagesablauf %s: Uebersprungen (partner-gebunden, Dauer laeuft)", character)
-            return {"success": True, "action": "daily_schedule", "skipped": True,
-                    "reason": "Partner-Aktivitaet laeuft noch"}
-
-        # Pruefen ob Character ein aktives Assignment mit Ort hat
-        # -> Location und Aktivitaet auf Assignment setzen, Tagesablauf ignorieren
-        try:
-            from app.models.assignments import list_assignments
-            active_assignments = list_assignments(character_name=character, status="active")
-            loc_assignment = next((a for a in active_assignments if a.get("location_id")), None)
-            if loc_assignment:
-                a_title = loc_assignment.get("title", "Aufgabe")
-                a_loc = loc_assignment.get("location_id", "")
-                # Aktivitaet aus Rolle oder Titel ableiten
-                participant = loc_assignment.get("participants", {}).get(character, {})
-                a_activity = participant.get("role") or a_title
-                logger.info("Tagesablauf %s: Assignment '%s' -> Location=%s, Activity=%s",
-                            character, a_title, a_loc, a_activity)
-                result = self._action_set_status(
-                    {"location": a_loc, "activity": a_activity}, character)
-                return result
-        except Exception as _ae:
-            logger.debug("Assignment-Check Fehler: %s", _ae)
-
-        current_hour = datetime.now().hour
-        slots = schedule.get("slots", [])
-
-        # Slot fuer die aktuelle Stunde finden
-        current_slot = None
-        for slot in slots:
-            if slot.get("hour") == current_hour:
-                current_slot = slot
-                break
-
-        if not current_slot:
-            logger.debug("Tagesablauf %s: Kein Slot fuer Stunde %d", character, current_hour)
-            return {"success": True, "action": "daily_schedule", "skipped": True,
-                    "reason": f"Kein Slot fuer Stunde {current_hour}"}
-
-        # Sleep-Slot detection: prefer the explicit sleep flag but fall back
-        # to the legacy activity == "__sleep__" sentinel for old schedules.
-        is_sleep_slot = bool(current_slot.get("sleep")) or \
-            current_slot.get("activity") == "__sleep__" or \
-            current_slot.get("location") == "__sleep__"
-
-        if is_sleep_slot:
-            logger.info("Tagesablauf %s: Stunde %d -> Schlaeft", character, current_hour)
-            from app.models.character import (
-                save_character_current_activity, get_character_config,
-                save_character_current_location, save_character_current_room)
-            cfg = get_character_config(character)
-            save_character_current_activity(character, "Sleeping")
-            home_loc = cfg.get("home_location", "")
-            home_room = cfg.get("home_room", "")
-            if home_loc == OFFMAP_SLEEP_SENTINEL:
-                save_character_current_location(character, "")
-                save_character_current_room(character, "")
-            else:
-                if home_loc:
-                    save_character_current_location(character, home_loc)
-                if home_room:
-                    save_character_current_room(character, home_room)
-            return {"success": True, "action": "daily_schedule", "sleeping": True}
-
-        location = current_slot.get("location", "")
-
-        # __llm_choice__: Character waehlt per LLM selbst wo er hin will
-        if location == "__llm_choice__":
-            chosen = self._llm_choose_location(character)
-            if chosen:
-                location = chosen
-                logger.info("Tagesablauf %s: LLM waehlte Location=%s", character, location)
-            else:
-                logger.warning("Tagesablauf %s: LLM konnte keine Location waehlen", character)
-                return {"success": True, "action": "daily_schedule", "skipped": True,
-                        "reason": "LLM konnte keine Location waehlen"}
-
-        if not location:
-            return {"success": False, "error": "Slot ohne Location"}
-
-        # The slot may also pin an activity. If set, apply it; if not, the
-        # AgentLoop's next thought turn decides what the character does.
-        activity = (current_slot.get("activity") or "").strip()
-        # Reject the legacy __sleep__ sentinel as activity (already handled
-        # above as is_sleep_slot). Other __sentinels__ are user input bugs;
-        # ignore them so the agent decides.
-        if activity.startswith("__"):
-            activity = ""
-
-        logger.info("Tagesablauf %s: Stunde %d -> Location=%s%s",
-                     character, current_hour, location,
-                     f", Activity={activity}" if activity else "")
-
-        status = {"location": location}
-        if activity:
-            status["activity"] = activity
-        return self._action_set_status(status, character)
+                "note": "no per-character schedule loop — agent decides via daily_schedule_block hint"}
 
     def toggle_job(self, job_id: str) -> Dict[str, Any]:
         """Aktiviert/Deaktiviert einen Job"""

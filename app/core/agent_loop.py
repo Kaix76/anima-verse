@@ -1,4 +1,4 @@
-"""Continuous AgentLoop — replaces the old probabilistic ThoughtLoop tick.
+"""Continuous AgentLoop — replaces the old probabilistic ThoughtRunner tick.
 
 Picks the next agent via weighted round-robin (importance 1=Low, 2=Medium,
 3=High → 1/2/3 tickets per agent, reshuffled each round). Runs one thought
@@ -20,12 +20,12 @@ Public API:
     AgentLoop.start() / stop() — bootstrap hooks
     AgentLoop.status() -> dict — current/recent/queue snapshot for admin
 
-The forced_thought handler stays on ThoughtLoop (registered separately at
+The forced_thought handler stays on ThoughtRunner (registered separately at
 startup); this loop does not handle external triggers.
 """
 import asyncio
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.log import get_logger
@@ -43,6 +43,15 @@ _MAX_IMPORTANCE = 3
 # How many recent agent picks to keep for the admin status panel.
 _RECENT_HISTORY = 20
 
+# In-chat window: defines what counts as "currently chatting with avatar".
+# < HOT_MIN: skip the turn entirely — the player is actively writing, the
+#   character has nothing useful to offer mid-message.
+# HOT_MIN .. WARM_MIN: use the trimmed in-chat template (focus stays on
+#   the conversation, no random initiatives).
+# > WARM_MIN: regular thought template.
+_IN_CHAT_HOT_MIN = 10
+_IN_CHAT_WARM_MIN = 30
+
 
 class AgentLoop:
     """Asyncio task that ticks one agent thought turn at a time."""
@@ -56,6 +65,11 @@ class AgentLoop:
         # external triggers (avatar enters room, message received,
         # access-denied, etc.). FIFO; deduplicated.
         self._bump_queue: List[str] = []
+        # Optional hints attached to a bump. Pop'd in _run_turn and passed
+        # to run_thought_turn as context_hint so the agent sees a "you
+        # planned to do X — decide now" prompt prefix. Multiple hints for
+        # the same character accumulate (newline-joined).
+        self._bump_hints: Dict[str, str] = {}
         self._current_agent: str = ""
         self._recent: List[Dict[str, Any]] = []  # [{name, ts, action}]
         self._lock = asyncio.Lock()
@@ -101,7 +115,7 @@ class AgentLoop:
             "recent": list(self._recent),
         }
 
-    def bump(self, character_name: str) -> bool:
+    def bump(self, character_name: str, hint: str = "") -> bool:
         """Mark a character for priority processing — they think next.
 
         Used by external triggers (avatar room entry, incoming message,
@@ -109,6 +123,13 @@ class AgentLoop:
         their normal importance-quota would allow. Bumps stack FIFO and
         are deduplicated. Bumped characters skip the normal round-robin
         once; afterwards they fall back to importance scheduling.
+
+        Optional ``hint`` is plaintext context that will be prepended to
+        the next thought turn for this character (via run_thought_turn's
+        context_hint parameter). Multiple hints accumulate. Use this to
+        pass scheduler-style "you planned to send Kai a message — decide
+        now whether to send it" prompts so the LLM can act, adjust, or
+        skip on its own.
 
         Returns True if the bump was registered, False if the character
         is ineligible (sleeping / disabled / avatar / unknown).
@@ -118,11 +139,23 @@ class AgentLoop:
         if not _is_agent_eligible(character_name):
             logger.debug("AgentLoop.bump skipped: %s ineligible", character_name)
             return False
+        if hint:
+            existing = self._bump_hints.get(character_name, "")
+            self._bump_hints[character_name] = (
+                existing + "\n" + hint if existing else hint)
         if character_name in self._bump_queue:
             return True  # already bumped
         self._bump_queue.append(character_name)
-        logger.info("AgentLoop.bump: %s queued for next slot", character_name)
+        logger.info("AgentLoop.bump: %s queued for next slot%s",
+                    character_name, " (with hint)" if hint else "")
         return True
+
+    def pop_hint(self, character_name: str) -> str:
+        """Pop accumulated hint text for the character. Returns empty string
+        if there is none. Mutates internal state — caller must use the
+        returned text in this turn or the hint is lost.
+        """
+        return self._bump_hints.pop(character_name, "")
 
     # ------------------------------------------------------------------
     # Main loop
@@ -172,11 +205,14 @@ class AgentLoop:
                 # the symptom instead of trying to enumerate causes.
                 last = self._recent[-1] if self._recent else None
                 if last:
-                    bad_outcome = last.get("outcome") in ("no_llm", "timeout") \
-                        or str(last.get("outcome", "")).startswith("error")
-                    too_fast = last.get("duration_s", 0) < 1.0
-                    if bad_outcome or too_fast:
-                        await asyncio.sleep(_IDLE_SLEEP_SECONDS)
+                    outcome_val = last.get("outcome")
+                    # in_chat_skip is a healthy fast skip — don't penalize.
+                    if outcome_val != "in_chat_skip":
+                        bad_outcome = outcome_val in ("no_llm", "timeout") \
+                            or str(outcome_val or "").startswith("error")
+                        too_fast = last.get("duration_s", 0) < 1.0
+                        if bad_outcome or too_fast:
+                            await asyncio.sleep(_IDLE_SLEEP_SECONDS)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -236,23 +272,44 @@ class AgentLoop:
             try:
                 from app.core.thought_context import build_thought_context
                 from app.core.prompt_templates import render
-                from app.core.thoughts import get_thought_loop
+                from app.core.thoughts import get_thought_runner
                 from app.core.agent_inbox import mark_thought_processed
 
-                ctx = build_thought_context(character_name)
-                system_prompt = render("chat/agent_thought.md", **ctx)
-
-                thought_loop = get_thought_loop()
-                if thought_loop is None:
-                    logger.warning("ThoughtLoop instance missing — cannot run turn for %s",
-                                   character_name)
-                    outcome = "no_thought_loop"
+                # In-chat gating: HOT (<10min) skip, WARM (10-30min) use the
+                # trimmed in-chat template, otherwise regular thought.
+                chat_age_min = _minutes_since_last_chat_with_avatar(character_name)
+                if chat_age_min is not None and chat_age_min < _IN_CHAT_HOT_MIN:
+                    logger.info("AgentLoop skip %s: in active chat (%.1f min ago)",
+                                character_name, chat_age_min)
+                    outcome = "in_chat_skip"
+                    turn_info = {"preview": f"in-chat skip ({chat_age_min:.1f}min)",
+                                 "tools": [], "intents": []}
                     return
+
+                template_name = "chat/agent_thought.md"
+                if (chat_age_min is not None
+                        and _IN_CHAT_HOT_MIN <= chat_age_min < _IN_CHAT_WARM_MIN):
+                    template_name = "chat/agent_thought_in_chat.md"
+
+                ctx = build_thought_context(character_name)
+                system_prompt = render(template_name, **ctx)
+
+                thought_loop = get_thought_runner()
+                if thought_loop is None:
+                    logger.warning("ThoughtRunner instance missing — cannot run turn for %s",
+                                   character_name)
+                    outcome = "no_thought_runner"
+                    return
+
+                # Pop bump-hint (e.g. "scheduled message: …") and forward
+                # it to the thought turn so the LLM sees the trigger.
+                hint = self.pop_hint(character_name)
 
                 try:
                     result = await asyncio.wait_for(
                         thought_loop.run_thought_turn(
                             character_name,
+                            context_hint=hint,
                             system_prompt_override=system_prompt),
                         timeout=_TURN_TIMEOUT_SECONDS)
                     if isinstance(result, dict):
@@ -320,6 +377,39 @@ def _thought_llm_available() -> bool:
         return resolve_llm("thought") is not None
     except Exception:
         return False
+
+
+def _minutes_since_last_chat_with_avatar(character_name: str) -> Optional[float]:
+    """Returns minutes since the last chat message between this character
+    and the player's avatar, or None if no such conversation exists.
+
+    Used to gate AgentLoop turns: if a chat is active right now, the
+    character should either skip or run a trimmed in-chat template instead
+    of pursuing unrelated initiatives.
+    """
+    try:
+        from app.models.account import get_active_character
+        from app.core.db import get_connection
+        avatar = (get_active_character() or "").strip()
+        if not avatar:
+            return None
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT MAX(ts) FROM chat_messages "
+            "WHERE character_name=? AND partner=?",
+            (character_name, avatar),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            last = datetime.fromisoformat(row[0])
+        except (ValueError, TypeError):
+            return None
+        delta = datetime.now() - last
+        return delta.total_seconds() / 60.0
+    except Exception as e:
+        logger.debug("chat-age check failed for %s: %s", character_name, e)
+        return None
 
 
 def _is_agent_eligible(character_name: str) -> bool:

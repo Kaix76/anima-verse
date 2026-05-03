@@ -27,12 +27,15 @@ def get_memory_thresholds() -> dict:
         mid_term_days:   Stufe 2 → 3 Grenze (Tages → Wochen)
         long_term_days:  Wochen → Monats-Grenze
         max_messages:    Safety-Cap fuer Chat-History
+        session_gap_hours: Zeitluecke zwischen Turns, die als Session-Bruch
+                           zaehlt — alles vor der Luecke wandert in old_history.
     """
     return {
         "short_term_days": int(os.environ.get("MEMORY_SHORT_TERM_DAYS", "3")),
         "mid_term_days": int(os.environ.get("MEMORY_MID_TERM_DAYS", "30")),
         "long_term_days": int(os.environ.get("MEMORY_LONG_TERM_DAYS", "90")),
         "max_messages": int(os.environ.get("CHAT_HISTORY_MAX_MESSAGES", "100")),
+        "session_gap_hours": float(os.environ.get("CHAT_SESSION_GAP_HOURS", "4")),
     }
 
 
@@ -49,6 +52,12 @@ def get_time_based_history(
     Filtert nach Timestamp statt nach fixer Anzahl.
     Nachrichten ohne Timestamp zaehlen als aktuell.
 
+    Zusaetzlich: Session-Gap. Wenn zwischen zwei aufeinanderfolgenden
+    recent-Turns eine Pause groesser als ``session_gap_hours`` liegt,
+    werden alle Turns VOR der letzten solchen Luecke nach ``old`` umgehaengt.
+    Dadurch sieht das LLM nur die aktuelle Session verbatim — alles davor
+    wandert in die Session-Summary.
+
     Args:
         full_history: Vollstaendige Chat-History (dicts mit 'timestamp')
         days: Zeitfenster in Tagen (0 = aus Config)
@@ -62,6 +71,9 @@ def get_time_based_history(
         thresholds = get_memory_thresholds()
         days = days or thresholds["short_term_days"]
         max_messages = max_messages or thresholds["max_messages"]
+    else:
+        thresholds = get_memory_thresholds()
+    gap_hours = thresholds.get("session_gap_hours", 4.0)
 
     cutoff = datetime.now() - timedelta(days=days)
     recent: List[Dict] = []
@@ -85,15 +97,52 @@ def get_time_based_history(
         old.extend(overflow)
         recent = recent[-max_messages:]
 
+    # Session-Gap: an der letzten Luecke > gap_hours abschneiden.
+    if gap_hours > 0 and len(recent) >= 2:
+        gap = timedelta(hours=gap_hours)
+        for i in range(len(recent) - 1, 0, -1):
+            try:
+                prev_ts = datetime.fromisoformat(recent[i - 1].get("timestamp") or "")
+                cur_ts = datetime.fromisoformat(recent[i].get("timestamp") or "")
+            except (ValueError, TypeError):
+                continue
+            if cur_ts - prev_ts > gap:
+                old.extend(recent[:i])
+                recent = recent[i:]
+                break
+
     return recent, old
 
 
+def strip_history_artifacts(content: str) -> str:
+    """Entfernt Artefakte aus Chat-Content bevor er ins messages-Array geht.
+
+    Stoer-Faktoren fuer das LLM, die nicht in die Recent-History gehoeren:
+    - Markdown-Bild-Embeds ``![alt](url)`` — der LLM sieht sie als kryptische
+      URL-Bloecke und imitiert sie ggf. in eigenen Antworten
+    - Generated-Image-Marker / Image-URL-Reste
+
+    DB-Inhalt bleibt unveraendert; nur der vorbei-an-LLM-Stream wird saeubert.
+    """
+    if not content:
+        return content
+    # Markdown-Bild-Embeds in einer oder mehrerer Zeilen
+    content = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', content)
+    # Mehrfache Leerzeilen normalisieren
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    return content.strip()
+
+
 def _resolve_user_name() -> str:
-    """Resolve player display name: active character > username > 'Player'."""
+    """Resolve player display name: active character > 'Player'.
+
+    Login-Name (z.B. "admin") wird absichtlich NICHT als Fallback genutzt —
+    wuerde sonst in Daily-Summaries und Tagebuch-Eintraegen als Speaker
+    auftauchen.
+    """
     try:
-        from app.models.account import get_active_character, get_user_name
-        name = get_active_character() or get_user_name()
-        return name if name else "Player"
+        from app.models.account import get_player_identity
+        return get_player_identity("Player")
     except Exception:
         return "Player"
 
@@ -326,6 +375,78 @@ def update_summary_background(character_name: str, old_messages: List[Dict[str, 
             logger.info("Session-Summary aktualisiert fuer %s (%d Nachrichten)", character_name, len(old_messages))
     except Exception as e:
         logger.error("Session-Summary fehlgeschlagen: %s", e)
+
+
+def _summary_updated_at(character_name: str) -> "datetime | None":
+    """Liest updated_at-Timestamp der gecachten Summary."""
+    try:
+        conn = get_connection()
+        row = conn.execute("""
+            SELECT meta FROM summaries
+            WHERE character_name=? AND kind='history' AND date_key='current'
+        """, (character_name,)).fetchone()
+        if row:
+            meta = json.loads(row[0] or "{}")
+            updated = meta.get("updated_at", "")
+            if updated:
+                return datetime.fromisoformat(updated)
+    except Exception:
+        pass
+    return None
+
+
+def refresh_summary_if_uncovered(
+    character_name: str,
+    old_messages: List[Dict[str, str]]) -> str:
+    """Synchroner Refresh — gibt Summary zurueck, regeneriert wenn alte
+    Cache-Summary den aktuellen ``old_messages``-Stand nicht abdeckt.
+
+    Wird vor dem Bau des System-Prompts aufgerufen. Erkennt: enthaelt
+    ``old_messages`` Eintraege juenger als ``updated_at`` der gecachten
+    Summary? Falls ja → die Summary ist stale (z.B. nach Session-Gap-Cut),
+    regen via LLM (~5-15s). Throttle wird hier bewusst ignoriert.
+
+    Returns: aktuelle (ggf. neu generierte) Summary.
+    """
+    cached = get_cached_summary(character_name)
+    if not old_messages:
+        return cached
+
+    updated_at = _summary_updated_at(character_name)
+
+    # Juengsten Timestamp in old_messages finden
+    newest_old = None
+    for msg in old_messages:
+        ts = msg.get("timestamp", "")
+        if not ts:
+            continue
+        try:
+            t = datetime.fromisoformat(ts)
+            if newest_old is None or t > newest_old:
+                newest_old = t
+        except (ValueError, TypeError):
+            continue
+
+    needs_refresh = (
+        cached == ""
+        or updated_at is None
+        or (newest_old is not None and newest_old > updated_at)
+    )
+    if not needs_refresh:
+        return cached
+
+    try:
+        summary = _create_history_summary(old_messages, character_name=character_name)
+        if summary:
+            _save_cached_summary(character_name, summary, len(old_messages))
+            logger.info(
+                "Session-Summary synchron refreshed fuer %s (%d Nachrichten)",
+                character_name, len(old_messages))
+            return summary
+    except Exception as e:
+        logger.error("Sync-Summary-Refresh fehlgeschlagen: %s", e)
+
+    return cached
 
 
 # === Daily Summaries ===
@@ -618,15 +739,17 @@ def backfill_missing_daily_summaries(character_name: str):
     und Tage die bereits eine Summary haben.
     """
     from app.models.character import get_character_dir
-    from app.models.account import get_user_name
+    from app.models.account import get_player_identity
 
     existing = load_daily_summaries(character_name)
     chat_dir = get_character_dir(character_name) / "chats"
     if not chat_dir.exists():
         return
 
-    display_name = get_user_name()
-    key_base = display_name if display_name else ""
+    # Legacy: alte Daily-Summaries lagen als {avatar}_chat_{date}.json. Avatar
+    # statt Login, sonst suchen wir bei admin-Login auf "admin_chat_*.json"
+    # statt "Kai_chat_*.json".
+    key_base = get_player_identity("")
     today = date.today()
     days = int(os.environ.get("DAILY_SUMMARY_DAYS", "7"))
 

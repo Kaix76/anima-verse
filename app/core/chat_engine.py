@@ -54,9 +54,9 @@ def build_chat_context(
     from app.models.character import (
         get_character_config,
         get_character_language_instruction)
-    from app.models.account import get_user_name, get_active_character, get_chat_partner
+    from app.models.account import get_active_character, get_chat_partner
     from app.models.chat import get_chat_history
-    from app.utils.history_manager import get_time_based_history, get_cached_summary
+    from app.utils.history_manager import get_time_based_history, get_cached_summary, refresh_summary_if_uncovered, strip_history_artifacts
     from app.routes.chat import _build_full_system_prompt, _strip_tool_hallucinations
 
     agent_config = get_character_config(character_name)
@@ -66,7 +66,13 @@ def build_chat_context(
     # For web chat: player's active character is the conversation partner identity.
     # For telegram: use account name (telegram has no character-switching).
     if channel == "telegram":
-        user_display_name = get_user_name() or owner_id
+        # Telegram hat kein Avatar-Wahlfeld — der gesteuerte Avatar steht
+        # in der Bot-Config (telegram_partner_character). Ohne den waeren
+        # alle Telegram-Nachrichten partner='' und unauffindbar.
+        user_display_name = (
+            (agent_config or {}).get("telegram_partner_character", "").strip()
+            or "user"
+        )
     else:
         # Avatar identity, never the login name — "admin" used to leak in here.
         user_display_name = get_active_character() or get_chat_partner() or "user"
@@ -93,7 +99,9 @@ def build_chat_context(
 
     # History window (zeitgesteuert)
     recent_history, old_history = get_time_based_history(full_chat_history)
-    history_summary = get_cached_summary(character_name) if old_history else ""
+    history_summary = (
+        refresh_summary_if_uncovered(character_name, old_history)
+        if old_history else "")
 
     messages = []
     # Halluzinierter Template-Prefix von Send-Message-Hint:
@@ -115,10 +123,14 @@ def build_chat_context(
                 if not content:
                     continue
             content = _strip_tool_hallucinations(content)
+            content = strip_history_artifacts(content)
             if not content:
                 continue
             messages.append({"role": "assistant", "content": content})
         else:
+            content = strip_history_artifacts(content)
+            if not content:
+                continue
             messages.append({"role": "user", "content": content})
 
     # Self-Reinforcement-Loop brechen: identische Assistant-Antworten
@@ -465,11 +477,18 @@ def post_process_response(
                       character_name, len(cleaned))
         return result
 
+    # Im Thought-Modus ist user_input synthetisch — fuer Memory-Extraction
+    # leeren, damit die Template-Zeile "Player (User): ..." nicht mit einer
+    # System-Instruktion gefuellt wird (sonst extrahiert der LLM Bogus-
+    # Memories ueber den vermeintlichen User-Befehl).
+    _is_thought = bool(extraction_context and extraction_context.get("source") == "thought")
+    _mem_user_input = "" if _is_thought else user_input
+
     def _background_extraction():
         # Memory extraction
         try:
             from app.core.memory_service import extract_memories_from_exchange, apply_extracted_memories
-            extracted = extract_memories_from_exchange(character_name, user_input, cleaned, llm
+            extracted = extract_memories_from_exchange(character_name, _mem_user_input, cleaned, llm
             )
             if extracted:
                 count = apply_extracted_memories(character_name, extracted,
@@ -478,7 +497,11 @@ def post_process_response(
         except Exception as e:
             logger.error("[%s] Memory extraction error: %s", character_name, e)
 
-        # Relationship update
+        # Relationship update — im Thought-Modus skippen, da Gedanken keine
+        # Interaktion mit dem User sind (sonst falsche Closeness-Increments
+        # und ein zweiter LLM-Call mit synthetischem User-Input).
+        if _is_thought:
+            return
         try:
             from app.models.relationship import record_interaction, get_romantic_interests
 
@@ -551,8 +574,8 @@ def post_process_response(
     # Intent extraction
     try:
         from app.core.intent_engine import process_response_intents_async
-        from app.core.thoughts import get_thought_loop
-        _pl = get_thought_loop()
+        from app.core.thoughts import get_thought_runner
+        _pl = get_thought_runner()
         _sched = getattr(_pl, '_scheduler', None) if _pl else None
         asyncio.ensure_future(
             process_response_intents_async(full_response, character_name,
@@ -573,12 +596,18 @@ def post_process_response(
     except Exception as e:
         logger.error("[%s] Instagram extraction error: %s", character_name, e)
 
-    # Chat context extraction (activity + outfit from response)
+    # Chat context extraction (activity + outfit from response).
+    # Im Thought-Modus ist user_input eine synthetische System-Instruktion
+    # ("Denke ueber deine Aufgabe nach…") und stammt NICHT vom Avatar — daher
+    # wird sie aus updated_history weggelassen, damit die Avatar-Outfit-
+    # Extraktion nicht mit Unsinn gefuettert wird. Agent-Side-Extraction aus
+    # dem Thought-Response bleibt aktiv.
     try:
-        updated_history = full_chat_history + [
-            {"role": "user", "content": user_input},
-            {"role": "assistant", "content": full_response},
-        ]
+        is_thought = bool(extraction_context and extraction_context.get("source") == "thought")
+        updated_history = list(full_chat_history)
+        if not is_thought:
+            updated_history.append({"role": "user", "content": user_input})
+        updated_history.append({"role": "assistant", "content": full_response})
         _extract_context_from_last_chat(character_name, updated_history, agent_config)
     except Exception as e:
         logger.error("[%s] Context extraction error: %s", character_name, e)

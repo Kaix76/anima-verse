@@ -194,17 +194,6 @@ class ImageGenerationSkill(BaseSkill):
                 ],
                 "help": "Methode fuer den Gesichts-Swap nach der Bildgenerierung",
             },
-            "multiswap_mode": {
-                "type": "select",
-                "default": "face_hair",
-                "label": "MultiSwap-Bereich",
-                "options": [
-                    {"value": "face_hair", "label": "Gesicht + Haar"},
-                    {"value": "outfit",    "label": "Kleidung + Accessoires"},
-                    {"value": "full",      "label": "Alles (Gesicht + Haar + Kleidung)"},
-                ],
-                "help": "Welche Bildbereiche MultiSwap ersetzt. Greift nur wenn Swap-Modus = MultiSwap.",
-            },
         }
 
     def _load_instances(self) -> List[ImageBackend]:
@@ -1789,18 +1778,9 @@ class ImageGenerationSkill(BaseSkill):
         return swapped
 
     # --- MultiSwap ---
-
-    MULTISWAP_MODES = {
-        "face_hair": {"face": True, "hair": True, "clothes": False, "accessories": False},
-        "outfit":    {"face": False, "hair": False, "clothes": True, "accessories": True},
-        "full":      {"face": True, "hair": True, "clothes": True, "accessories": True},
-    }
-    # Reihenfolge der Mask-Regionen im Prompt (alphabetisch nach Layer-Order).
-    MULTISWAP_REGIONS = ("face", "hair", "body", "clothes", "accessories", "background")
-    # Node-Titel (nicht Node-IDs!) damit Workflows austauschbar bleiben.
-    # Fuer Loader zusaetzlich Class-Type-Fallback in _apply_multiswap.
-    MULTISWAP_MASK_TITLE = "input_mask"
-    MULTISWAP_PROMPT_TITLE = "input_prompt"
+    # Region-Selektion (face/hair/body/clothes/...) lebt jetzt komplett im
+    # ComfyUI-Workflow (hartcodierter input_prompt_positive). Code patcht hier
+    # nur noch Refs/Switches/UNet/CLIP, keine Mask- oder Prompt-Hints mehr.
     MULTISWAP_UNET_TITLES = ("input_safetensors", "input_unet", "input_model", "input_gguf")
 
     # Maximale Anzahl Character-Slots, die der MultiSwap-Workflow in einem
@@ -1814,7 +1794,6 @@ class ImageGenerationSkill(BaseSkill):
         saved_files: List[str],
         images_dir,
         face_refs: Dict[str, Any],
-        multiswap_mode: str = "face_hair",
         generation_backend: Optional[ImageBackend] = None) -> List[str]:
         """Wendet MultiSwap-Workflow auf gespeicherte Bilder an.
 
@@ -1823,11 +1802,14 @@ class ImageGenerationSkill(BaseSkill):
         Characters wird in 2er-Bloecken iteriert (Ergebnis -> Target naechster
         Block). Standardfall (1-2 Characters) braucht damit nur 1 Pass.
 
+        Welche Bildbereiche getauscht werden (face/hair/clothes/...) entscheidet
+        ausschliesslich der ComfyUI-Workflow ueber seinen hartcodierten
+        input_prompt_positive. Der Code patcht nur die Referenzbilder.
+
         Args:
             saved_files: Dateinamen der generierten Bilder.
             images_dir: Verzeichnis der Bilder.
             face_refs: Ergebnis von _resolve_face_references() (profile_only=True).
-            multiswap_mode: "face_hair", "outfit", oder "full".
             generation_backend: Backend das die Bilder generiert hat.
 
         Returns:
@@ -1914,33 +1896,6 @@ class ImageGenerationSkill(BaseSkill):
                     return _nid
             return None
 
-        # Mask-Flags aus Modus bestimmen — alle Regionen explizit, damit
-        # Prompt und Mask aus derselben Quelle gespeist werden.
-        _mode_flags = self.MULTISWAP_MODES.get(multiswap_mode, self.MULTISWAP_MODES["face_hair"])
-        flags = {region: bool(_mode_flags.get(region, False)) for region in self.MULTISWAP_REGIONS}
-
-        # Mask-Node: per Titel (input_mask). Wenn nicht vorhanden, nutzt der
-        # Workflow keine Region-Mask — Flags werden ignoriert (legitimes
-        # Workflow-Design, nur DEBUG-Log).
-        mask_nid = _find_by_title(self.MULTISWAP_MASK_TITLE)
-        if mask_nid:
-            node_overrides[mask_nid] = dict(flags)
-        else:
-            logger.debug("MultiSwap: kein '%s'-Node — Workflow ohne Region-Mask, Flags ignoriert",
-                         self.MULTISWAP_MASK_TITLE)
-
-        # Prompt-Hint: nur fuer aelteren MultiSwap-Workflow noetig, der einen
-        # separaten 'input_prompt' Text-Node hatte. Der neue Workflow hat einen
-        # fest verdrahteten input_prompt_positive — Region-Selektion laeuft
-        # ausschliesslich ueber die Mask-Flags. Kein Override -> kein Logspam.
-        prompt_hint = ", ".join(r for r in self.MULTISWAP_REGIONS if flags[r])
-        prompt_nid = _find_by_title(self.MULTISWAP_PROMPT_TITLE)
-        if prompt_nid:
-            node_overrides[prompt_nid] = {"text": prompt_hint}
-        else:
-            logger.debug("MultiSwap: kein '%s'-Node — neuer Workflow nutzt nur Mask-Flags",
-                         self.MULTISWAP_PROMPT_TITLE)
-
         # UNet + CLIP per Titel injizieren (zentral konfigurierbar via faceswap.multiswap_unet/clip)
         unet_name = os.environ.get("COMFY_MULTISWAP_UNET", "").strip()
         clip_name = os.environ.get("COMFY_MULTISWAP_CLIP", "").strip()
@@ -2001,8 +1956,8 @@ class ImageGenerationSkill(BaseSkill):
             face_slots[i:i + self.MULTISWAP_MAX_REFS_PER_PASS]
             for i in range(0, len(face_slots), self.MULTISWAP_MAX_REFS_PER_PASS)
         ]
-        logger.info("MultiSwap: mode=%s, %d Character(s) in %d Pass(es), flags=%s",
-                     multiswap_mode, len(face_slots), len(chunks), flags)
+        logger.info("MultiSwap: %d Character(s) in %d Pass(es)",
+                     len(face_slots), len(chunks))
 
         swapped = []
         for i, file_name in enumerate(saved_files, 1):
@@ -3309,18 +3264,17 @@ class ImageGenerationSkill(BaseSkill):
 
                 if _swap_mode == "multiswap":
                     # --- MultiSwap (Flux.2) ---
-                    _ms_mode = (_skill_cfg.get("multiswap_mode") or "face_hair").strip()
-                    if _ms_mode not in self.MULTISWAP_MODES:
-                        _ms_mode = "face_hair"
-                    _tq.track_update_label(_track_id, f"MultiSwap ({_ms_mode})")
-                    logger.info("MULTISWAP POST-PROCESSING START (mode=%s)", _ms_mode)
+                    # Bildbereich-Auswahl (face/hair/clothes/...) lebt im
+                    # ComfyUI-Workflow selbst, nicht mehr im Code.
+                    _tq.track_update_label(_track_id, "MultiSwap")
+                    logger.info("MULTISWAP POST-PROCESSING START")
                     from app.core.llm_queue import get_llm_queue, Priority as _P
                     try:
                         swapped = get_llm_queue().submit_gpu_task(
                             task_type="multiswap",
                             priority=_P.IMAGE_GEN,
                             callable_fn=lambda: self._apply_multiswap(
-                                saved_files, images_dir, face_refs, _ms_mode, backend),
+                                saved_files, images_dir, face_refs, backend),
                             agent_name=character_name, label="MultiSwap",
                             vram_required_mb=_fs_vram,
                             gpu_type="comfyui")

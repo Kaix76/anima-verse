@@ -283,6 +283,7 @@ def _flatten_to_env(config: dict) -> None:
     _set(env, "MEMORY_MID_TERM_DAYS", memory.get("mid_term_days", 30))
     _set(env, "MEMORY_LONG_TERM_DAYS", memory.get("long_term_days", 90))
     _set(env, "CHAT_HISTORY_MAX_MESSAGES", memory.get("max_messages", 100))
+    _set(env, "CHAT_SESSION_GAP_HOURS", memory.get("session_gap_hours", 4))
     _set(env, "MEMORY_MAX_SEMANTIC", memory.get("max_semantic", 50))
     _set(env, "MEMORY_COMMITMENT_MAX_DAYS", memory.get("commitment_max_days", 5))
     _set(env, "MEMORY_COMMITMENT_COMPLETED_DAYS", memory.get("commitment_completed_days", 3))
@@ -509,12 +510,6 @@ def _flatten_to_env(config: dict) -> None:
     _set(env, "EVENT_BASE_PROBABILITY", (re_cfg.get("base_probability", 5)) / 100)
     _set(env, "EVENT_RESOLUTION_PROACTIVE", re_cfg.get("resolution_proactive", True))
     _set(env, "EVENT_RESOLUTION_COOLDOWN_MINUTES", re_cfg.get("resolution_cooldown_minutes", 15))
-
-    # Character Evolution
-    ce = config.get("character_evolution", {})
-    _set(env, "CHARACTER_EVOLUTION_ENABLED", ce.get("enabled", True))
-    _set(env, "CHARACTER_EVOLUTION_INTERVAL_HOURS", ce.get("interval_hours", 24))
-    _set(env, "CHARACTER_EVOLUTION_MIN_MEMORIES", ce.get("min_memories", 5))
 
     # Story Engine
     se = config.get("story_engine", {})

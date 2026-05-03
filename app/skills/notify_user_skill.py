@@ -95,9 +95,9 @@ class NotifyUserSkill(BaseSkill):
             # History-Eintrag und reagierte verwirrt.
             try:
                 from app.models.chat import save_message
-                from app.models.account import get_active_character, get_user_name
+                from app.models.account import get_player_identity
                 from datetime import datetime as _dt
-                avatar = get_active_character() or get_user_name() or ""
+                avatar = get_player_identity("")
                 if avatar and avatar != character_name:
                     ts = _dt.now().isoformat()
                     save_message({

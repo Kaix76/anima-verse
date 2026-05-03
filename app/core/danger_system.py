@@ -143,10 +143,18 @@ def save_status_modifiers(modifiers: List[Dict[str, Any]]):
 
 
 def build_status_prompt_section(character_name: str) -> str:
-    """Baut Prompt-Sektion fuer aktive Status-Effekte.
+    """DEACTIVATED — replaced by ``app.core.prompt_filters``.
 
-    Liest konfigurierbare status_modifiers + aktive Conditions + Danger-Level.
+    The rules-table-driven effects/modifier/danger rendering moved to a
+    state-filter mechanism that not only adds prompt text but also drops
+    irrelevant blocks (e.g. fuzzy memory while drunk). This function now
+    returns "" so existing callers (currently
+    ``thought_context._build_effects_block``) become no-ops; the filter
+    layer overrides ``ctx['effects_block']`` after building.
     """
+    return ""
+
+    # ----- legacy implementation kept below for reference / future re-enable -----
     try:
         from app.models.character import get_character_profile, get_character_current_location, get_character_current_room
         from app.models.world import get_location_by_id

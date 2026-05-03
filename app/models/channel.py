@@ -42,7 +42,8 @@ class Message:
         channel_message_id: Optional[str] = None,  # ID der Nachricht im externen Kanal
         metadata: Optional[Dict[str, Any]] = None,
         speaker: str = "user",
-        medium: str = "in_person"):
+        medium: str = "in_person",
+        id: Optional[int] = None):  # noqa: A002 - DB row id
         self.content = content
         self.role = role
         self.channel = channel
@@ -51,10 +52,14 @@ class Message:
         self.metadata = metadata or {}
         self.speaker = speaker
         self.medium = medium
+        # DB-Rowid (chat_messages.id). Wird beim Lesen aus der DB gesetzt;
+        # bei frisch erzeugten Messages noch None bis save_message commited.
+        self.id = id
 
     def to_dict(self) -> Dict[str, Any]:
         """Konvertiere zu Dictionary für JSON-Speicherung"""
         return {
+            "id": self.id,
             "content": self.content,
             "role": self.role,
             "channel": self.channel.value,
@@ -80,7 +85,8 @@ class Message:
             channel_message_id=data.get("channel_message_id"),
             metadata=data.get("metadata", {}),
             speaker=data.get("speaker", "user"),
-            medium=data.get("medium", "in_person"))
+            medium=data.get("medium", "in_person"),
+            id=data.get("id"))
 
 
 class ChannelInterface(ABC):
