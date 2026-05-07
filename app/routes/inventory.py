@@ -227,25 +227,38 @@ def _alpha_coverage_too_low(image_path: Path, threshold_pct: float = 5.0) -> boo
         return False
 
 
-def generate_item_image_sync(item_id: str) -> bool:
+def generate_item_image_sync(
+    item_id: str,
+    overrides: Dict[str, Any] | None = None) -> bool:
     """Synchrone Item-Bild-Generierung (fuer Background-Threads).
 
-    Nutzt Default-Workflow + guenstigstes Backend. Gibt True bei Erfolg zurueck.
+    Nutzt Default-Workflow + guenstigstes Backend, sofern keine ``overrides``
+    uebergeben werden. ``overrides`` kommt aus dem Game-Admin Generate-Image
+    Dialog und kann enthalten:
+        - workflow:        Name eines konfigurierten ComfyUI-Workflows
+        - backend:         Name eines Image-Backends
+        - model_override:  ModellName/Datei (ueberschreibt workflow-Default)
+        - loras:           Liste von {file, strength} oder Dicts
+        - prompt:          Komplett-Prompt (ueberschreibt die Auto-Variante)
+        - negative_prompt: Negative-Prompt (ueberschreibt Backend-Default)
     """
+    overrides = overrides or {}
     item = get_item(item_id)
     if not item:
         return False
-    # Prompt-Kette: image_prompt > prompt_fragment > name
-    base = (item.get("image_prompt") or "").strip()
-    if not base:
-        base = (item.get("prompt_fragment") or "").strip()
-    if not base:
-        base = (item.get("name") or item_id).strip()
-    # Gruener Hintergrund + Produkt-Photo-Style: kontrastreicher Hintergrund
-    # damit rembg das Subjekt sauber freistellen kann. "neutral background"
-    # liess rembg auf Objekten regelmaessig leer schlagen — bei Gruen findet
-    # u2net auch Nicht-Personen-Subjekte zuverlaessig.
-    prompt_text = f"{base}, isolated object on green background, product photography, sharp focus, realistic"
+    # Prompt-Kette: explicit override > image_prompt > prompt_fragment > name
+    custom_prompt = (overrides.get("prompt") or "").strip()
+    if custom_prompt:
+        prompt_text = custom_prompt
+    else:
+        base = (item.get("image_prompt") or "").strip()
+        if not base:
+            base = (item.get("prompt_fragment") or "").strip()
+        if not base:
+            base = (item.get("name") or item_id).strip()
+        # Gruener Hintergrund + Produkt-Photo-Style: kontrastreicher Hintergrund
+        # damit rembg das Subjekt sauber freistellen kann.
+        prompt_text = f"{base}, isolated object on green background, product photography, sharp focus, realistic"
 
     from app.core.dependencies import get_skill_manager
     img_skill = None
@@ -257,15 +270,40 @@ def generate_item_image_sync(item_id: str) -> bool:
         logger.warning("Item-Bild [%s]: ImageGeneration Skill nicht verfuegbar", item_id)
         return False
 
-    active_wf = getattr(img_skill, '_default_workflow', None)
-    backend = img_skill._select_backend()
+    # Workflow-Override: aus overrides oder Default
+    active_wf = None
+    wf_name = (overrides.get("workflow") or "").strip()
+    if wf_name:
+        for wf in (img_skill.comfy_workflows or []):
+            if wf.name == wf_name:
+                active_wf = wf
+                break
+        if not active_wf:
+            logger.warning("Item-Bild [%s]: Override-Workflow '%s' nicht gefunden — Default",
+                           item_id, wf_name)
+    if not active_wf:
+        active_wf = getattr(img_skill, '_default_workflow', None)
+
+    # Backend-Override: aus overrides oder Auto-Auswahl
+    backend = None
+    backend_name = (overrides.get("backend") or "").strip()
+    if backend_name:
+        for b in (img_skill.backends or []):
+            if b.name == backend_name and getattr(b, "available", True):
+                backend = b
+                break
+        if not backend:
+            logger.warning("Item-Bild [%s]: Override-Backend '%s' nicht verfuegbar — Auto",
+                           item_id, backend_name)
+    if not backend:
+        backend = img_skill._select_backend()
     if not backend:
         logger.warning("Item-Bild [%s]: Kein Backend verfuegbar", item_id)
         return False
 
-    if backend.prompt_prefix:
+    if backend.prompt_prefix and not custom_prompt:
         prompt_text = f"{backend.prompt_prefix}, {prompt_text}"
-    negative = backend.negative_prompt or ""
+    negative = (overrides.get("negative_prompt") or "").strip() or (backend.negative_prompt or "")
 
     from app.core import config as _cfg
     _w = int(_cfg.get("inventory.item_image_width", 256) or 256)
@@ -275,10 +313,23 @@ def generate_item_image_sync(item_id: str) -> bool:
         if active_wf.workflow_file:
             params["workflow_file"] = active_wf.workflow_file
         _model_key = "unet" if active_wf.has_input_unet else "model"
-        if active_wf.model:
-            params[_model_key] = active_wf.model
+        # Model-Override: aus overrides oder Workflow-Default
+        _model_val = (overrides.get("model_override") or "").strip() or active_wf.model
+        if _model_val:
+            params[_model_key] = _model_val
         if active_wf.clip:
             params["clip_name"] = active_wf.clip
+        # LoRA-Overrides: Liste von {file, strength} oder String-Tupeln
+        _loras = overrides.get("loras")
+        if isinstance(_loras, list) and _loras:
+            _clean_loras = []
+            for l in _loras:
+                if isinstance(l, dict):
+                    _f = (l.get("file") or "").strip()
+                    if _f:
+                        _clean_loras.append({"file": _f, "strength": float(l.get("strength") or 1.0)})
+            if _clean_loras:
+                params["loras"] = _clean_loras
 
     try:
         from app.core.llm_queue import get_llm_queue, Priority as _P
@@ -349,22 +400,38 @@ async def generate_item_image_route(item_id: str, request: Request) -> Dict[str,
 
     Gibt sofort 202 zurueck, Generierung laeuft im Background-Thread
     ueber die GPU-Queue. User kann mehrere Items hintereinander anklicken.
+
+    Optional Overrides aus dem Game-Admin Regenerate-Dialog:
+        workflow, backend, model_override, loras, prompt, negative_prompt
     """
     item = get_item(item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    # Body lesen — Dialog-Overrides; leerer Body ist OK (Auto-Auswahl)
+    overrides: Dict[str, Any] = {}
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            for k in ("workflow", "backend", "model_override",
+                      "loras", "prompt", "negative_prompt"):
+                if k in body:
+                    overrides[k] = body[k]
+    except Exception:
+        pass
+
     import threading
     threading.Thread(
         target=generate_item_image_sync,
-        args=(item_id,),
+        args=(item_id, overrides),
         daemon=True,
         name=f"item-img-{item_id[:8]}").start()
     from fastapi.responses import JSONResponse
     return JSONResponse(
         status_code=202,
         content={"status": "queued", "item_id": item_id,
-                 "item_name": item.get("name", item_id)})
+                 "item_name": item.get("name", item_id),
+                 "overrides_applied": list(overrides.keys())})
 
 
 # ============================================================
