@@ -88,46 +88,59 @@ def _evaluate_single_condition_inner(
     if cond == "alone":
         return _check_alone(character_name, location_id)
 
-    # --- night / day mit optionalem Minuten-Offset ---
+    # --- night / day mit optionalem Minuten-Offset auf den Startzeitpunkt ---
     # Beispiele:
     #   night       — 18:00 bis 06:00
-    #   night-30    — 30 Minuten vor Nachtbeginn, also 17:30 bis 06:00
+    #   night-30    — Start 30 Min FRUEHER: 17:30 bis 06:00
+    #   night+30    — Start 30 Min SPAETER: 18:30 bis 06:00
     #   day         — 06:00 bis 18:00
     #   day-30      — 05:30 bis 18:00
-    # Die Offset-Form verschiebt den Startzeitpunkt nach VORNE (frueher),
-    # so dass Aktivitaeten als "Vorbereitung" auf den naechsten Tag-/Nacht-
-    # Wechsel rechtzeitig getriggert werden.
-    td_match = re.match(r"^(night|day)(?:-(\d+))?$", cond)
+    #   day+30      — 06:30 bis 18:00
+    # Der Offset verschiebt nur den START — das Ende bleibt 06:00 bzw. 18:00.
+    # Negativ (-) = Vorbereitungsfenster, positiv (+) = Verzoegerung.
+    td_match = re.match(r"^(night|day)(?:([+-])(\d+))?$", cond)
     if td_match:
         base = td_match.group(1)
-        offset_min = int(td_match.group(2) or 0)
+        sign = td_match.group(2) or ""
+        offset_min = int(td_match.group(3) or 0)
+        if sign == "+":
+            shift = offset_min        # Start spaeter
+        else:
+            shift = -offset_min       # Start frueher (default fuer "-")
         now = datetime.now()
         now_min = now.hour * 60 + now.minute
+        lbl_offset = f"{sign}{offset_min}" if offset_min else ""
         if base == "night":
-            start_min = 18 * 60 - offset_min   # default 18:00, frueher mit Offset
-            end_min = 6 * 60                   # 06:00 (am naechsten Tag)
-            # Wrap-Around ueber Mitternacht — start kann < 0 werden bei sehr
-            # grossen Offsets, dann zaehlen wir es vom Vortag rein.
-            if start_min < 0:
-                start_min += 24 * 60
-            in_window = (now_min >= start_min) or (now_min < end_min)
-            if in_window:
-                return True, ""
-            lbl = f"night-{offset_min}" if offset_min else "night"
-            return False, f"Nur nachts verfuegbar ({lbl})"
-        else:  # day
-            start_min = 6 * 60 - offset_min
-            end_min = 18 * 60
-            if start_min < 0:
-                # Sehr grosser Offset zieht Day-Beginn vor Mitternacht — dann
-                # ist die Bedingung auch im Spaet-Abend-Fenster erfuellt.
-                in_window = (now_min >= start_min + 24 * 60) or (now_min < end_min)
-            else:
+            start_min = 18 * 60 + shift
+            end_min = 6 * 60
+            # Normalisieren in [0, 1440)
+            start_min %= 24 * 60
+            # Wrap-Around: night liegt typischerweise um Mitternacht herum.
+            if start_min < end_min:
+                # Start liegt VOR end_min (z.B. shift gross negativ +
+                # ueberlauf nicht passiert) — ungewoehnlich aber moeglich
                 in_window = start_min <= now_min < end_min
+            else:
+                # Normaler Fall: Fenster spannt ueber Mitternacht
+                in_window = (now_min >= start_min) or (now_min < end_min)
             if in_window:
                 return True, ""
-            lbl = f"day-{offset_min}" if offset_min else "day"
-            return False, f"Nur tagsueber verfuegbar ({lbl})"
+            return False, f"Nur nachts verfuegbar (night{lbl_offset})"
+        else:  # day
+            start_min = 6 * 60 + shift
+            end_min = 18 * 60
+            start_min_norm = start_min % (24 * 60)
+            if start_min < 0:
+                # Stark negativer Offset zieht Day-Beginn vor Mitternacht
+                in_window = (now_min >= start_min_norm) or (now_min < end_min)
+            elif start_min_norm >= end_min:
+                # Stark positiver Offset oder ueberlauf — Fenster leer
+                in_window = False
+            else:
+                in_window = start_min_norm <= now_min < end_min
+            if in_window:
+                return True, ""
+            return False, f"Nur tagsueber verfuegbar (day{lbl_offset})"
 
     # --- mood:X ---
     mood_match = re.match(r"mood:(.+)", cond)
