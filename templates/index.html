@@ -537,98 +537,8 @@
         </div>
     </div>
 
-    <!-- World-Modal (Orte & Aktivitaeten — User-Level) -->
-    <div id="world-modal" class="modal" style="display: none;">
-        <div class="modal-content modal-content-wide">
-            <div class="modal-header">
-                <h2>🌍 Welt: Orte & Aktivitaeten</h2>
-                <div class="editor-header-actions">
-                    <button class="modal-close" onclick="closeWorldModal()">&times;</button>
-                </div>
-            </div>
-            <div class="modal-body">
-                <div class="world-grid">
-                    <!-- Spalte 1: Ort-Liste (schmal) -->
-                    <div class="world-grid-col">
-                        <div class="modal-section">
-                            <div class="scheduler-header">
-                                <h3>Orte</h3>
-                                <button class="save-btn" onclick="toggleLocationForm()">+ Neuer Ort</button>
-                            </div>
-                            <div id="locations-list" class="world-list">
-                                <p class="scheduler-empty">Keine Orte vorhanden</p>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Spalte 2: Ort/Raum-Editor -->
-                    <div class="world-grid-col">
-                        <div id="location-form" class="world-inline-form" style="display: none;">
-                            <h3 id="location-form-title">Neuer Ort</h3>
-                            <div id="location-form-content">
-                                <!-- Dynamisch befuellt je nach Ort/Raum -->
-                            </div>
-                        </div>
-                        <div id="location-form-actions" class="location-form-actions-bar" style="display:none;">
-                            <button class="save-btn" id="location-form-save" onclick="saveLocation()">Speichern</button>
-                            <button class="reset-btn" onclick="cancelEditing()">Abbrechen</button>
-                        </div>
-                        <div id="world-editor-placeholder" class="scheduler-empty" style="display: block;">
-                            Klicke auf + oder &#9998; um einen Eintrag zu bearbeiten
-                        </div>
-                    </div>
-                    <!-- Spalte 3: Galerie (oben) + Aktivitaeten/Items (Raum) ODER Danger+Events (Ort) -->
-                    <div class="world-grid-col">
-                        <div id="location-gallery" class="world-gallery" style="margin-bottom:12px;">
-                            <div class="scheduler-header">
-                                <h3 id="location-gallery-title">Galerie</h3>
-                                <button id="btn-gallery-generate-all" class="save-btn" onclick="generateAllGalleryImages()" style="display:none;">Alle erzeugen</button>
-                                <button id="btn-gallery-generate" class="save-btn" onclick="generateGalleryImage()" style="display:none;">+ Bild erzeugen</button>
-                            </div>
-                            <div id="location-gallery-content">
-                                <p class="scheduler-empty">Ort auswaehlen um Galerie zu sehen</p>
-                            </div>
-                        </div>
-                        <div id="location-extras-panel" style="display:none;"></div>
-                        <div id="room-contents-panel" style="display:none;">
-                            <div class="modal-section">
-                                <div class="scheduler-header" style="margin-bottom:6px;">
-                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Aktivitaeten des Raums</label>
-                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_pickRoomActivity()">+ Aktivitaet</button>
-                                </div>
-                                <div id="room-edit-activities"></div>
-                            </div>
-                            <div class="modal-section" id="room-items-section" style="margin-top:12px;">
-                                <div class="scheduler-header" style="margin-bottom:6px;">
-                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Items im Raum</label>
-                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_toggleRoomItemAddForm()">+ Item</button>
-                                </div>
-                                <div id="room-edit-items-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
-                                <div id="room-edit-items-form" class="world-inline-form" style="display:none;margin-top:8px;">
-                                    <select id="room-item-add-select" class="agent-status-input"><option value="">-- Item auswaehlen --</option></select>
-                                    <div class="form-row-inline">
-                                        <label style="font-size:11px;">Anzahl</label>
-                                        <input type="number" id="room-item-add-quantity" class="agent-status-input" value="1" min="1" max="99" style="width:70px;">
-                                        <label style="font-size:11px;margin-left:8px;"><input type="checkbox" id="room-item-add-hidden"> versteckt</label>
-                                    </div>
-                                    <input type="text" id="room-item-add-note" class="agent-status-input" placeholder="Notiz (z.B. 'Liegt auf dem Regal')">
-                                    <div class="form-actions">
-                                        <button type="button" class="save-btn" onclick="_addItemToRoom()">Hinzufuegen</button>
-                                        <button type="button" class="reset-btn" onclick="_toggleRoomItemAddForm()">Abbrechen</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Spalte 4: ehemals Aktivitaeten-Bibliothek (durch Picker ersetzt) -->
-                    <div class="world-grid-col" id="room-library-col" style="display:none;">
-                        <div id="room-library-browser" style="display:none;">
-                            <div id="room-library-activities" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- World-Modal entfernt: Inhalt lebt jetzt als "Welt"-Tab im Game-Admin-Modal. -->
+    <!-- openWorldModal()/closeWorldModal() leiten transparent dorthin um. -->
 
 
     <!-- Knowledge/Memory Modal -->
@@ -643,39 +553,98 @@
             <div class="modal-body">
                 <!-- Tab Navigation -->
                 <div class="memory-tabs">
-                    <button class="memory-tab active" data-tab="memories" onclick="switchMemoryTab('memories')">Erinnerungen</button>
-                    <button class="memory-tab" data-tab="mood" onclick="switchMemoryTab('mood')">Stimmung</button>
-                    <button class="memory-tab" data-tab="summaries" onclick="switchMemoryTab('summaries')">Zusammenfassungen</button>
+                    <button class="memory-tab active" data-tab="today" onclick="switchMemoryTab('today')">Heute</button>
+                    <button class="memory-tab" data-tab="memories" onclick="switchMemoryTab('memories')">Erinnerungen</button>
+                    <button class="memory-tab" data-tab="relationships" onclick="switchMemoryTab('relationships')">Beziehungen</button>
+                    <button class="memory-tab" data-tab="history" onclick="switchMemoryTab('history')">Verlauf</button>
                 </div>
 
-                <!-- Tab: Memories -->
-                <div id="tab-memories" class="memory-tab-content active">
-                    <div class="knowledge-toolbar">
-                        <span id="memory-count" class="knowledge-count-label"></span>
-                        <button class="reset-btn knowledge-clear-btn" onclick="clearAllKnowledge()">Alles loeschen</button>
+                <!-- Tab: Heute -->
+                <div id="tab-today" class="memory-tab-content active">
+                    <div id="today-status" class="memory-status-card">
+                        <p class="scheduler-empty">Lade Status...</p>
+                    </div>
+                    <div class="memory-section">
+                        <h3 class="memory-section-title">Bekannte Orte</h3>
+                        <div id="today-known-locations" class="known-locations-grid"></div>
+                    </div>
+                    <div class="memory-section">
+                        <h3 class="memory-section-title">Letzte 24 Stunden</h3>
+                        <div class="lanes-container">
+                            <canvas id="today-lanes-canvas" width="700" height="220"></canvas>
+                            <div id="today-lanes-tooltip" class="lanes-tooltip"></div>
+                        </div>
+                        <div id="today-lanes-list" class="lanes-list"></div>
+                        <div id="today-lanes-empty" class="scheduler-empty" style="display:none;">Keine Aktivitaet in den letzten 24h</div>
+                    </div>
+                    <div class="memory-section">
+                        <h3 class="memory-section-title">Im Prompt aktiv <span class="section-hint admin-only">(Top 12 nach Score)</span></h3>
+                        <div id="today-active-memories" class="active-memories-list"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Erinnerungen -->
+                <div id="tab-memories" class="memory-tab-content" style="display:none;">
+                    <div class="knowledge-toolbar memory-list-toolbar">
+                        <input type="search" id="memlist-q" placeholder="Suche..." class="memlist-input"/>
+                        <select id="memlist-tier" class="memlist-select">
+                            <option value="">Alle Typen</option>
+                            <option value="semantic">Fakten</option>
+                            <option value="episodic">Erlebnisse</option>
+                            <option value="commitment">Versprechen</option>
+                        </select>
+                        <select id="memlist-imp" class="memlist-select">
+                            <option value="0">Alle Wichtigkeit</option>
+                            <option value="3" selected>Wichtigkeit ≥3</option>
+                            <option value="4">Wichtigkeit ≥4</option>
+                            <option value="5">Wichtigkeit =5</option>
+                        </select>
+                        <select id="memlist-related" class="memlist-select">
+                            <option value="">Alle Bezuege</option>
+                        </select>
+                        <select id="memlist-source" class="memlist-select admin-only">
+                            <option value="">Alle Quellen</option>
+                            <option value="extraction">Extraction</option>
+                            <option value="thought">Thought</option>
+                            <option value="intent">Intent</option>
+                        </select>
+                        <select id="memlist-sort" class="memlist-select">
+                            <option value="recent">Neueste</option>
+                            <option value="importance">Wichtigste</option>
+                            <option value="access">Meist abgerufen</option>
+                            <option value="score">Relevanz (Score)</option>
+                        </select>
+                        <label class="memlist-checkbox"><input type="checkbox" id="memlist-completed"> erledigte zeigen</label>
+                        <span id="memlist-count" class="knowledge-count-label"></span>
+                        <button class="reset-btn knowledge-clear-btn admin-only" onclick="clearAllKnowledge()">Alles loeschen</button>
                     </div>
                     <div id="memory-list" class="knowledge-list">
-                        <p class="scheduler-empty">Keine Erinnerungen vorhanden</p>
+                        <p class="scheduler-empty">Lade...</p>
+                    </div>
+                    <div id="memlist-pagination" class="memlist-pagination"></div>
+                </div>
+
+                <!-- Tab: Beziehungen -->
+                <div id="tab-relationships" class="memory-tab-content" style="display:none;">
+                    <div id="relationships-list" class="relationships-grid">
+                        <p class="scheduler-empty">Lade...</p>
                     </div>
                 </div>
 
-                <!-- Tab: Mood Graph -->
-                <div id="tab-mood" class="memory-tab-content" style="display:none;">
-                    <div class="mood-chart-container">
-                        <canvas id="mood-chart-canvas" width="700" height="300"></canvas>
+                <!-- Tab: Verlauf -->
+                <div id="tab-history" class="memory-tab-content" style="display:none;">
+                    <div class="history-subtabs">
+                        <button class="history-subtab active" data-kind="daily" onclick="switchHistorySubtab('daily')">Tage</button>
+                        <button class="history-subtab" data-kind="weekly" onclick="switchHistorySubtab('weekly')">Wochen</button>
+                        <button class="history-subtab" data-kind="monthly" onclick="switchHistorySubtab('monthly')">Monate</button>
+                        <button class="history-subtab" data-kind="history" onclick="switchHistorySubtab('history')">Chat-Summary</button>
+                        <button class="history-subtab" data-kind="diary" onclick="switchHistorySubtab('diary')">Tagebuch</button>
+                        <button class="history-subtab admin-only" data-kind="evolution" onclick="switchHistorySubtab('evolution')">Selbstbild</button>
                     </div>
-                    <div id="mood-history-list" class="knowledge-list" style="max-height:30vh;">
+                    <div id="history-content" class="knowledge-list">
+                        <p class="scheduler-empty">Lade...</p>
                     </div>
                 </div>
-
-                <!-- Tab: Summaries -->
-                <div id="tab-summaries" class="memory-tab-content" style="display:none;">
-                    <div id="summaries-list" class="knowledge-list">
-                        <p class="scheduler-empty">Keine Zusammenfassungen vorhanden</p>
-                    </div>
-                </div>
-
-
             </div>
         </div>
     </div>
@@ -1048,7 +1017,6 @@
                 <div class="worldmap-header-top">
                     <h2>🗺️ Weltkarte</h2>
                     <div class="worldmap-header-btns">
-                        <button class="worldmap-settings-btn" onclick="openWorldModal()" title="Orte verwalten">&#x2699;</button>
                         <button class="modal-close" onclick="toggleWorldPanel()">&times;</button>
                     </div>
                 </div>
@@ -1160,6 +1128,87 @@
                 <button class="tab-btn" data-admin-tab="rules" onclick="switchGameAdminTab('rules')">Regeln</button>
                 <button class="tab-btn" data-admin-tab="prompt_filters" onclick="switchGameAdminTab('prompt_filters')">Zustaende</button>
                 <button class="tab-btn" data-admin-tab="items" onclick="switchGameAdminTab('items')">Items</button>
+                <button class="tab-btn" data-admin-tab="world" onclick="switchGameAdminTab('world')">🌍 Welt</button>
+            </div>
+            <!-- Tab: Welt (Orte & Aktivitaeten) -->
+            <div id="game-admin-tab-world" class="modal-body" style="display:none;">
+                <div class="world-grid" style="flex:1;width:100%;">
+                    <!-- Spalte 1: Ort-Liste -->
+                    <div class="world-grid-col">
+                        <div class="modal-section">
+                            <div class="scheduler-header">
+                                <h3>Orte</h3>
+                                <button class="save-btn" onclick="toggleLocationForm()">+ Neuer Ort</button>
+                            </div>
+                            <div id="locations-list" class="world-list">
+                                <p class="scheduler-empty">Keine Orte vorhanden</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spalte 2: Ort/Raum-Editor -->
+                    <div class="world-grid-col">
+                        <div id="location-form" class="world-inline-form" style="display: none;">
+                            <h3 id="location-form-title">Neuer Ort</h3>
+                            <div id="location-form-content"></div>
+                        </div>
+                        <div id="location-form-actions" class="location-form-actions-bar" style="display:none;">
+                            <button class="save-btn" id="location-form-save" onclick="saveLocation()">Speichern</button>
+                            <button class="reset-btn" onclick="cancelEditing()">Abbrechen</button>
+                        </div>
+                        <div id="world-editor-placeholder" class="scheduler-empty" style="display: block;">
+                            Klicke auf + oder &#9998; um einen Eintrag zu bearbeiten
+                        </div>
+                    </div>
+                    <!-- Spalte 3: Galerie + Raum-Inhalte -->
+                    <div class="world-grid-col">
+                        <div id="location-gallery" class="world-gallery" style="margin-bottom:12px;">
+                            <div class="scheduler-header">
+                                <h3 id="location-gallery-title">Galerie</h3>
+                                <button id="btn-gallery-generate-all" class="save-btn" onclick="generateAllGalleryImages()" style="display:none;">Alle erzeugen</button>
+                                <button id="btn-gallery-generate" class="save-btn" onclick="generateGalleryImage()" style="display:none;">+ Bild erzeugen</button>
+                            </div>
+                            <div id="location-gallery-content">
+                                <p class="scheduler-empty">Ort auswaehlen um Galerie zu sehen</p>
+                            </div>
+                        </div>
+                        <div id="location-extras-panel" style="display:none;"></div>
+                        <div id="room-contents-panel" style="display:none;">
+                            <div class="modal-section">
+                                <div class="scheduler-header" style="margin-bottom:6px;">
+                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Aktivitaeten des Raums</label>
+                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_pickRoomActivity()">+ Aktivitaet</button>
+                                </div>
+                                <div id="room-edit-activities"></div>
+                            </div>
+                            <div class="modal-section" id="room-items-section" style="margin-top:12px;">
+                                <div class="scheduler-header" style="margin-bottom:6px;">
+                                    <label style="font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Items im Raum</label>
+                                    <button type="button" class="save-btn" style="font-size:11px;padding:2px 8px;" onclick="_toggleRoomItemAddForm()">+ Item</button>
+                                </div>
+                                <div id="room-edit-items-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
+                                <div id="room-edit-items-form" class="world-inline-form" style="display:none;margin-top:8px;">
+                                    <select id="room-item-add-select" class="agent-status-input"><option value="">-- Item auswaehlen --</option></select>
+                                    <div class="form-row-inline">
+                                        <label style="font-size:11px;">Anzahl</label>
+                                        <input type="number" id="room-item-add-quantity" class="agent-status-input" value="1" min="1" max="99" style="width:70px;">
+                                        <label style="font-size:11px;margin-left:8px;"><input type="checkbox" id="room-item-add-hidden"> versteckt</label>
+                                    </div>
+                                    <input type="text" id="room-item-add-note" class="agent-status-input" placeholder="Notiz (z.B. 'Liegt auf dem Regal')">
+                                    <div class="form-actions">
+                                        <button type="button" class="save-btn" onclick="_addItemToRoom()">Hinzufuegen</button>
+                                        <button type="button" class="reset-btn" onclick="_toggleRoomItemAddForm()">Abbrechen</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Spalte 4: Room-Library Browser (selten) -->
+                    <div class="world-grid-col" id="room-library-col" style="display:none;">
+                        <div id="room-library-browser" style="display:none;">
+                            <div id="room-library-activities" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <!-- Tab: Aktivitaeten (3-Spalten-Layout) -->
             <div id="game-admin-tab-activities" class="modal-body" style="display:flex;gap:12px;">
@@ -1418,26 +1467,33 @@
                             </select>
                         </div>
                         <div id="rule-block-fields">
-                            <label style="font-size:11px;color:var(--text-muted);">Ziel</label>
-                            <div class="form-row-inline">
-                                <select id="rule-target-scope" class="agent-status-input" onchange="_toggleRuleTargetFields()">
-                                    <option value="location">Ort / Raum</option>
-                                    <option value="any_room">Jeder Raum (an jedem Ort)</option>
-                                    <option value="danger_level">Danger-Level</option>
-                                </select>
-                                <select id="rule-target-action" class="agent-status-input">
-                                    <option value="enter">Betreten</option>
-                                    <option value="leave">Verlassen</option>
-                                </select>
-                            </div>
-                            <div id="rule-target-loc-fields">
-                                <select id="rule-target-location" class="agent-status-input"><option value="">-- Ort waehlen --</option></select>
-                                <select id="rule-target-room" class="agent-status-input" style="display:none;"><option value="">-- Raum waehlen --</option></select>
-                            </div>
-                            <div id="rule-target-danger-fields" style="display:none;">
-                                <div class="form-row-inline">
-                                    <label style="font-size:11px;">Min Danger-Level:</label>
-                                    <input type="number" id="rule-target-min-danger" class="agent-status-input" min="1" max="5" value="3" style="width:50px;">
+                            <div style="display:flex;gap:12px;align-items:flex-start;">
+                                <div style="flex:1;min-width:0;">
+                                    <label style="font-size:11px;color:var(--text-muted);">Ziel</label>
+                                    <select id="rule-target-scope" class="agent-status-input" onchange="_toggleRuleTargetFields()">
+                                        <option value="location">Ort / Raum</option>
+                                        <option value="any_room">Jeder Raum (an jedem Ort)</option>
+                                        <option value="danger_level">Danger-Level</option>
+                                    </select>
+                                    <div id="rule-target-loc-fields">
+                                        <label style="font-size:11px;color:var(--text-muted);">Ort</label>
+                                        <select id="rule-target-location" class="agent-status-input"><option value="">-- Ort waehlen --</option></select>
+                                        <select id="rule-target-room" class="agent-status-input" multiple size="6" style="display:none;height:auto;" title="Mehrfachauswahl mit Strg/Cmd. Keine Auswahl = ganze Location."></select>
+                                    </div>
+                                    <div id="rule-target-danger-fields" style="display:none;">
+                                        <div class="form-row-inline">
+                                            <label style="font-size:11px;">Min Danger-Level:</label>
+                                            <input type="number" id="rule-target-min-danger" class="agent-status-input" min="1" max="5" value="3" style="width:50px;">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="rule-block-right-col" style="flex:1;min-width:0;">
+                                    <label style="font-size:11px;color:var(--text-muted);">Aktion</label>
+                                    <select id="rule-target-action" class="agent-status-input">
+                                        <option value="enter">Betreten</option>
+                                        <option value="leave">Verlassen</option>
+                                    </select>
+                                    <div id="rule-condition-slot"></div>
                                 </div>
                             </div>
                         </div>
@@ -1459,20 +1515,22 @@
                                 Pro Agent-Loop-Tick wird gewuerfelt. Bei Erfolg wird ein zufaelliger angrenzender, noch unbekannter Ort entdeckt (Grid-Nachbar). Skill-Checks gehen ueber die Bedingung (z.B. <code>perception&gt;50</code>).
                             </div>
                         </div>
-                        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Bedingung</label>
-                        <input type="text" id="rule-edit-condition" class="agent-status-input" placeholder="z.B. has_item:item_a1b2c3d4 OR courage&gt;50">
-                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.5;">
-                            <strong>Status:</strong> stamina&gt;N, courage&lt;N, stress&gt;N, lust&gt;N, ...<br>
-                            <strong>Zeit/Anwesenheit:</strong> alone, night, day<br>
-                            <strong>Beziehung:</strong> relationship:Name&gt;N, romantic:Name&gt;N (Name oder "any")<br>
-                            <strong>Stimmung:</strong> mood:happy<br>
-                            <strong>Zustand:</strong> condition:drunk (aktiver Tag im Profil)<br>
-                            <strong>Aktuelle Aktivitaet:</strong> current_activity:kochen<br>
-                            <strong>Tagesablauf:</strong> schedule:sleeping (im Schlaf-Slot), schedule:awake (nicht im Schlaf-Slot), schedule:&lt;activity&gt; (spezifischer Slot)<br>
-                            <strong>Item im Inventar:</strong> has_item:item_a1b2c3d4 (Character traegt Item)<br>
-                            <strong>Item im Raum:</strong> room_has_item:holoprojector (Ziel-Raum enthaelt Item — nur bei scope "Jeder Raum" oder konkretem Raum)<br>
-                            <strong>Geheimnis:</strong> has_secret<br>
-                            <strong>Verknuepfung:</strong> AND / OR / NOT
+                        <div id="rule-condition-block">
+                            <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Bedingung</label>
+                            <input type="text" id="rule-edit-condition" class="agent-status-input" placeholder="z.B. has_item:item_a1b2c3d4 OR courage&gt;50">
+                            <div style="font-size:10px;color:var(--text-muted);margin:6px 0 4px 0;line-height:1.5;">
+                                <strong>Status:</strong> stamina&gt;N, courage&lt;N, stress&gt;N, lust&gt;N, ...<br>
+                                <strong>Zeit/Anwesenheit:</strong> alone, night, day<br>
+                                <strong>Beziehung:</strong> relationship:Name&gt;N, romantic:Name&gt;N (Name oder "any")<br>
+                                <strong>Stimmung:</strong> mood:happy<br>
+                                <strong>Zustand:</strong> condition:drunk (aktiver Tag im Profil)<br>
+                                <strong>Aktuelle Aktivitaet:</strong> current_activity:kochen<br>
+                                <strong>Tagesablauf:</strong> schedule:sleeping (im Schlaf-Slot), schedule:awake (nicht im Schlaf-Slot), schedule:&lt;activity&gt; (spezifischer Slot)<br>
+                                <strong>Item im Inventar:</strong> has_item:item_a1b2c3d4 (Character traegt Item)<br>
+                                <strong>Item im Raum:</strong> room_has_item:holoprojector (Ziel-Raum enthaelt Item — nur bei scope "Jeder Raum" oder konkretem Raum)<br>
+                                <strong>Geheimnis:</strong> has_secret<br>
+                                <strong>Verknuepfung:</strong> AND / OR / NOT
+                            </div>
                         </div>
                         <label style="font-size:11px;color:var(--text-muted);">Meldung</label>
                         <input type="text" id="rule-edit-message" class="agent-status-input" placeholder="z.B. Du brichst vor Erschoepfung zusammen">

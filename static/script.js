@@ -10395,12 +10395,13 @@ function closeSchedulerModal() {
 document.addEventListener('keydown', (e) => {
     const schedulerModal = document.getElementById('scheduler-modal');
     const characterModal = document.getElementById('agent-modal');
-    const worldModal = document.getElementById('world-modal');
+    // world-modal entfernt — der Welt-Editor lebt jetzt im Game-Admin-Modal.
+    const gameAdminModal = document.getElementById('game-admin-modal');
 
     const isModalOpen =
         (schedulerModal && schedulerModal.style.display === 'flex') ||
         (characterModal && characterModal.style.display === 'flex') ||
-        (worldModal && worldModal.style.display === 'flex');
+        (gameAdminModal && gameAdminModal.style.display === 'flex');
     
     if (isModalOpen) {
         // Backspace nur verhindern wenn kein Input/Textarea fokussiert ist
@@ -12020,15 +12021,23 @@ async function submitInstagramComment(postId, inputEl) {
 // === WORLD MANAGEMENT (Orte & Aktivitaeten — User-Level) ===
 
 function openWorldModal() {
-    // Weltkarte schliessen, da beide Modals sich ueberlagern
+    // Welt-Editor wohnt jetzt als Tab im Game-Admin-Modal — nicht mehr als
+    // eigenes Modal. Weltkarte schliessen damit nichts ueberlappt.
     if (_worldMapPanelOpen) toggleWorldPanel();
-    document.getElementById('world-modal').style.display = 'flex';
-    loadLocations();
+    if (typeof openGameAdminModal === 'function') {
+        openGameAdminModal('world');
+    }
 }
 
 function closeWorldModal() {
-    document.getElementById('world-modal').style.display = 'none';
-    document.getElementById('location-form').style.display = 'none';
+    // Welt-Editor lebt im Game-Admin-Modal — Schliessen heisst: Modal zu.
+    // Der Editor-State wird aufgeraeumt; das machen wir auch hier, falls
+    // ein Tab-Wechsel innerhalb des Game-Admin-Modals "schliesst".
+    if (typeof closeGameAdminModal === 'function') {
+        closeGameAdminModal();
+    }
+    const lf = document.getElementById('location-form');
+    if (lf) lf.style.display = 'none';
     const placeholder = document.getElementById('world-editor-placeholder');
     if (placeholder) placeholder.style.display = 'block';
     editingLocationName = null;
@@ -16087,6 +16096,20 @@ function switchGameAdminTab(tabName) {
         if (!_cachedWorldLocations) loadLocations().then(() => _loadRulesList()); else _loadRulesList();
     }
     if (tabName === 'prompt_filters') { _loadPromptFiltersList(); }
+    if (tabName === 'world') {
+        // Editor-State zuruecksetzen damit das Right-Panel nicht den letzten
+        // Eintrag zeigt
+        const lf = document.getElementById('location-form');
+        if (lf) lf.style.display = 'none';
+        const _ph = document.getElementById('world-editor-placeholder');
+        if (_ph) _ph.style.display = 'block';
+        editingLocationName = null;
+        editingLocationId = null;
+        editingRoomId = null;
+        _cachedWorldLocations = null;
+        if (typeof _resetLocationGallery === 'function') _resetLocationGallery();
+        if (typeof loadLocations === 'function') loadLocations();
+    }
 }
 
 // Legacy alias
@@ -18997,19 +19020,50 @@ function _drawLanes(canvas, lanes, nowIso, highlight) {
         }
     }
 
+    // Berechnet das Band-Ende fuer ein Lane-Event:
+    // - mit useDuration & p.duration_min: cappe auf ts + duration_min
+    // - sonst: bis zum naechsten Wechsel oder zum Lane-Ende
+    function bandEndX(points, i, useDuration) {
+        const p = points[i];
+        const naturalEnd = i + 1 < points.length ? x(points[i+1].ts) : PAD_L + innerW;
+        if (useDuration && typeof p.duration_min === 'number' && p.duration_min > 0) {
+            const ts = new Date(p.ts).getTime();
+            const cappedTs = ts + p.duration_min * 60 * 1000;
+            const cappedX = PAD_L + ((cappedTs - t0) / (t1 - t0)) * innerW;
+            return Math.min(naturalEnd, Math.max(x(p.ts) + 2, cappedX));
+        }
+        return naturalEnd;
+    }
+
     // Activity- und Location-Lane: Marker + dominierende Value-Bands
-    function drawValueLane(points, laneY, isLocation) {
+    function drawValueLane(points, laneY, opts) {
         if (!points.length) return;
-        // Bands zwischen aufeinanderfolgenden Wechseln
+        const isLocation = opts.isLocation;
+        const useDuration = opts.useDuration;
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
             const xs = x(p.ts);
-            const xe = i + 1 < points.length ? x(points[i+1].ts) : PAD_L + innerW;
+            const xe = bandEndX(points, i, useDuration);
+            const naturalEnd = i + 1 < points.length ? x(points[i+1].ts) : PAD_L + innerW;
+            const expired = useDuration && xe < naturalEnd - 1;
             // Band
             ctx.fillStyle = primary;
             ctx.globalAlpha = isLocation ? 0.22 : 0.14;
             ctx.fillRect(xs, laneY - laneH * 0.30, Math.max(2, xe - xs), laneH * 0.6);
             ctx.globalAlpha = 1;
+            // Wenn Aktivitaet laenger als ihre Dauer her ist: gestrichelte
+            // "kein neuer State"-Linie bis zum naechsten Eintrag/jetzt.
+            if (expired) {
+                ctx.save();
+                ctx.strokeStyle = muted;
+                ctx.setLineDash([4, 3]);
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(xe, laneY);
+                ctx.lineTo(naturalEnd, laneY);
+                ctx.stroke();
+                ctx.restore();
+            }
             // Marker
             ctx.fillStyle = primary;
             ctx.beginPath(); ctx.arc(xs, laneY, 3.5, 0, Math.PI * 2); ctx.fill();
@@ -19021,8 +19075,8 @@ function _drawLanes(canvas, lanes, nowIso, highlight) {
             }
         }
     }
-    drawValueLane(lanes.activity.points, laneYs[1], false);
-    drawValueLane(lanes.location.points, laneYs[2], true);
+    drawValueLane(lanes.activity.points, laneYs[1], {isLocation: false, useDuration: true});
+    drawValueLane(lanes.location.points, laneYs[2], {isLocation: true, useDuration: false});
 
     // Bucketed-Hint
     if (lanes.activity.bucketed || lanes.location.bucketed || lanes.mood.bucketed) {
@@ -19030,7 +19084,9 @@ function _drawLanes(canvas, lanes, nowIso, highlight) {
         ctx.fillText('(stundenweise verdichtet)', W - PAD_R, PAD_T - 2);
     }
 
-    // Hit-Test-Daten fuer Tooltip auf Canvas haengen
+    // Hit-Test-Daten fuer Tooltip + Highlight auf Canvas haengen.
+    // Activity-Bands nutzen das gecappte Ende (siehe bandEndX), damit
+    // der Hover nicht auf der gestrichelten Lücke triggert.
     canvas._lanesHitData = {
         bands: [
             ...lanes.mood.points.map((p, i, a) => ({
@@ -19040,7 +19096,7 @@ function _drawLanes(canvas, lanes, nowIso, highlight) {
             })),
             ...lanes.activity.points.map((p, i, a) => ({
                 lane: 'Aktivität', label: p.value, ts: p.ts, count: p.count,
-                xs: x(p.ts), xe: i + 1 < a.length ? x(a[i+1].ts) : PAD_L + innerW,
+                xs: x(p.ts), xe: bandEndX(a, i, true),
                 ys: laneYs[1] - laneH * 0.30, ye: laneYs[1] + laneH * 0.30,
             })),
             ...lanes.location.points.map((p, i, a) => ({
