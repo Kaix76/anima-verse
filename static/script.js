@@ -2043,7 +2043,11 @@ async function _loadWardrobePreview(characterName) {
     if (!hasImage) {
         previewEl.innerHTML = '<p class="scheduler-empty">Lade Vorschau...</p>';
     }
-    let params = `mood=&activity=&t=${Date.now()}`;
+    // Garderoben-Vorschau soll immer in DEFAULT Pose + Expression laufen,
+    // nicht im Variant des aktuellen Mood/Activity. override=1 zwingt das
+    // Backend in den Override-Pfad — dann werden mood/activity NICHT mehr
+    // aus dem Character-State auto-gefuellt und resolven leer auf Default.
+    let params = `mood=&activity=&t=${Date.now()}&override=1`;
     if (_wardrobeState.setEditMode) {
         const pieces = _wardrobeState.setEditPieces || {};
         const pairs = Object.entries(pieces)
@@ -2055,7 +2059,25 @@ async function _loadWardrobePreview(characterName) {
             .filter(([slot, color]) => !!color && !!pieces[slot])
             .map(([slot, color]) => `${slot}:${color}`)
             .join(',');
-        params += `&override=1&pieces=${encodeURIComponent(pairs)}&items=`
+        params += `&pieces=${encodeURIComponent(pairs)}&items=`
+            + `&piece_colors=${encodeURIComponent(colorPairs)}`;
+    } else {
+        // Real-equipped State explizit mitschicken — sonst rendert das
+        // Backend in override-Mode den Char ohne Equipment.
+        const eq = _wardrobeState.equipped || {};
+        const pieces = eq.equipped_pieces || {};
+        const pairs = Object.entries(pieces)
+            .filter(([, iid]) => !!iid)
+            .map(([slot, iid]) => `${slot}:${iid}`)
+            .join(',');
+        const itemsArr = (eq.equipped_items || []).filter(Boolean);
+        const colorsMeta = eq.equipped_pieces_meta || {};
+        const colorPairs = Object.entries(colorsMeta)
+            .filter(([slot, m]) => m && m.color && !!pieces[slot])
+            .map(([slot, m]) => `${slot}:${m.color}`)
+            .join(',');
+        params += `&pieces=${encodeURIComponent(pairs)}`
+            + `&items=${encodeURIComponent(itemsArr.join(','))}`
             + `&piece_colors=${encodeURIComponent(colorPairs)}`;
     }
     // fallback=default: wenn kein Variant im Cache und Generierung laeuft,
