@@ -77,6 +77,13 @@ def get_character_dir(character_name: str, *, create: bool = False) -> Path:
     """
     if not character_name or character_name == "KI":
         raise ValueError(f"Ungueltiger Character-Name: '{character_name}'")
+    # JS-stringified Null-Werte abfangen — entstehen wenn ein FE-Pfad
+    # ``${value}`` interpoliert obwohl value undefined/null/NaN ist.
+    # Sonst legt ein get_character_skills_dir("undefined") still ein
+    # Verzeichnis an, das danach in der Roster/Sidebar als Geister-Character
+    # auftaucht.
+    if character_name.lower() in ("undefined", "null", "none", "nan"):
+        raise ValueError(f"Ungueltiger Character-Name (JS-Null): '{character_name}'")
     character_dir = get_user_characters_dir() / character_name
     if create:
         character_dir.mkdir(parents=True, exist_ok=True)
@@ -399,7 +406,8 @@ def get_character_language_instruction(character_name: str) -> str:
     return get_user_language_instruction()
 
 
-_RESERVED_NAMES = {"user", "admin", "system", "default", "player", ""}
+_RESERVED_NAMES = {"user", "admin", "system", "default", "player", "",
+                   "undefined", "null", "none", "nan"}
 
 
 def save_character_profile(character_name: str, profile: Dict[str, Any]):

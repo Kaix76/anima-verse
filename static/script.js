@@ -19881,10 +19881,15 @@ async function _tickLiveState() {
     const activeTab = document.querySelector('.tab-btn.tab-active')?.dataset.tab;
     if (activeTab && activeTab !== 'chat') return;
 
-    const agent = (currentCharacterName && currentCharacterName !== 'KI')
-        ? currentCharacterName : '';
-    const avatar = (typeof getPlayerCharacterName === 'function')
+    // JS-Null-Strings rausfiltern — sonst landet "undefined"/"null" als
+    // Character-Name auf dem Backend und legt dort Geister-Verzeichnisse an.
+    const _isBogus = (n) => !n || n === 'KI' ||
+        ['undefined','null','none','nan'].includes(String(n).toLowerCase());
+    const _agentRaw = currentCharacterName;
+    const agent = _isBogus(_agentRaw) ? '' : _agentRaw;
+    const _avatarRaw = (typeof getPlayerCharacterName === 'function')
         ? getPlayerCharacterName() : '';
+    const avatar = _isBogus(_avatarRaw) ? '' : _avatarRaw;
     if (!agent && !avatar) return;
 
     try {
