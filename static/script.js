@@ -13106,10 +13106,51 @@ async function refreshAfterAvatarMove() {
         loadRoomItemsPanel(locId, roomId);
     }
 
-    // 5. Sofortiger Live-Tick — server-seitiger State (Sidebar, Medium,
+    // 5. Wenn Avatar nicht mehr im selben Raum/Ort wie der Chat-Partner ist:
+    // Char + Expression-Bild deselektieren. Bewegt der User sich durch die
+    // Welt, soll der vorige Gespraechspartner nicht stehenbleiben — ein
+    // Bild von jemandem den man verlassen hat ist verwirrend. User kann
+    // ueber Sidebar/Phone-Picker einen neuen waehlen (oder per Telefon den
+    // alten weiter anschreiben).
+    if (currentCharacterName && currentCharacterName !== 'KI') {
+        try {
+            const _pr = await fetch(`/characters/${encodeURIComponent(currentCharacterName)}/current-location`);
+            if (_pr.ok) {
+                const _pd = await _pr.json();
+                const _agentLoc = _pd.current_location_id || '';
+                const _agentRoom = _pd.current_room || '';
+                const sameLoc = _agentLoc && locId && _agentLoc === locId;
+                const sameRoom = _agentRoom && roomId && _agentRoom === roomId;
+                if (!(sameLoc && sameRoom)) {
+                    // Deselect agent — gleicher Cleanup wie beim Welt-Karten-
+                    // Klick (siehe onWorldPanelLocationClick).
+                    currentCharacterName = 'KI';
+                    try {
+                        await fetch(`/store/default/chat_partner`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ value: '' })
+                        });
+                    } catch (_) {}
+                    if (typeof updateCharacterScene === 'function') updateCharacterScene('KI');
+                    const _agentNameEl = document.getElementById('agent-name');
+                    if (_agentNameEl) { _agentNameEl.textContent = '—'; _agentNameEl.title = ''; }
+                    const _profImg = document.getElementById('agent-profile-image');
+                    if (_profImg) _profImg.style.display = 'none';
+                    const _profVid = document.getElementById('agent-profile-video');
+                    if (_profVid) { _profVid.style.display = 'none'; _profVid.src = ''; }
+                    if (typeof setAgentButtonsVisible === 'function') setAgentButtonsVisible(false);
+                    if (typeof updateStoryTabVisibility === 'function') updateStoryTabVisibility();
+                    if (typeof chatMessages !== 'undefined' && chatMessages) chatMessages.innerHTML = '';
+                    _updateHeaderActivity('', '', '');
+                }
+            }
+        } catch (_) { /* ignore */ }
+    }
+
+    // 6. Sofortiger Live-Tick — server-seitiger State (Sidebar, Medium,
     // Agent-Header, Conditions, Status-Bars) wird fuer den neuen Avatar-Ort
-    // neu berechnet und an die UI verteilt. Loest auch den Phone/Expression-
-    // Switch (Medium-Hint aus Snapshot) wenn Agent nicht mehr same-room ist.
+    // neu berechnet und an die UI verteilt.
     if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
 }
 
