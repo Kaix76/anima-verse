@@ -18687,12 +18687,21 @@ async function generateEditorSecrets() {
     }
 }
 
-// === KNOWLEDGE MANAGEMENT ===
+// === MEMORY MODAL (v2) ===
+// Plan: development_instructions/plan-memory-window-redesign.md
 
 const btnKnowledge = document.getElementById('btn-knowledge');
 if (btnKnowledge) btnKnowledge.addEventListener('click', () => {
     openKnowledgeModal(currentCharacterName);
 });
+
+let _loadedMemoryTabs = new Set();
+let _memlistState = {
+    limit: 50, offset: 0,
+    tier: '', min_importance: 3, q: '', related: '',
+    source: '', sort: 'recent', include_completed: false,
+};
+let _historySubtab = 'daily';
 
 function openKnowledgeModal(targetCharacter) {
     const characterName = targetCharacter || currentCharacterName;
@@ -18701,360 +18710,760 @@ function openKnowledgeModal(targetCharacter) {
         return;
     }
     _modalCharacter = characterName;
+    _loadedMemoryTabs = new Set();
+    _memlistState = {
+        limit: 50, offset: 0,
+        tier: '', min_importance: 3, q: '', related: '',
+        source: '', sort: 'recent', include_completed: false,
+    };
+    _historySubtab = 'daily';
     document.getElementById('knowledge-char-name').textContent = characterName;
     document.getElementById('knowledge-modal').style.display = 'flex';
-    loadKnowledge();
+    // Reset Tabs auf Default "Heute" und laden
+    document.querySelectorAll('.memory-tab').forEach(t => t.classList.toggle(
+        'active', t.dataset.tab === 'today'));
+    document.querySelectorAll('.memory-tab-content').forEach(c => {
+        const isToday = c.id === 'tab-today';
+        c.classList.toggle('active', isToday);
+        c.style.display = isToday ? 'block' : 'none';
+    });
+    _loadMemoryTabIfNeeded('today');
 }
 
 function closeKnowledgeModal() {
     document.getElementById('knowledge-modal').style.display = 'none';
 }
 
-// --- Tab Switching ---
 function switchMemoryTab(tabName) {
-    document.querySelectorAll('.memory-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.memory-tab').forEach(t =>
+        t.classList.toggle('active', t.dataset.tab === tabName));
     document.querySelectorAll('.memory-tab-content').forEach(c => {
-        c.classList.remove('active');
-        c.style.display = 'none';
+        const match = c.id === `tab-${tabName}`;
+        c.classList.toggle('active', match);
+        c.style.display = match ? 'block' : 'none';
     });
-    const btn = document.querySelector(`.memory-tab[data-tab="${tabName}"]`);
-    const content = document.getElementById(`tab-${tabName}`);
-    if (btn) btn.classList.add('active');
-    if (content) { content.classList.add('active'); content.style.display = 'block'; }
-    // Mood-Chart rendern wenn Tab geoeffnet
-    if (tabName === 'mood' && window._lastMoodHistory) {
-        renderMoodChart(window._lastMoodHistory);
-    }
+    _loadMemoryTabIfNeeded(tabName);
 }
 
-// --- Memory Type Icons ---
-function _memoryTypeIcon(memoryType) {
-    switch (memoryType) {
-        case 'episodic': return '\uD83C\uDF1F';
-        case 'semantic': return '\uD83D\uDCA1';
-        case 'commitment': return '\uD83E\uDD1D';
-        default: return '\uD83D\uDCA1';
-    }
+function _loadMemoryTabIfNeeded(tabName) {
+    if (_loadedMemoryTabs.has(tabName)) return;
+    _loadedMemoryTabs.add(tabName);
+    if (tabName === 'today') loadMemoryToday();
+    else if (tabName === 'memories') loadMemoryList();
+    else if (tabName === 'relationships') loadMemoryRelationships();
+    else if (tabName === 'history') loadMemoryHistory(_historySubtab);
 }
 
-function _memoryTypeLabel(memoryType) {
-    switch (memoryType) {
-        case 'episodic': return 'Erlebnis';
-        case 'semantic': return 'Fakt';
-        case 'commitment': return 'Versprechen';
-        default: return memoryType;
-    }
+// ---- Helpers ----
+function _memoryTypeIcon(t) {
+    return ({episodic:'\uD83C\uDF1F', semantic:'\uD83D\uDCA1', commitment:'\uD83E\uDD1D'})[t] || '\uD83D\uDCA1';
 }
-
-function _knowledgeTypeIcon(sourceType) {
-    switch (sourceType) {
-        case 'character_relationship': return '\uD83E\uDD1D';
-        case 'extraction': return '\uD83D\uDDE3\uFE0F';
-        case 'instagram_reaction': return '\uD83D\uDCAC';
-        case 'instagram_comment': return '\uD83D\uDCDD';
-        case 'chat_extraction': return '\uD83D\uDDE3\uFE0F';
-        case 'user_info': return '\uD83D\uDC64';
-        case 'file_extraction': return '\uD83D\uDCC2';
-        default: return '\uD83D\uDCA1';
-    }
+function _memoryTypeLabel(t) {
+    return ({episodic:'Erlebnis', semantic:'Fakt', commitment:'Versprechen'})[t] || t;
 }
-
-// --- Decay Bar ---
 function _decayBar(decay) {
     const pct = Math.round((decay || 1) * 100);
     const color = pct > 60 ? 'var(--success, #22c55e)' : pct > 30 ? 'var(--warning, #f59e0b)' : 'var(--error, #ef4444)';
     return `<div class="decay-bar" title="Decay: ${pct}%"><div class="decay-fill" style="width:${pct}%;background:${color}"></div></div>`;
 }
+function _fmtRelative(iso) {
+    if (!iso) return '';
+    const dt = new Date(iso);
+    const ms = Date.now() - dt.getTime();
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return 'gerade eben';
+    if (min < 60) return `vor ${min}min`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `vor ${hr}h`;
+    const d = Math.floor(hr / 24);
+    if (d < 7) return `vor ${d}d`;
+    return dt.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'});
+}
+function _fmtDateTime(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleString('de-DE', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+function _moodToSentiment(mood) {
+    const sentimentMap = {
+        'happy':0.9,'excited':0.95,'joyful':0.95,'content':0.8,'cheerful':0.85,
+        'amused':0.8,'pleased':0.75,'grateful':0.8,'hopeful':0.75,'relaxed':0.7,
+        'playful':0.85,'flirty':0.8,'confident':0.8,'proud':0.8,'loved':0.9,
+        'curious':0.7,'interested':0.7,'energetic':0.85,'peaceful':0.7,
+        'gluecklich':0.9,'froh':0.85,'zufrieden':0.8,'aufgeregt':0.9,'verliebt':0.9,
+        'verspielt':0.85,'stolz':0.8,'dankbar':0.8,'entspannt':0.7,'neugierig':0.7,
+        'befriedigt':0.8,
+        'calm':0.55,'neutral':0.5,'thoughtful':0.55,'nostalgic':0.5,'reflective':0.55,
+        'surprised':0.5,'ruhig':0.55,'nachdenklich':0.55,'ueberrascht':0.5,
+        'sad':0.2,'angry':0.1,'frustrated':0.2,'anxious':0.25,'worried':0.3,
+        'lonely':0.2,'bored':0.35,'tired':0.35,'annoyed':0.25,'disappointed':0.2,
+        'jealous':0.2,'embarrassed':0.3,'nervous':0.3,'scared':0.15,'hurt':0.15,
+        'traurig':0.2,'wuetend':0.1,'frustriert':0.2,'aengstlich':0.25,'gelangweilt':0.35,
+        'muede':0.35,'genervt':0.25,'enttaeuscht':0.2,'einsam':0.2,'nervoes':0.3,
+    };
+    const m = (mood || '').toLowerCase().trim();
+    if (sentimentMap[m] !== undefined) return sentimentMap[m];
+    for (const [k, v] of Object.entries(sentimentMap)) {
+        if (m.includes(k) || k.includes(m)) return v;
+    }
+    return 0.5;
+}
 
-// --- Main Load ---
-async function loadKnowledge() {
-    if (!hasValidCharacter()) return;
+// ---- Tab "Heute" ----
+async function loadMemoryToday() {
+    if (!_modalCharacter) return;
     try {
-        const response = await fetch(`/characters/${getEditorCharacterName()}/knowledge`);
-        if (!response.ok) throw new Error('Fehler');
-        const data = await response.json();
-
-        // --- Tab: Memories ---
-        const memories = data.memories || [];
-        const memListEl = document.getElementById('memory-list');
-        const memCountEl = document.getElementById('memory-count');
-        memCountEl.textContent = `${memories.length} Erinnerungen`;
-
-        if (memories.length === 0) {
-            memListEl.innerHTML = '<p class="scheduler-empty">Keine Erinnerungen vorhanden</p>';
-        } else {
-            // Gruppieren nach Typ
-            const grouped = {episodic: [], semantic: [], commitment: []};
-            for (const m of memories) {
-                const t = m.memory_type || 'semantic';
-                if (!grouped[t]) grouped[t] = [];
-                grouped[t].push(m);
-            }
-            // Innerhalb jeder Gruppe: neueste zuerst
-            for (const key of Object.keys(grouped)) {
-                grouped[key].sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
-            }
-
-            let html = '';
-            const sections = [
-                {key: 'episodic', title: 'Erlebnisse', icon: '\uD83C\uDF1F'},
-                {key: 'semantic', title: 'Fakten', icon: '\uD83D\uDCA1'},
-                {key: 'commitment', title: 'Versprechen & Plaene', icon: '\uD83E\uDD1D'},
-            ];
-            for (const sec of sections) {
-                const items = grouped[sec.key] || [];
-                if (items.length === 0) continue;
-                html += `<div class="memory-group-header">${sec.icon} ${sec.title} (${items.length})</div>`;
-                html += items.map(m => {
-                    const date = m.timestamp ? new Date(m.timestamp).toLocaleString('de-DE', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '';
-                    const related = m.related_character ? `<span class="knowledge-related">${escapeHtml(m.related_character)}</span>` : '';
-                    const tags = (m.tags || []).map(t => `<span class="memory-tag">${escapeHtml(t)}</span>`).join('');
-                    const decay = _decayBar(m.decay_factor);
-                    return `
-                    <div class="knowledge-entry memory-entry-${m.memory_type || 'semantic'}">
-                        <div class="knowledge-entry-header">
-                            <span class="knowledge-type">${_memoryTypeIcon(m.memory_type)} ${_memoryTypeLabel(m.memory_type)}</span>
-                            ${related}
-                            <span class="knowledge-date">${date}</span>
-                        </div>
-                        <div class="knowledge-content">${escapeHtml(m.content)}</div>
-                        <div class="memory-entry-footer">
-                            <div class="memory-tags">${tags}</div>
-                            ${decay}
-                            <span class="memory-access-count" title="Abrufe">${m.access_count || 0}x</span>
-                            <button class="job-delete-btn" onclick="deleteKnowledgeEntry('${m.id}')" title="Loeschen">\uD83D\uDDD1\uFE0F</button>
-                        </div>
-                    </div>`;
-                }).join('');
-            }
-            memListEl.innerHTML = html;
-        }
-
-        // --- Tab: Mood History ---
-        const moodHistory = data.mood_history || [];
-        window._lastMoodHistory = moodHistory;
-        const moodListEl = document.getElementById('mood-history-list');
-        if (moodHistory.length === 0) {
-            moodListEl.innerHTML = '<p class="scheduler-empty">Keine Stimmungsdaten vorhanden</p>';
-        } else {
-            const recentMoods = moodHistory.slice(-50).reverse();
-            moodListEl.innerHTML = recentMoods.map(m => {
-                const date = m.timestamp ? new Date(m.timestamp).toLocaleString('de-DE', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '';
-                return `<div class="mood-history-entry"><span class="mood-history-mood">${escapeHtml(m.mood)}</span><span class="knowledge-date">${date}</span></div>`;
-            }).join('');
-        }
-        // Render chart if mood tab is active
-        if (document.getElementById('tab-mood').classList.contains('active')) {
-            renderMoodChart(moodHistory);
-        }
-
-        // --- Tab: Summaries ---
-        const historySummary = data.history_summary || '';
-        const dailySummaries = data.daily_summaries || [];
-        const summListEl = document.getElementById('summaries-list');
-        let summHtml = '';
-        if (historySummary) {
-            summHtml += `
-            <div class="knowledge-entry knowledge-summary-entry">
-                <div class="knowledge-entry-header"><span class="knowledge-type">\uD83D\uDCDC Chat-History</span></div>
-                <div class="knowledge-content">${escapeHtml(historySummary)}</div>
-            </div>`;
-        }
-        if (dailySummaries.length > 0) {
-            summHtml += dailySummaries.map(ds => {
-                const label = ds.date ? new Date(ds.date + 'T00:00').toLocaleDateString('de-DE', {day:'2-digit', month:'short'}) : ds.date;
-                // Each daily summary is now per (date, partner). Show partner
-                // explicitly so the user can tell apart conversations.
-                const partner = ds.partner ? ` \u00B7 with ${escapeHtml(ds.partner)}` : '';
-                return `
-                <div class="knowledge-entry knowledge-summary-entry">
-                    <div class="knowledge-entry-header">
-                        <span class="knowledge-type">\uD83D\uDCC5 ${escapeHtml(label)}${partner}</span>
-                    </div>
-                    <div class="knowledge-content">${escapeHtml(ds.summary)}</div>
-                </div>`;
-            }).join('');
-        }
-        // Weekly Summaries
-        const weeklySummaries = data.weekly_summaries || {};
-        const weekKeys = Object.keys(weeklySummaries).sort();
-        if (weekKeys.length > 0) {
-            summHtml += weekKeys.map(wk => `
-                <div class="knowledge-entry knowledge-summary-entry">
-                    <div class="knowledge-entry-header">
-                        <span class="knowledge-type">\uD83D\uDCC6 Woche ${escapeHtml(wk)}</span>
-                    </div>
-                    <div class="knowledge-content">${escapeHtml(weeklySummaries[wk])}</div>
-                </div>`).join('');
-        }
-        // Monthly Summaries
-        const monthlySummaries = data.monthly_summaries || {};
-        const monthKeys = Object.keys(monthlySummaries).sort();
-        if (monthKeys.length > 0) {
-            summHtml += monthKeys.map(mk => `
-                <div class="knowledge-entry knowledge-summary-entry">
-                    <div class="knowledge-entry-header">
-                        <span class="knowledge-type">\uD83D\uDCC5 Monat ${escapeHtml(mk)}</span>
-                    </div>
-                    <div class="knowledge-content">${escapeHtml(monthlySummaries[mk])}</div>
-                </div>`).join('');
-        }
-        if (!summHtml) summHtml = '<p class="scheduler-empty">Keine Zusammenfassungen vorhanden</p>';
-        summListEl.innerHTML = summHtml;
-    } catch (error) {
-        console.error('[Knowledge] Fehler:', error);
+        const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/today`);
+        if (!r.ok) throw new Error('today fetch failed');
+        const d = await r.json();
+        _renderTodayStatus(d.status);
+        _renderKnownLocations(d.known_locations);
+        _renderTodayLanes(d.lanes_24h, d.now);
+        _renderActiveMemories(d.active_memories);
+    } catch (e) {
+        console.error('[Memory/today]', e);
+        document.getElementById('today-status').innerHTML =
+            `<p class="scheduler-empty">Fehler beim Laden</p>`;
     }
 }
 
-// --- Mood Chart (Canvas-based, no dependencies) ---
-function renderMoodChart(moodHistory) {
-    const canvas = document.getElementById('mood-chart-canvas');
-    if (!canvas || moodHistory.length === 0) return;
+function _renderTodayStatus(status) {
+    const since = status.since || {};
+    const warn = status.last_warning;
+    const room = status.room ? ` <span class="status-room">/ ${escapeHtml(status.room)}</span>` : '';
+    const html = `
+        <div class="status-grid">
+            <div class="status-item"><span class="status-label">\uD83D\uDCCD Ort</span>
+                <span class="status-value">${escapeHtml(status.location || '\u2014')}${room}</span>
+                <span class="status-since">${escapeHtml(_fmtRelative(since.location))}</span></div>
+            <div class="status-item"><span class="status-label">\uD83C\uDFAF Aktivit\u00E4t</span>
+                <span class="status-value">${escapeHtml(status.activity || '\u2014')}</span>
+                <span class="status-since">${escapeHtml(_fmtRelative(since.activity))}</span></div>
+            <div class="status-item"><span class="status-label">\uD83D\uDCAD Stimmung</span>
+                <span class="status-value">${escapeHtml(status.mood || '\u2014')}</span>
+                <span class="status-since">${escapeHtml(_fmtRelative(since.mood))}</span></div>
+        </div>
+        ${warn ? `<div class="status-warning">\u26A0\uFE0F ${escapeHtml(warn.type)}: ${escapeHtml(warn.value)} <span class="status-since">${escapeHtml(_fmtRelative(warn.ts))}</span></div>` : ''}
+    `;
+    document.getElementById('today-status').innerHTML = html;
+}
+
+function _renderKnownLocations(known) {
+    const el = document.getElementById('today-known-locations');
+    const items = (known && known.items) || [];
+    if (!items.length) {
+        el.innerHTML = '<p class="scheduler-empty">Keine Orte</p>';
+        return;
+    }
+    const hint = known.unrestricted
+        ? '<span class="section-hint">(uneingeschr\u00E4nkt \u2014 alle Welt-Orte)</span>'
+        : '';
+    el.innerHTML = hint + items.map(loc => {
+        const cls = loc.is_current ? 'known-loc current' : 'known-loc';
+        const visit = loc.visit_count > 0
+            ? `<span class="known-loc-visits" title="Letzter Besuch: ${escapeHtml(_fmtDateTime(loc.last_visit))}">${loc.visit_count}\u00D7</span>`
+            : '<span class="known-loc-visits muted">nie</span>';
+        return `<div class="${cls}"><span class="known-loc-name">${escapeHtml(loc.name)}</span>${visit}</div>`;
+    }).join('');
+}
+
+function _renderTodayLanes(lanes, nowIso) {
+    const canvas = document.getElementById('today-lanes-canvas');
+    const empty = document.getElementById('today-lanes-empty');
+    const list = document.getElementById('today-lanes-list');
+    const total = (lanes.activity.points.length + lanes.location.points.length + lanes.mood.points.length);
+    if (total === 0) {
+        canvas.style.display = 'none';
+        list.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+    canvas.style.display = 'block';
+    empty.style.display = 'none';
+    _drawLanes(canvas, lanes, nowIso);
+    _renderLanesList(list, lanes);
+}
+
+function _renderLanesList(el, lanes) {
+    // Kompakte Liste unter dem Canvas: pro Lane die EINDEUTIGEN Werte.
+    // Hover auf einen Eintrag leuchtet ALLE seine Bands im Zeitstrahl auf.
+    function laneRow(laneKey, label, points, color) {
+        if (!points.length) return '';
+        const counts = new Map();
+        for (const p of points) {
+            const v = p.value || '';
+            counts.set(v, (counts.get(v) || 0) + 1);
+        }
+        // Sortieren: häufigste zuerst
+        const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+        const items = sorted.map(([value, n]) => {
+            const cnt = n > 1 ? ` <span class="lane-list-count">×${n}</span>` : '';
+            return `<span class="lane-list-item" data-lane="${laneKey}" data-value="${escapeHtml(value)}">${escapeHtml(value || '—')}${cnt}</span>`;
+        }).join('');
+        return `<div class="lane-list-row">
+            <span class="lane-list-label" style="color:${color}">${label}</span>
+            <div class="lane-list-items">${items}</div>
+        </div>`;
+    }
+    el.innerHTML =
+        laneRow('Aktivität', 'Aktivität', lanes.activity.points, 'var(--primary)') +
+        laneRow('Ort', 'Ort', lanes.location.points, 'var(--primary)') +
+        laneRow('Stimmung', 'Stimmung', lanes.mood.points, '#eab308');
+
+    if (!el._hoverWired) {
+        el._hoverWired = true;
+        el.addEventListener('mouseover', e => {
+            const item = e.target.closest('.lane-list-item');
+            if (!item) return;
+            item.classList.add('hover');
+            _highlightLane(item.dataset.lane, item.dataset.value);
+        });
+        el.addEventListener('mouseout', e => {
+            const item = e.target.closest('.lane-list-item');
+            if (!item) return;
+            item.classList.remove('hover');
+            _highlightLane(null, null);
+        });
+    }
+}
+
+function _highlightLane(lane, value) {
+    const canvas = document.getElementById('today-lanes-canvas');
+    if (!canvas || !canvas._redraw) return;
+    canvas._redraw(lane != null && value != null ? {lane, value} : null);
+}
+
+function _drawLanes(canvas, lanes, nowIso, highlight) {
+    // Closure-Cache fuer Re-Draw aus Hover-Linking
+    canvas._redraw = (hl) => _drawLanes(canvas, lanes, nowIso, hl);
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.parentElement.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = 300 * dpr;
-    canvas.style.width = rect.width + 'px';
-    canvas.style.height = '300px';
-    ctx.scale(dpr, dpr);
-    const W = rect.width, H = 300;
+    const W = Math.max(600, rect.width - 16);
+    const H = 220;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
 
-    // Mood-Sentiment Mapping (vereinfacht)
-    const sentimentMap = {
-        // Positiv (0.6 - 1.0)
-        'happy': 0.9, 'excited': 0.95, 'joyful': 0.95, 'content': 0.8, 'cheerful': 0.85,
-        'amused': 0.8, 'pleased': 0.75, 'grateful': 0.8, 'hopeful': 0.75, 'relaxed': 0.7,
-        'playful': 0.85, 'flirty': 0.8, 'confident': 0.8, 'proud': 0.8, 'loved': 0.9,
-        'curious': 0.7, 'interested': 0.7, 'energetic': 0.85, 'peaceful': 0.7,
-        'gluecklich': 0.9, 'froh': 0.85, 'zufrieden': 0.8, 'aufgeregt': 0.9, 'verliebt': 0.9,
-        'verspielt': 0.85, 'stolz': 0.8, 'dankbar': 0.8, 'entspannt': 0.7, 'neugierig': 0.7,
-        // Neutral (0.4 - 0.6)
-        'calm': 0.55, 'neutral': 0.5, 'thoughtful': 0.55, 'nostalgic': 0.5, 'reflective': 0.55,
-        'surprised': 0.5, 'ruhig': 0.55, 'nachdenklich': 0.55, 'ueberrascht': 0.5,
-        // Negativ (0.0 - 0.4)
-        'sad': 0.2, 'angry': 0.1, 'frustrated': 0.2, 'anxious': 0.25, 'worried': 0.3,
-        'lonely': 0.2, 'bored': 0.35, 'tired': 0.35, 'annoyed': 0.25, 'disappointed': 0.2,
-        'jealous': 0.2, 'embarrassed': 0.3, 'nervous': 0.3, 'scared': 0.15, 'hurt': 0.15,
-        'traurig': 0.2, 'wuetend': 0.1, 'frustriert': 0.2, 'aengstlich': 0.25, 'gelangweilt': 0.35,
-        'muede': 0.35, 'genervt': 0.25, 'enttaeuscht': 0.2, 'einsam': 0.2, 'nervoes': 0.3,
+    const PAD_L = 70, PAD_R = 16, PAD_T = 14, PAD_B = 28;
+    const innerW = W - PAD_L - PAD_R;
+    const now = nowIso ? new Date(nowIso) : new Date();
+    const t1 = now.getTime();
+    const t0 = t1 - 24 * 3600 * 1000;
+    const x = ts => PAD_L + ((new Date(ts).getTime() - t0) / (t1 - t0)) * innerW;
+
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#999';
+    const border = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
+    const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#6366f1';
+
+    // 3 Lanes (mood, activity, location) \u2014 Mood als Farbverlauf, andere als Marker
+    const laneH = (H - PAD_T - PAD_B) / 3;
+    const laneYs = [PAD_T + laneH * 0.5, PAD_T + laneH * 1.5, PAD_T + laneH * 2.5];
+
+    // Lane-Labels
+    ctx.fillStyle = muted; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('Stimmung', PAD_L - 6, laneYs[0] + 4);
+    ctx.fillText('Aktivit\u00E4t', PAD_L - 6, laneYs[1] + 4);
+    ctx.fillText('Ort', PAD_L - 6, laneYs[2] + 4);
+
+    // Grid (Stunden)
+    ctx.strokeStyle = border; ctx.lineWidth = 0.5;
+    for (let h = 0; h <= 24; h += 6) {
+        const xx = PAD_L + (h / 24) * innerW;
+        ctx.beginPath(); ctx.moveTo(xx, PAD_T); ctx.lineTo(xx, H - PAD_B); ctx.stroke();
+        ctx.fillStyle = muted; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+        const labelTs = new Date(t0 + (h / 24) * (t1 - t0));
+        ctx.fillText(labelTs.getHours().toString().padStart(2,'0') + ':00', xx, H - 12);
+    }
+
+    // Mood-Lane: Farbflaechen pro Punkt (Sentiment -> Farbe)
+    const moodPts = lanes.mood.points;
+    if (moodPts.length) {
+        for (let i = 0; i < moodPts.length; i++) {
+            const p = moodPts[i];
+            const xs = x(p.ts);
+            const xe = i + 1 < moodPts.length ? x(moodPts[i+1].ts) : PAD_L + innerW;
+            const s = _moodToSentiment(p.value);
+            const color = s > 0.6 ? '#22c55e' : s > 0.4 ? '#eab308' : '#ef4444';
+            ctx.fillStyle = color;
+            ctx.globalAlpha = 0.35;
+            ctx.fillRect(xs, laneYs[0] - laneH * 0.35, Math.max(2, xe - xs), laneH * 0.7);
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // Activity- und Location-Lane: Marker + dominierende Value-Bands
+    function drawValueLane(points, laneY, isLocation) {
+        if (!points.length) return;
+        // Bands zwischen aufeinanderfolgenden Wechseln
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            const xs = x(p.ts);
+            const xe = i + 1 < points.length ? x(points[i+1].ts) : PAD_L + innerW;
+            // Band
+            ctx.fillStyle = primary;
+            ctx.globalAlpha = isLocation ? 0.22 : 0.14;
+            ctx.fillRect(xs, laneY - laneH * 0.30, Math.max(2, xe - xs), laneH * 0.6);
+            ctx.globalAlpha = 1;
+            // Marker
+            ctx.fillStyle = primary;
+            ctx.beginPath(); ctx.arc(xs, laneY, 3.5, 0, Math.PI * 2); ctx.fill();
+            // Label (nur wenn genug Platz)
+            if (xe - xs > 70 && p.value) {
+                ctx.fillStyle = muted; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+                const lbl = (p.value || '').substring(0, 24);
+                ctx.fillText(lbl, xs + 5, laneY - 2);
+            }
+        }
+    }
+    drawValueLane(lanes.activity.points, laneYs[1], false);
+    drawValueLane(lanes.location.points, laneYs[2], true);
+
+    // Bucketed-Hint
+    if (lanes.activity.bucketed || lanes.location.bucketed || lanes.mood.bucketed) {
+        ctx.fillStyle = muted; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText('(stundenweise verdichtet)', W - PAD_R, PAD_T - 2);
+    }
+
+    // Hit-Test-Daten fuer Tooltip auf Canvas haengen
+    canvas._lanesHitData = {
+        bands: [
+            ...lanes.mood.points.map((p, i, a) => ({
+                lane: 'Stimmung', label: p.value, ts: p.ts, count: p.count,
+                xs: x(p.ts), xe: i + 1 < a.length ? x(a[i+1].ts) : PAD_L + innerW,
+                ys: laneYs[0] - laneH * 0.35, ye: laneYs[0] + laneH * 0.35,
+            })),
+            ...lanes.activity.points.map((p, i, a) => ({
+                lane: 'Aktivität', label: p.value, ts: p.ts, count: p.count,
+                xs: x(p.ts), xe: i + 1 < a.length ? x(a[i+1].ts) : PAD_L + innerW,
+                ys: laneYs[1] - laneH * 0.30, ye: laneYs[1] + laneH * 0.30,
+            })),
+            ...lanes.location.points.map((p, i, a) => ({
+                lane: 'Ort', label: p.value, ts: p.ts, count: p.count,
+                xs: x(p.ts), xe: i + 1 < a.length ? x(a[i+1].ts) : PAD_L + innerW,
+                ys: laneYs[2] - laneH * 0.30, ye: laneYs[2] + laneH * 0.30,
+            })),
+        ],
     };
 
-    function moodToSentiment(mood) {
-        const m = (mood || '').toLowerCase().trim();
-        if (sentimentMap[m] !== undefined) return sentimentMap[m];
-        // Fuzzy: check if any key is contained
-        for (const [key, val] of Object.entries(sentimentMap)) {
-            if (m.includes(key) || key.includes(m)) return val;
+    // Highlight-Overlay: alle Bands der Lane mit passendem Wert hervorheben.
+    if (highlight && highlight.lane != null && highlight.value != null) {
+        const matches = canvas._lanesHitData.bands.filter(
+            b => b.lane === highlight.lane && (b.label || '') === highlight.value);
+        if (matches.length) {
+            ctx.save();
+            ctx.strokeStyle = '#fbbf24';
+            ctx.lineWidth = 2;
+            ctx.fillStyle = 'rgba(251,191,36,0.30)';
+            for (const hit of matches) {
+                const w = Math.max(4, hit.xe - hit.xs);
+                const h = hit.ye - hit.ys;
+                ctx.fillRect(hit.xs, hit.ys, w, h);
+                ctx.strokeRect(hit.xs, hit.ys, w, h);
+            }
+            ctx.restore();
         }
-        return 0.5;
     }
-
-    // Letzte 60 Datenpunkte
-    const data = moodHistory.slice(-60);
-    const points = data.map((d, i) => ({
-        x: 40 + (i / Math.max(1, data.length - 1)) * (W - 60),
-        y: H - 30 - moodToSentiment(d.mood) * (H - 60),
-        mood: d.mood,
-        ts: d.timestamp,
-    }));
-
-    // Background gradient
-    const grad = ctx.createLinearGradient(0, 30, 0, H - 30);
-    grad.addColorStop(0, 'rgba(34,197,94,0.08)');
-    grad.addColorStop(0.5, 'rgba(250,204,21,0.05)');
-    grad.addColorStop(1, 'rgba(239,68,68,0.08)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(40, 20, W - 60, H - 50);
-
-    // Y-axis labels
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted') || '#999';
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText('Positiv', 36, 35);
-    ctx.fillText('Neutral', 36, H / 2);
-    ctx.fillText('Negativ', 36, H - 25);
-
-    // Grid lines
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--border') || '#333';
-    ctx.lineWidth = 0.5;
-    for (const y of [30, H / 2, H - 30]) {
-        ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W - 20, y); ctx.stroke();
-    }
-
-    if (points.length < 2) return;
-
-    // Line
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#6366f1';
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-    }
-    ctx.stroke();
-
-    // Fill under line
-    ctx.globalAlpha = 0.1;
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#6366f1';
-    ctx.lineTo(points[points.length - 1].x, H - 30);
-    ctx.lineTo(points[0].x, H - 30);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Dots
-    for (const p of points) {
-        const sentiment = moodToSentiment(p.mood);
-        ctx.fillStyle = sentiment > 0.6 ? '#22c55e' : sentiment > 0.4 ? '#eab308' : '#ef4444';
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    // X-axis: first and last date
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-muted') || '#999';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'left';
-    if (data[0].timestamp) {
-        ctx.fillText(new Date(data[0].timestamp).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}), 40, H - 5);
-    }
-    ctx.textAlign = 'right';
-    if (data[data.length-1].timestamp) {
-        ctx.fillText(new Date(data[data.length-1].timestamp).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'}), W - 20, H - 5);
+    if (!canvas._tooltipWired) {
+        canvas._tooltipWired = true;
+        canvas.addEventListener('mousemove', _lanesTooltipMove);
+        canvas.addEventListener('mouseleave', _lanesTooltipHide);
     }
 }
 
-async function deleteKnowledgeEntry(entryId) {
+function _lanesTooltipMove(e) {
+    const canvas = e.currentTarget;
+    const tip = document.getElementById('today-lanes-tooltip');
+    if (!tip || !canvas._lanesHitData) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = canvas._lanesHitData.bands.find(
+        b => x >= b.xs && x <= b.xe && y >= b.ys && y <= b.ye);
+    if (!hit) { tip.style.display = 'none'; return; }
+    const time = new Date(hit.ts).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+    const cnt = hit.count > 1 ? ` (×${hit.count})` : '';
+    tip.textContent = `${hit.lane}: ${hit.label || '—'} — ${time}${cnt}`;
+    tip.style.display = 'block';
+    // Position relativ zum Container
+    const container = canvas.parentElement;
+    const cRect = container.getBoundingClientRect();
+    tip.style.left = (e.clientX - cRect.left + 12) + 'px';
+    tip.style.top = (e.clientY - cRect.top + 12) + 'px';
+}
+function _lanesTooltipHide() {
+    const tip = document.getElementById('today-lanes-tooltip');
+    if (tip) tip.style.display = 'none';
+}
+
+function _renderActiveMemories(items) {
+    const el = document.getElementById('today-active-memories');
+    if (!items.length) {
+        el.innerHTML = '<p class="scheduler-empty">Keine relevanten Erinnerungen</p>';
+        return;
+    }
+    el.innerHTML = items.map(m => {
+        const date = _fmtDateTime(m.ts);
+        const related = m.related_character
+            ? `<span class="knowledge-related">${escapeHtml(m.related_character)}</span>` : '';
+        const stars = '\u2605'.repeat(m.importance) + '\u2606'.repeat(5 - m.importance);
+        return `
+        <div class="active-memory memory-entry-${m.memory_type}">
+            <div class="active-memory-head">
+                <span class="knowledge-type">${_memoryTypeIcon(m.memory_type)} ${_memoryTypeLabel(m.memory_type)}</span>
+                ${related}
+                <span class="memory-stars admin-only" title="Wichtigkeit ${m.importance}">${stars}</span>
+                <span class="memory-score admin-only" title="Score">${m.score}</span>
+                <span class="knowledge-date">${escapeHtml(date)}</span>
+            </div>
+            <div class="knowledge-content">${escapeHtml(m.content)}</div>
+        </div>`;
+    }).join('');
+}
+
+// ---- Tab "Erinnerungen" ----
+async function loadMemoryList() {
+    if (!_modalCharacter) return;
+    // Toolbar-Listener einmalig setzen
+    if (!loadMemoryList._wired) {
+        loadMemoryList._wired = true;
+        document.getElementById('memlist-q').addEventListener('input', _debounce(() => {
+            _memlistState.q = document.getElementById('memlist-q').value;
+            _memlistState.offset = 0;
+            _fetchMemList();
+        }, 250));
+        ['memlist-tier','memlist-imp','memlist-related','memlist-source','memlist-sort'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                _memlistState.offset = 0;
+                _memlistState.tier = document.getElementById('memlist-tier').value;
+                _memlistState.min_importance = parseInt(document.getElementById('memlist-imp').value, 10) || 0;
+                _memlistState.related = document.getElementById('memlist-related').value;
+                _memlistState.source = document.getElementById('memlist-source').value;
+                _memlistState.sort = document.getElementById('memlist-sort').value;
+                _fetchMemList();
+            });
+        });
+        document.getElementById('memlist-completed').addEventListener('change', e => {
+            _memlistState.include_completed = e.target.checked;
+            _memlistState.offset = 0;
+            _fetchMemList();
+        });
+    }
+    await _fetchMemList(true);
+}
+
+async function _fetchMemList(populateRelated) {
+    const s = _memlistState;
+    const params = new URLSearchParams({
+        limit: s.limit, offset: s.offset, tier: s.tier,
+        min_importance: s.min_importance, q: s.q, related: s.related,
+        source: s.source, sort: s.sort,
+        include_completed: s.include_completed ? 'true' : 'false',
+    });
     try {
-        const response = await fetch(`/characters/${getEditorCharacterName()}/knowledge/${entryId}`, { method: 'DELETE' });
+        const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/list?${params}`);
+        if (!r.ok) throw new Error('list fetch failed');
+        const d = await r.json();
+        _renderMemList(d, populateRelated);
+    } catch (e) {
+        console.error('[Memory/list]', e);
+        document.getElementById('memory-list').innerHTML =
+            '<p class="scheduler-empty">Fehler beim Laden</p>';
+    }
+}
+
+function _renderMemList(d, populateRelated) {
+    const list = document.getElementById('memory-list');
+    const count = document.getElementById('memlist-count');
+    const pag = document.getElementById('memlist-pagination');
+    count.textContent = `${d.total} / ${d.total_unfiltered} Erinnerungen`;
+    if (populateRelated) {
+        const sel = document.getElementById('memlist-related');
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Alle Bezuege</option>' +
+            (d.facets.related_characters || []).map(rc =>
+                `<option value="${escapeHtml(rc.name)}">${escapeHtml(rc.name)} (${rc.count})</option>`
+            ).join('');
+        sel.value = current;
+    }
+    if (!d.items.length) {
+        list.innerHTML = '<p class="scheduler-empty">Keine Erinnerungen mit diesen Filtern</p>';
+        pag.innerHTML = '';
+        return;
+    }
+    list.innerHTML = d.items.map(m => {
+        const date = _fmtDateTime(m.timestamp);
+        const related = m.related_character
+            ? `<span class="knowledge-related">${escapeHtml(m.related_character)}</span>` : '';
+        const tags = (m.tags || []).map(t => `<span class="memory-tag">${escapeHtml(t)}</span>`).join('');
+        const stars = '\u2605'.repeat(m.importance || 3) + '\u2606'.repeat(5 - (m.importance || 3));
+        return `
+        <div class="knowledge-entry memory-entry-${m.memory_type || 'semantic'}">
+            <div class="knowledge-entry-header">
+                <span class="knowledge-type">${_memoryTypeIcon(m.memory_type)} ${_memoryTypeLabel(m.memory_type)}</span>
+                ${related}
+                <span class="memory-stars admin-only" title="Wichtigkeit ${m.importance}">${stars}</span>
+                <span class="knowledge-date">${escapeHtml(date)}</span>
+            </div>
+            <div class="knowledge-content">${escapeHtml(m.content)}</div>
+            <div class="memory-entry-footer">
+                <div class="memory-tags">${tags}</div>
+                <div class="memory-entry-meta admin-only">
+                    ${_decayBar(m.decay_factor)}
+                    <span class="memory-access-count" title="Abrufe">${m.access_count || 0}\u00D7</span>
+                </div>
+                <button class="job-delete-btn admin-only" onclick="deleteKnowledgeEntry('${m.id}')" title="Loeschen">\uD83D\uDDD1\uFE0F</button>
+            </div>
+        </div>`;
+    }).join('');
+    // Pagination
+    const start = d.offset;
+    const end = d.offset + d.items.length;
+    const hasPrev = d.offset > 0;
+    const hasNext = end < d.total;
+    pag.innerHTML = `
+        <button ${hasPrev ? '' : 'disabled'} onclick="memlistPage(-1)">\u2190 zur\u00FCck</button>
+        <span>${start + 1}\u2013${end} von ${d.total}</span>
+        <button ${hasNext ? '' : 'disabled'} onclick="memlistPage(1)">weiter \u2192</button>
+    `;
+}
+
+function memlistPage(delta) {
+    _memlistState.offset = Math.max(0, _memlistState.offset + delta * _memlistState.limit);
+    _fetchMemList();
+}
+
+function _debounce(fn, ms) {
+    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ---- Tab "Beziehungen" ----
+async function loadMemoryRelationships() {
+    if (!_modalCharacter) return;
+    try {
+        const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/relationships`);
+        if (!r.ok) throw new Error('rel fetch failed');
+        const d = await r.json();
+        _renderRelationships(d.items);
+    } catch (e) {
+        console.error('[Memory/relationships]', e);
+        document.getElementById('relationships-list').innerHTML =
+            '<p class="scheduler-empty">Fehler beim Laden</p>';
+    }
+}
+
+function _renderRelationships(items) {
+    const el = document.getElementById('relationships-list');
+    if (!items.length) {
+        el.innerHTML = '<p class="scheduler-empty">Keine Beziehungen</p>';
+        return;
+    }
+    el.innerHTML = items.map((it, idx) => {
+        const sentBar = (val, label) => {
+            const pct = Math.round((val + 1) * 50);  // -1..1 -> 0..100
+            const color = val > 0.2 ? '#22c55e' : val < -0.2 ? '#ef4444' : '#eab308';
+            return `<div class="sent-bar" title="${label}: ${val.toFixed(2)}">
+                <div class="sent-fill" style="width:${pct}%;background:${color}"></div></div>`;
+        };
+        const tens = it.romantic_tension > 0
+            ? `<span class="rel-tension" title="Romantische Spannung">\uD83D\uDC95 ${it.romantic_tension.toFixed(2)}</span>` : '';
+        const memChip = it.memories_count
+            ? `<button class="rel-mem-chip" onclick="memlistOpenForRelated('${escapeHtml(it.partner)}')">${it.memories_count} Erinnerungen</button>`
+            : '<span class="rel-mem-chip muted">0 Erinnerungen</span>';
+        const histRows = (it.history_recent || []).map(h => `
+            <div class="rel-hist-row">
+                <span class="rel-hist-type">${escapeHtml(h.type || '')}</span>
+                <span class="rel-hist-summary">${escapeHtml(h.summary || '')}</span>
+                <span class="rel-hist-ts">${escapeHtml(_fmtRelative(h.timestamp))}</span>
+            </div>`).join('');
+        return `
+        <div class="rel-card">
+            <div class="rel-card-head">
+                <span class="rel-partner">${escapeHtml(it.partner)}</span>
+                <span class="rel-type">${escapeHtml(it.type)}</span>
+                <span class="rel-strength" title="Strength">${it.strength}</span>
+                ${tens}
+            </div>
+            <div class="rel-sent-grid">
+                <div><span class="rel-sent-label">${escapeHtml(_modalCharacter)} \u2192 ${escapeHtml(it.partner)}</span>
+                     ${sentBar(it.sentiment_self_to_other, 'self->other')}</div>
+                <div><span class="rel-sent-label">${escapeHtml(it.partner)} \u2192 ${escapeHtml(_modalCharacter)}</span>
+                     ${sentBar(it.sentiment_other_to_self, 'other->self')}</div>
+            </div>
+            <div class="rel-meta">
+                <span>${it.interaction_count} Interaktionen</span>
+                <span>letzte: ${escapeHtml(_fmtRelative(it.last_interaction))}</span>
+                ${memChip}
+                <button class="rel-expand-btn" onclick="this.parentElement.parentElement.querySelector('.rel-history').classList.toggle('open')">Verlauf</button>
+            </div>
+            <div class="rel-history">${histRows || '<p class="scheduler-empty">Keine Events</p>'}</div>
+        </div>`;
+    }).join('');
+}
+
+function memlistOpenForRelated(partner) {
+    _memlistState.related = partner;
+    _memlistState.offset = 0;
+    switchMemoryTab('memories');
+    // related-Dropdown wird durch _fetchMemList neu befuellt; Wert danach setzen
+    setTimeout(() => {
+        const sel = document.getElementById('memlist-related');
+        if (sel) sel.value = partner;
+    }, 150);
+}
+
+// ---- Tab "Verlauf" ----
+function switchHistorySubtab(kind) {
+    _historySubtab = kind;
+    document.querySelectorAll('.history-subtab').forEach(b =>
+        b.classList.toggle('active', b.dataset.kind === kind));
+    loadMemoryHistory(kind);
+}
+
+async function loadMemoryHistory(kind) {
+    if (!_modalCharacter) return;
+    const el = document.getElementById('history-content');
+    el.innerHTML = '<p class="scheduler-empty">Lade...</p>';
+    try {
+        const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/history?kind=${encodeURIComponent(kind)}&limit=200`);
+        if (!r.ok) throw new Error('history fetch failed');
+        const d = await r.json();
+        _renderHistory(d);
+    } catch (e) {
+        console.error('[Memory/history]', e);
+        el.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+    }
+}
+
+function _renderHistory(d) {
+    const el = document.getElementById('history-content');
+    if (d.kind === 'history') {
+        el.innerHTML = d.content
+            ? `<div class="knowledge-entry knowledge-summary-entry">
+                 <div class="knowledge-entry-header"><span class="knowledge-type">\uD83D\uDCDC Chat-History</span></div>
+                 <div class="knowledge-content">${escapeHtml(d.content)}</div>
+               </div>`
+            : '<p class="scheduler-empty">Keine Chat-Summary</p>';
+        return;
+    }
+    if (d.kind === 'daily') {
+        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Tagessummaries</p>'; return; }
+        // Gruppieren nach Monat
+        const byMonth = {};
+        for (const it of d.items) {
+            const m = (it.date || '').substring(0, 7);
+            (byMonth[m] = byMonth[m] || []).push(it);
+        }
+        el.innerHTML = Object.keys(byMonth).sort().reverse().map(mk => `
+            <details class="history-month" open>
+                <summary>\uD83D\uDCC5 ${escapeHtml(mk)}</summary>
+                ${byMonth[mk].map(ds => {
+                    const lbl = new Date(ds.date + 'T00:00').toLocaleDateString('de-DE', {day:'2-digit', month:'short'});
+                    const partner = ds.partner ? ` \u00B7 mit ${escapeHtml(ds.partner)}` : '';
+                    return `<div class="knowledge-entry knowledge-summary-entry">
+                        <div class="knowledge-entry-header">
+                            <span class="knowledge-type">${escapeHtml(lbl)}${partner}</span>
+                        </div>
+                        <div class="knowledge-content">${escapeHtml(ds.content)}</div>
+                    </div>`;
+                }).join('')}
+            </details>`).join('');
+        return;
+    }
+    if (d.kind === 'weekly' || d.kind === 'monthly') {
+        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Eintr\u00E4ge</p>'; return; }
+        const key = d.kind === 'weekly' ? 'week' : 'month';
+        const icon = d.kind === 'weekly' ? '\uD83D\uDCC6' : '\uD83D\uDDD3\uFE0F';
+        el.innerHTML = d.items.map(it => `
+            <div class="knowledge-entry knowledge-summary-entry">
+                <div class="knowledge-entry-header"><span class="knowledge-type">${icon} ${escapeHtml(it[key])}</span></div>
+                <div class="knowledge-content">${escapeHtml(it.content)}</div>
+            </div>`).join('');
+        return;
+    }
+    if (d.kind === 'diary') {
+        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Kein Tagebuch</p>'; return; }
+        el.innerHTML = d.items.map(it => {
+            const tags = (it.tags || []).map(t => `<span class="memory-tag">${escapeHtml(t)}</span>`).join('');
+            return `
+            <div class="knowledge-entry">
+                <div class="knowledge-entry-header">
+                    <span class="knowledge-type">\uD83D\uDCD3 Tagebuch</span>
+                    <span class="knowledge-date">${escapeHtml(_fmtDateTime(it.ts))}</span>
+                </div>
+                <div class="knowledge-content">${escapeHtml(it.content)}</div>
+                <div class="memory-tags">${tags}</div>
+            </div>`;
+        }).join('');
+        return;
+    }
+    if (d.kind === 'evolution') {
+        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Selbstbild-Snapshots</p>'; return; }
+        el.innerHTML = d.items.map((s, i) => {
+            const diff = s.diff;
+            const renderField = (field, label) => {
+                if (!diff) return `
+                    <div class="evo-field"><span class="evo-field-label">${label}</span>
+                        <div class="evo-field-text">${escapeHtml(s[field] || '')}</div></div>`;
+                const dd = diff[field] || {removed:[], added:[]};
+                const rem = dd.removed.map(l => `<div class="evo-line removed">\u2212 ${escapeHtml(l)}</div>`).join('');
+                const add = dd.added.map(l => `<div class="evo-line added">+ ${escapeHtml(l)}</div>`).join('');
+                if (!rem && !add) return `<div class="evo-field"><span class="evo-field-label">${label}</span>
+                    <div class="evo-field-empty">unver\u00E4ndert</div></div>`;
+                return `<div class="evo-field"><span class="evo-field-label">${label}</span>
+                    ${rem}${add}</div>`;
+            };
+            return `
+            <details class="evo-snapshot" ${i === 0 ? 'open' : ''}>
+                <summary>${escapeHtml(_fmtDateTime(s.ts))} \u2014 ${escapeHtml(s.trigger || '')} ${diff ? '' : '<span class="muted">(initial)</span>'}</summary>
+                ${renderField('beliefs', 'Beliefs')}
+                ${renderField('lessons', 'Lessons')}
+                ${renderField('goals', 'Goals')}
+            </details>`;
+        }).join('');
+        return;
+    }
+    el.innerHTML = '<p class="scheduler-empty">Unbekannte Ansicht</p>';
+}
+
+async function deleteKnowledgeEntry(entryId) {
+    if (!_modalCharacter) return;
+    try {
+        const response = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/knowledge/${entryId}`, { method: 'DELETE' });
         if (response.ok) {
             showStatusToast('Eintrag geloescht', 'success');
-            await loadKnowledge();
+            // Aktuelle Tab neu laden (Liste / Heute betroffen)
+            _loadedMemoryTabs.delete('memories');
+            _loadedMemoryTabs.delete('today');
+            const active = document.querySelector('.memory-tab.active')?.dataset.tab;
+            if (active) _loadMemoryTabIfNeeded(active);
         } else {
             showStatusToast('Fehler beim Loeschen', 'error');
         }
     } catch (error) {
-        console.error('[Knowledge] Fehler:', error);
+        console.error('[Memory] Fehler:', error);
         showStatusToast('Fehler beim Loeschen', 'error');
     }
 }
 
 async function clearAllKnowledge() {
-    if (!confirm(`Alle Erinnerungen von ${getEditorCharacterName()} wirklich loeschen?`)) return;
+    if (!_modalCharacter) return;
+    if (!confirm(`Alle Erinnerungen von ${_modalCharacter} wirklich loeschen?`)) return;
     try {
-        const response = await fetch(`/characters/${getEditorCharacterName()}/knowledge`, { method: 'DELETE' });
+        const response = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/knowledge`, { method: 'DELETE' });
         if (response.ok) {
             const data = await response.json();
             showStatusToast(`${data.deleted_count} Eintr\u00e4ge geloescht`, 'success');
-            await loadKnowledge();
+            _loadedMemoryTabs.clear();
+            const active = document.querySelector('.memory-tab.active')?.dataset.tab || 'today';
+            _loadMemoryTabIfNeeded(active);
         } else {
             showStatusToast('Fehler beim Loeschen', 'error');
         }
     } catch (error) {
-        console.error('[Knowledge] Fehler:', error);
+        console.error('[Memory] Fehler:', error);
         showStatusToast('Fehler beim Loeschen', 'error');
     }
 }
@@ -23952,6 +24361,22 @@ async function _initGroupSession() {
             return;
         }
         _groupSession = await resp.json();
+        // Participants normalisieren: Server liefert manchmal Strings,
+        // manchmal {name, avatar_url}-Objekte. Auf einheitliches Format
+        // zwingen, sonst tauchen "undefined"-Eintraege in Portraits/Badges
+        // und Selectors auf.
+        if (_groupSession && Array.isArray(_groupSession.participants)) {
+            _groupSession.participants = _groupSession.participants
+                .map(p => {
+                    if (typeof p === 'string') return { name: p.trim(), avatar_url: '' };
+                    if (p && typeof p === 'object') {
+                        return { name: (p.name || '').toString().trim(),
+                                 avatar_url: p.avatar_url || '' };
+                    }
+                    return { name: '', avatar_url: '' };
+                })
+                .filter(p => p.name);
+        }
         console.log('[GroupChat] Session geladen:', _groupSession.session_id, _groupSession.participants.length, 'Teilnehmer');
 
         // Load group chat history
@@ -24014,7 +24439,19 @@ function _updateGroupHeader(isGroup) {
     if (!nameEl) return;
 
     if (isGroup && _groupSession) {
-        const participants = _groupSession.participants || [];
+        // Participants koennen Strings ODER {name, avatar_url}-Objekte sein.
+        // Normalisieren auf {name, avatar_url} und leere Namen filtern,
+        // damit kein "undefined" als Portrait/Badge erscheint.
+        const participants = (_groupSession.participants || [])
+            .map(p => {
+                if (typeof p === 'string') return { name: p.trim(), avatar_url: '' };
+                if (p && typeof p === 'object') {
+                    return { name: (p.name || '').toString().trim(),
+                             avatar_url: p.avatar_url || '' };
+                }
+                return { name: '', avatar_url: '' };
+            })
+            .filter(p => p.name);
         const names = participants.map(p => p.name).join(', ');
         nameEl.textContent = `${_groupSession.location_name} (${participants.length})`;
         nameEl.title = names;
