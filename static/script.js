@@ -6618,12 +6618,15 @@ function _totalUnread() {
     return total;
 }
 function _markChatSeen(name) {
-    const latest = _latestFor(name);
-    if (latest) {
-        localStorage.setItem(_seenKey(name), latest);
-    } else {
-        localStorage.setItem(_seenKey(name), new Date().toISOString());
-    }
+    // Vorwaerts-Bewegung garantieren: spaeterer Wert von (server-latest, jetzt).
+    // Reine `latest`-Uebernahme war zu schwach — wenn der Stream-End markSeen
+    // VOR dem naechsten Unread-Poll laeuft, ist `latest` noch der vorherige
+    // Server-Stand und der gerade gelesene Bot-Reply taucht nach dem Poll als
+    // "unread" auf. Mit ISO-Strings ist der String-Vergleich sortierbar.
+    const latest = _latestFor(name) || '';
+    const now = new Date().toISOString();
+    const seen = latest > now ? latest : now;
+    localStorage.setItem(_seenKey(name), seen);
     if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
     _updatePhoneBtnBadge();
 }
