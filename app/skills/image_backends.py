@@ -642,8 +642,14 @@ class ComfyUIBackend(ImageBackend):
 
         Args:
             file_path: Lokaler Pfad zur Bilddatei.
-            slot_name: Fester Dateiname auf dem ComfyUI-Server (overwrite).
-                       Wenn None, wird der Original-Dateiname verwendet.
+            slot_name: Slot-Identifier. Es wird ein eindeutiger Dateiname pro
+                       Upload erzeugt (Slot-Praefix + Microsekunden-Timestamp),
+                       sonst cached ComfyUI's Prompt-Executor das LoadImage-
+                       Tensor anhand des Filenames und liefert beim naechsten
+                       Run das alte Bild zurueck (selbst wenn die Datei
+                       ueberschrieben wurde).
+                       Wenn None, wird der Original-Dateiname verwendet
+                       (kollisionsfrei, da Source-Filenames eindeutig sind).
 
         Returns:
             Dateiname auf dem ComfyUI-Server, oder None bei Fehler.
@@ -653,7 +659,15 @@ class ComfyUIBackend(ImageBackend):
         if not path.exists():
             logger.error(f"Upload: Datei nicht gefunden: {file_path}")
             return None
-        upload_name = slot_name or path.name
+        if slot_name:
+            # Slot-Praefix vom .png trennen und Timestamp einfuegen
+            _stem, _, _ext = slot_name.rpartition(".")
+            if not _stem:
+                _stem, _ext = slot_name, "png"
+            _us = int(time.time() * 1_000_000)
+            upload_name = f"{_stem}_{_us}.{_ext}"
+        else:
+            upload_name = path.name
         try:
             with open(file_path, "rb") as f:
                 files = {"image": (upload_name, f, "image/png")}
