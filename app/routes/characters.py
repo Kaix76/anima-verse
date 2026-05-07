@@ -262,6 +262,12 @@ async def create_character(request: Request) -> Dict[str, Any]:
         template_name = data.get("template", "human-default")
         if not character_name:
             raise HTTPException(status_code=400, detail="character_name fehlt")
+        # Reservierte / problematische Namen abfangen — z.B. "undefined" oder
+        # "null" entstehen wenn JS-Code irgendwo einen Wert nicht initialisiert
+        # und ihn dann String-konvertiert. Das soll keinen Character-Ordner anlegen.
+        if character_name.lower() in ("undefined", "null", "none", "nan"):
+            raise HTTPException(status_code=400,
+                detail=f"'{character_name}' ist als Character-Name nicht erlaubt")
 
         # Check if character already exists
         existing = list_available_characters()
@@ -3995,32 +4001,6 @@ async def save_videogen_config(character_name: str, request: Request) -> Dict[st
 
 # --- Memory/Knowledge Endpoints ---
 
-@router.get("/{character_name}/knowledge")
-def get_character_knowledge(character_name: str) -> Dict[str, Any]:
-    """Gibt Memories + History-Summary + Daily Summaries + Mood-History zurueck."""
-    from app.models.memory import load_memories, load_mood_history
-    from app.utils.history_manager import get_cached_summary, get_recent_daily_summaries
-    from app.core.memory_service import load_weekly_summaries, load_monthly_summaries
-
-    memories = load_memories(character_name)
-    history_summary = get_cached_summary(character_name)
-    daily_summaries = get_recent_daily_summaries(character_name)
-    mood_history = load_mood_history(character_name)
-    weekly = load_weekly_summaries(character_name)
-    monthly = load_monthly_summaries(character_name)
-
-    return {
-        "character": character_name,
-        "memories": memories,
-        "entries": [],  # Legacy knowledge — leer
-        "history_summary": history_summary,
-        "daily_summaries": daily_summaries,
-        "weekly_summaries": weekly,
-        "monthly_summaries": monthly,
-        "mood_history": mood_history,
-    }
-
-
 @router.delete("/{character_name}/knowledge/{entry_id}")
 def delete_single_knowledge(character_name: str, entry_id: str) -> Dict[str, Any]:
     """Loescht einen einzelnen Memory-Eintrag."""
@@ -4036,3 +4016,544 @@ def clear_character_knowledge(character_name: str) -> Dict[str, Any]:
     from app.models.memory import clear_memories
     m_count = clear_memories(character_name)
     return {"status": "success", "deleted_count": m_count}
+
+
+# ---------------------------------------------------------------------------
+# Memory-Modal v2 — Tab-spezifische Endpoints
+# Plan: development_instructions/plan-memory-window-redesign.md
+# ---------------------------------------------------------------------------
+
+def _score_memory_no_mutate(entry: Dict[str, Any], current_message: str = "") -> float:
+    """retrieve_relevant_memories ohne Side-Effects (kein access_count-Bump).
+
+    Spiegelt die Score-Formel aus app/models/memory.py:retrieve_relevant_memories
+    fuer die Read-Only-Anzeige im "Heute"-Tab.
+    """
+    from datetime import datetime as _dt
+    from app.models.memory import _compute_decay, _keyword_overlap, _recency_boost
+
+    decay = _compute_decay(entry)
+    importance = entry.get("importance", 3)
+    search_text = entry.get("content", "") + " " + " ".join(entry.get("tags", []))
+    relevance = _keyword_overlap(search_text, current_message) if current_message else 0.0
+    type_bonus = 0.0
+    mtype = entry.get("memory_type")
+    if mtype == "commitment":
+        if "completed" not in entry.get("tags", []):
+            type_bonus = 0.3
+    elif mtype == "episodic":
+        type_bonus = 0.1
+    try:
+        ts = _dt.fromisoformat(entry.get("timestamp", ""))
+        age_days = max(0, (_dt.now() - ts).total_seconds() / 86400)
+    except (ValueError, TypeError):
+        age_days = 30.0
+    recency = _recency_boost(age_days)
+    return importance * decay * recency * (1.0 + relevance * 2.0 + type_bonus)
+
+
+def _bucket_state_lane(events: List[Dict[str, Any]],
+                       max_unbucketed: int = 50) -> Dict[str, Any]:
+    """Hybrid-Verdichtung: ueber `max_unbucketed` Events pro Stunde gruppieren.
+
+    Erwartet Events sortiert (oldest first). Liefert
+    {bucketed: bool, points: [{ts, value, count?}], buckets?: [{hour, dominant, items}]}.
+    """
+    if len(events) <= max_unbucketed:
+        return {"bucketed": False, "points": events}
+    # Stunden-Bucketing: pro Stunden-Slot die dominante value (haeufigste)
+    buckets: Dict[str, List[Dict[str, Any]]] = {}
+    for ev in events:
+        ts = ev.get("ts") or ev.get("timestamp") or ""
+        hour = ts[:13]  # 'YYYY-MM-DDTHH'
+        buckets.setdefault(hour, []).append(ev)
+    out_points = []
+    out_buckets = []
+    for hour in sorted(buckets.keys()):
+        items = buckets[hour]
+        # dominant = most frequent value
+        from collections import Counter
+        cnt = Counter(it.get("value", "") for it in items)
+        dominant, _ = cnt.most_common(1)[0]
+        # Repraesentanten-TS = letzter Event in dieser Stunde
+        out_points.append({
+            "ts": items[-1].get("ts") or items[-1].get("timestamp"),
+            "value": dominant,
+            "count": len(items),
+        })
+        out_buckets.append({
+            "hour": hour,
+            "dominant": dominant,
+            "items": items,
+        })
+    return {"bucketed": True, "points": out_points, "buckets": out_buckets}
+
+
+@router.get("/{character_name}/memory/today")
+def memory_today(character_name: str) -> Dict[str, Any]:
+    """Tab "Heute": Status, 24h-Lanes, Top-K aktuell relevante Memories.
+
+    Read-only — kein access_count-Bump beim Anzeigen.
+    """
+    from datetime import datetime, timedelta
+    from app.core.db import get_connection
+    from app.models.memory import load_memories, load_mood_history
+    from app.models.character import get_character_profile, get_known_locations
+    from app.models.world import (get_location_name, resolve_location,
+                                   get_room_by_id, _load_world_data)
+
+    profile = get_character_profile(character_name)
+    now = datetime.now()
+    cutoff = (now - timedelta(hours=24)).isoformat()
+
+    # --- 24h State-History (alle Types) — fuer Lanes ---
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT ts, state_json FROM state_history "
+        "WHERE character_name=? AND ts>=? ORDER BY ts ASC",
+        (character_name, cutoff),
+    ).fetchall()
+    activity_lane: List[Dict[str, Any]] = []
+    location_lane: List[Dict[str, Any]] = []
+    effects_lane: List[Dict[str, Any]] = []
+    last_warning: Optional[Dict[str, Any]] = None
+    import json as _json
+    for ts, state_json in rows:
+        try:
+            s = _json.loads(state_json or "{}")
+        except Exception:
+            continue
+        t = s.get("type", "")
+        v = s.get("value", "")
+        ev = {"ts": s.get("timestamp", ts), "value": v}
+        if t == "activity":
+            activity_lane.append(ev)
+        elif t == "location":
+            # Location-IDs in Lesbare Namen aufloesen — fuer UI-Anzeige.
+            ev["value"] = get_location_name(v) or v
+            location_lane.append(ev)
+        elif t == "effects":
+            effects_lane.append(ev)
+        elif t in ("access_denied", "forced_action"):
+            last_warning = {"type": t, "value": v, "ts": ev["ts"]}
+
+    # --- 24h Mood-History ---
+    full_mood = load_mood_history(character_name)
+    mood_lane = [m for m in full_mood if m.get("timestamp", "") >= cutoff]
+
+    # --- "Seit"-Zeitstempel des aktuellen Zustands ---
+    def _last_change_ts(lane: List[Dict[str, Any]], current: str) -> Optional[str]:
+        # Letzter Wechsel ZUR aktuellen Value (von oldest nach newest scannen).
+        last_ts = None
+        prev = None
+        for ev in lane:
+            if ev.get("value") != prev and ev.get("value") == current:
+                last_ts = ev.get("ts")
+            prev = ev.get("value")
+        return last_ts
+
+    current_activity = profile.get("current_activity") or ""
+    current_location_id = profile.get("current_location") or ""
+    current_room_id = profile.get("current_room") or ""
+    current_mood = profile.get("current_feeling") or profile.get("current_mood") or ""
+
+    # Namen aufloesen (location/room sind oft UUIDs in der DB)
+    location_name = get_location_name(current_location_id) if current_location_id else ""
+    room_name = ""
+    if current_location_id and current_room_id:
+        loc = resolve_location(current_location_id)
+        if loc:
+            room = get_room_by_id(loc, current_room_id)
+            if room:
+                room_name = room.get("name", "")
+
+    # "Seit"-Fallback: wenn 24h-Lane leer, oldest passende state_history-Entry
+    def _since_fallback(state_type: str, current_value: str) -> Optional[str]:
+        if not current_value:
+            return None
+        row = conn.execute(
+            "SELECT ts FROM state_history WHERE character_name=? "
+            "AND json_extract(state_json,'$.type')=? "
+            "AND json_extract(state_json,'$.value')=? "
+            "ORDER BY ts DESC LIMIT 1",
+            (character_name, state_type, current_value),
+        ).fetchone()
+        return row[0] if row else None
+
+    # --- Top-K aktive Memories (Score-basiert, ohne Mutation) ---
+    all_mem = load_memories(character_name)
+    # completed Commitments standardmaessig raus
+    visible = [m for m in all_mem if "completed" not in (m.get("tags") or [])]
+    scored = [(_score_memory_no_mutate(m), m) for m in visible]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = []
+    for score, m in scored[:12]:
+        top.append({
+            "id": m.get("id"),
+            "memory_type": m.get("memory_type", "semantic"),
+            "ts": m.get("timestamp", ""),
+            "content": m.get("content", ""),
+            "importance": m.get("importance", 3),
+            "decay_factor": round(m.get("decay_factor", 1.0), 3),
+            "related_character": m.get("related_character", ""),
+            "score": round(score, 3),
+            "tags": m.get("tags", []),
+        })
+
+    # --- Bekannte Orte ---
+    # known_locations: None = unrestricted (Character darf alles sehen),
+    # Liste = strict. Wir zaehlen pro Ort die Besuche aus state_history.
+    known_ids = get_known_locations(character_name)
+    visit_rows = conn.execute(
+        "SELECT json_extract(state_json,'$.value') AS loc_id, COUNT(*) AS n, "
+        "MAX(ts) AS last_ts "
+        "FROM state_history WHERE character_name=? "
+        "AND json_extract(state_json,'$.type')='location' "
+        "GROUP BY loc_id",
+        (character_name,),
+    ).fetchall()
+    visit_by_id = {r[0]: {"count": r[1], "last": r[2]} for r in visit_rows if r[0]}
+
+    if known_ids is None:
+        # Legacy/unrestricted: alle Welt-Orte sichtbar (via list_locations,
+        # das den richtigen Resolve fuer Klone liefert)
+        from app.models.world import list_locations as _list_locs
+        all_locs = _list_locs() or []
+        known_entries = [
+            {"id": loc.get("id", ""), "name": loc.get("name", "")}
+            for loc in all_locs if loc.get("id")
+        ]
+        known_unrestricted = True
+    else:
+        known_entries = [
+            {"id": lid, "name": get_location_name(lid) or lid}
+            for lid in known_ids
+        ]
+        known_unrestricted = False
+
+    for ke in known_entries:
+        v = visit_by_id.get(ke["id"], {})
+        ke["visit_count"] = v.get("count", 0)
+        ke["last_visit"] = v.get("last")
+        ke["is_current"] = (ke["id"] == current_location_id)
+    # Sortiere: aktueller Ort zuerst, dann nach Besuchen desc, dann Name
+    known_entries.sort(
+        key=lambda e: (not e["is_current"], -e["visit_count"], e["name"].lower())
+    )
+
+    since_activity = (_last_change_ts(activity_lane, current_activity)
+                      or _since_fallback("activity", current_activity))
+    # Location-Lane ist nach Namens-Aufloesung — direkt gegen die rohe DB
+    # vergleichen statt gegen die aufgeloeste Lane.
+    since_location = _since_fallback("location", current_location_id)
+    since_mood = (mood_lane[-1].get("timestamp") if mood_lane
+                  else (full_mood[-1].get("timestamp") if full_mood else None))
+
+    return {
+        "character": character_name,
+        "now": now.isoformat(),
+        "status": {
+            "location": location_name or current_location_id,
+            "location_id": current_location_id,
+            "room": room_name,
+            "room_id": current_room_id,
+            "activity": current_activity,
+            "mood": current_mood,
+            "since": {
+                "activity": since_activity,
+                "location": since_location,
+                "mood": since_mood,
+            },
+            "last_warning": last_warning,
+        },
+        "known_locations": {
+            "unrestricted": known_unrestricted,
+            "items": known_entries,
+        },
+        "lanes_24h": {
+            "activity": _bucket_state_lane(activity_lane),
+            "location": _bucket_state_lane(location_lane),
+            "mood": _bucket_state_lane(
+                [{"ts": m.get("timestamp"), "value": m.get("mood")} for m in mood_lane]
+            ),
+            "effects": _bucket_state_lane(effects_lane),
+        },
+        "active_memories": top,
+    }
+
+
+@router.get("/{character_name}/memory/list")
+def memory_list(character_name: str,
+                limit: int = 50,
+                offset: int = 0,
+                tier: str = "",
+                min_importance: int = 0,
+                q: str = "",
+                related: str = "",
+                source: str = "",
+                sort: str = "recent",
+                include_completed: bool = False) -> Dict[str, Any]:
+    """Tab "Erinnerungen": gefilterte, paginierte Memory-Liste + Facets.
+
+    Sort: 'recent' (default) | 'importance' | 'access' | 'score'
+    """
+    from app.models.memory import load_memories
+    from collections import Counter
+
+    all_mem = load_memories(character_name)
+    total_unfiltered = len(all_mem)
+
+    # --- Facets aus dem ungefilterten Bestand (fuer Toolbar-Counts) ---
+    tier_counts = Counter(m.get("memory_type", "semantic") for m in all_mem)
+    src_counts: Counter = Counter()
+    rel_counts: Counter = Counter()
+    for m in all_mem:
+        # Quelle: aus meta abgeleitet — agent-loop schreibt 'thought'/'intent',
+        # extraction-Pfad laesst es leer.
+        src = "thought" if "thought" in (m.get("tags") or []) else (
+            "intent" if "intent" in (m.get("tags") or []) else "extraction"
+        )
+        # Falls explizit gespeichert (neuerer Code): meta.source nutzen
+        # via load_memories liegt es flach im Entry-Dict
+        if m.get("source"):
+            src = m["source"]
+        src_counts[src] += 1
+        rc = (m.get("related_character") or "").strip()
+        if rc:
+            rel_counts[rc] += 1
+
+    # --- Filter ---
+    items = all_mem
+    if not include_completed:
+        items = [m for m in items if "completed" not in (m.get("tags") or [])]
+    if tier:
+        items = [m for m in items if m.get("memory_type") == tier]
+    if min_importance > 0:
+        items = [m for m in items if m.get("importance", 3) >= min_importance]
+    if related:
+        items = [m for m in items if (m.get("related_character") or "") == related]
+    if source:
+        def _src(m):
+            if m.get("source"): return m["source"]
+            tags = m.get("tags") or []
+            if "thought" in tags: return "thought"
+            if "intent" in tags: return "intent"
+            return "extraction"
+        items = [m for m in items if _src(m) == source]
+    if q:
+        ql = q.lower()
+        items = [m for m in items
+                 if ql in (m.get("content") or "").lower()
+                 or any(ql in (t or "").lower() for t in (m.get("tags") or []))]
+
+    total = len(items)
+
+    # --- Sort ---
+    if sort == "importance":
+        items.sort(key=lambda m: (m.get("importance", 3), m.get("timestamp", "")), reverse=True)
+    elif sort == "access":
+        items.sort(key=lambda m: (m.get("access_count", 0), m.get("timestamp", "")), reverse=True)
+    elif sort == "score":
+        scored = [(_score_memory_no_mutate(m), m) for m in items]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        items = [m for _, m in scored]
+    else:  # recent
+        items.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+
+    # --- Paginate ---
+    page = items[offset:offset + max(1, min(200, limit))]
+
+    return {
+        "character": character_name,
+        "total": total,
+        "total_unfiltered": total_unfiltered,
+        "limit": limit,
+        "offset": offset,
+        "items": page,
+        "facets": {
+            "tiers": dict(tier_counts),
+            "sources": dict(src_counts),
+            "related_characters": [
+                {"name": n, "count": c}
+                for n, c in rel_counts.most_common()
+            ],
+        },
+    }
+
+
+@router.get("/{character_name}/memory/relationships")
+def memory_relationships(character_name: str,
+                         history_limit: int = 10) -> Dict[str, Any]:
+    """Tab "Beziehungen": Sentiment, Strength, Tension + letzte N Events.
+
+    `memories_count` = wie viele Memories haben diesen Partner als
+    related_character gesetzt — Klick im Frontend filtert Tab 2.
+    """
+    from app.models.relationship import get_character_relationships
+    from app.models.memory import load_memories
+    from collections import Counter
+
+    rels = get_character_relationships(character_name)
+    mem = load_memories(character_name)
+    rel_count_by_partner: Counter = Counter(
+        (m.get("related_character") or "").strip()
+        for m in mem if (m.get("related_character") or "").strip()
+    )
+
+    items = []
+    for r in rels:
+        # Partner = die andere Seite. _row_to_rel fuellt character_a/b mit
+        # from_char/to_char (DB-Reihenfolge); wir wollen den Nicht-self-Namen.
+        a = r.get("character_a") or ""
+        b = r.get("character_b") or ""
+        partner = b if a == character_name else a
+        # Sentiment aus Sicht des aufrufenden Characters herumdrehen,
+        # falls noetig: a_to_b ist Sentiment von a auf b.
+        if a == character_name:
+            self_sent = r.get("sentiment_a_to_b", 0.0)
+            other_sent = r.get("sentiment_b_to_a", 0.0)
+        else:
+            self_sent = r.get("sentiment_b_to_a", 0.0)
+            other_sent = r.get("sentiment_a_to_b", 0.0)
+        history = r.get("history") or []
+        # Neueste N Events
+        recent = history[-history_limit:][::-1] if history else []
+        items.append({
+            "partner": partner,
+            "type": r.get("type", "neutral"),
+            "strength": r.get("strength", 10),
+            "sentiment_self_to_other": round(self_sent, 3),
+            "sentiment_other_to_self": round(other_sent, 3),
+            "romantic_tension": round(r.get("romantic_tension", 0.0), 3),
+            "interaction_count": r.get("interaction_count", 0),
+            "last_interaction": r.get("last_interaction", ""),
+            "memories_count": rel_count_by_partner.get(partner, 0),
+            "history_recent": recent,
+        })
+    # Sort: meiste Interaktionen zuerst
+    items.sort(key=lambda x: x["interaction_count"], reverse=True)
+    return {"character": character_name, "items": items}
+
+
+def _evolution_diff(prev: Dict[str, Any], curr: Dict[str, Any]) -> Dict[str, Any]:
+    """Zeilenbasiertes Diff (Satz-granular) ueber beliefs/lessons/goals.
+
+    Splittet jedes Feld an Satzgrenzen (`. `, `! `, `? `) und liefert je
+    Feld {removed: [str,...], added: [str,...]}.
+    """
+    import re as _re
+
+    def _split(text: str) -> List[str]:
+        if not text: return []
+        # Split an Satzgrenzen, behalte aber nicht-leere Stuecke.
+        parts = _re.split(r"(?<=[\.!?])\s+", text.strip())
+        return [p.strip() for p in parts if p.strip()]
+
+    out = {}
+    for field in ("beliefs", "lessons", "goals"):
+        a = set(_split(prev.get(field, "")))
+        b = set(_split(curr.get(field, "")))
+        out[field] = {
+            "removed": sorted(list(a - b)),
+            "added": sorted(list(b - a)),
+        }
+    return out
+
+
+@router.get("/{character_name}/memory/history")
+def memory_history(character_name: str,
+                   kind: str = "daily",
+                   limit: int = 60,
+                   offset: int = 0) -> Dict[str, Any]:
+    """Tab "Verlauf": daily | weekly | monthly | history | diary | evolution.
+
+    Standard: `daily` (letzte 60 Eintraege ueber alle Partner).
+    """
+    from app.core.db import get_connection
+    import json as _json
+
+    conn = get_connection()
+
+    if kind == "daily":
+        rows = conn.execute("""
+            SELECT date_key, partner, content
+            FROM summaries
+            WHERE character_name=? AND kind='daily'
+            ORDER BY date_key DESC, partner ASC
+            LIMIT ? OFFSET ?
+        """, (character_name, limit, offset)).fetchall()
+        items = [{"date": r[0], "partner": r[1] or "", "content": r[2]} for r in rows]
+        total = conn.execute(
+            "SELECT COUNT(*) FROM summaries WHERE character_name=? AND kind='daily'",
+            (character_name,),
+        ).fetchone()[0]
+        return {"character": character_name, "kind": kind,
+                "total": total, "limit": limit, "offset": offset, "items": items}
+
+    if kind == "weekly":
+        from app.core.memory_service import load_weekly_summaries
+        weekly = load_weekly_summaries(character_name)
+        items = [{"week": k, "content": v} for k, v in sorted(weekly.items(), reverse=True)]
+        return {"character": character_name, "kind": kind, "items": items}
+
+    if kind == "monthly":
+        from app.core.memory_service import load_monthly_summaries
+        monthly = load_monthly_summaries(character_name)
+        items = [{"month": k, "content": v} for k, v in sorted(monthly.items(), reverse=True)]
+        return {"character": character_name, "kind": kind, "items": items}
+
+    if kind == "history":
+        from app.utils.history_manager import get_cached_summary
+        return {"character": character_name, "kind": kind,
+                "content": get_cached_summary(character_name) or ""}
+
+    if kind == "diary":
+        rows = conn.execute("""
+            SELECT id, ts, content, tags
+            FROM diary_entries
+            WHERE character_name=?
+            ORDER BY ts DESC
+            LIMIT ? OFFSET ?
+        """, (character_name, limit, offset)).fetchall()
+        items = []
+        for r in rows:
+            try: tags = _json.loads(r[3] or "[]")
+            except Exception: tags = []
+            items.append({"id": r[0], "ts": r[1], "content": r[2], "tags": tags})
+        total = conn.execute(
+            "SELECT COUNT(*) FROM diary_entries WHERE character_name=?",
+            (character_name,),
+        ).fetchone()[0]
+        return {"character": character_name, "kind": kind,
+                "total": total, "limit": limit, "offset": offset, "items": items}
+
+    if kind == "evolution":
+        rows = conn.execute("""
+            SELECT ts, new_value, reason
+            FROM evolution_history
+            WHERE character_name=? AND field='snapshot'
+            ORDER BY ts ASC
+        """, (character_name,)).fetchall()
+        snaps = []
+        for ts, new_value, reason in rows:
+            try: payload = _json.loads(new_value or "{}")
+            except Exception: payload = {}
+            snaps.append({
+                "ts": ts,
+                "trigger": payload.get("trigger") or reason or "",
+                "beliefs": payload.get("beliefs", ""),
+                "lessons": payload.get("lessons", ""),
+                "goals": payload.get("goals", ""),
+            })
+        # Diff jeweils gegen vorherigen Snapshot
+        items = []
+        prev = None
+        for s in snaps:
+            diff = _evolution_diff(prev, s) if prev else None
+            items.append({**s, "diff": diff})
+            prev = s
+        # Neueste oben
+        items.reverse()
+        return {"character": character_name, "kind": kind, "items": items}
+
+    raise HTTPException(status_code=400, detail=f"unknown kind: {kind}")
