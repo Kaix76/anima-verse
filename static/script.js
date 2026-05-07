@@ -3504,23 +3504,30 @@ async function _recomputeChatMedium(forceMedium) {
                     fetch(`/characters/${encodeURIComponent(avatarName)}/current-location`),
                     fetch(`/characters/${encodeURIComponent(partner)}/current-location`),
                 ]);
-                let aLoc = '', pLoc = '';
+                let aLoc = '', pLoc = '', aRoom = '', pRoom = '';
                 if (aResp.ok) {
                     const d = await aResp.json();
                     aLoc = (d.current_location_id || d.current_location || '').toString();
+                    aRoom = (d.current_room || '').toString();
                 }
                 if (pResp.ok) {
                     const d = await pResp.json();
                     pLoc = (d.current_location_id || d.current_location || '').toString();
+                    pRoom = (d.current_room || '').toString();
                 }
-                // Beide Locations vorhanden + identisch -> in_person, sonst messaging.
-                // Wenn Partner KEINE Location hat (Chatbot ohne Welt-Anbindung),
+                // in_person nur wenn beide im SELBEN Ort UND SELBEN Raum sind.
+                // Verschiedene Raeume am gleichen Ort = raeumlich getrennt =
+                // Phone-Chat. Wenn Partner gar keine Location hat (Chatbot),
                 // bleibt es in_person damit Variant-Bild gezeigt werden kann.
-                if (aLoc && pLoc && aLoc !== pLoc) {
-                    currentChatMedium = 'messaging';
-                } else {
-                    currentChatMedium = 'in_person';
+                let _medium = 'in_person';
+                if (aLoc && pLoc) {
+                    if (aLoc !== pLoc) {
+                        _medium = 'messaging';
+                    } else if (aRoom && pRoom && aRoom !== pRoom) {
+                        _medium = 'messaging';
+                    }
                 }
+                currentChatMedium = _medium;
             }
         } catch (e) {
             // Bei Fehler bisherigen Wert beibehalten

@@ -84,14 +84,25 @@ def _build_character_block(name: str) -> Optional[Dict[str, Any]]:
 def _compute_medium(agent: Optional[Dict[str, Any]],
                     avatar: Optional[Dict[str, Any]]) -> str:
     """Mirror der FE-Logik aus _recomputeChatMedium:
-    Beide Locations gesetzt + verschieden -> 'messaging', sonst 'in_person'.
+    'in_person' nur wenn Avatar und Agent im SELBEN Ort UND SELBEN Raum
+    sind — sonst 'messaging' (Phone-Chat). Verschiedene Raeume am gleichen
+    Ort sind raeumlich getrennt → soll auch das Phone-Frame zeigen, nicht
+    das Expression-Bild.
     """
     if not agent:
         return "in_person"
     a_loc = (avatar.get("location_id") if avatar else "") or ""
     p_loc = agent.get("location_id") or ""
-    if a_loc and p_loc and a_loc != p_loc:
-        return "messaging"
+    a_room = (avatar.get("room_id") if avatar else "") or ""
+    p_room = agent.get("room_id") or ""
+    if a_loc and p_loc:
+        if a_loc != p_loc:
+            return "messaging"
+        # Gleiche Location: wenn beide Raeume gesetzt UND verschieden,
+        # ebenfalls messaging. Wenn einer keinen Raum hat (z.B. Outdoor-
+        # Location ohne Raumstruktur), bleibt es in_person.
+        if a_room and p_room and a_room != p_room:
+            return "messaging"
     return "in_person"
 
 
