@@ -2867,6 +2867,12 @@ function renderTaskOrderList(items, path, f) {
     html += '<button class="btn btn-sm" title="Add all Large Chat Model tasks not yet assigned" onclick="addTaskGroup(\\'' + path + '\\', \\'chat\\')">+ All Chat</button>';
     html += '<button class="btn btn-sm" title="Add all Small Helper tasks not yet assigned" onclick="addTaskGroup(\\'' + path + '\\', \\'helper\\')">+ All Helper</button>';
     html += '</div>';
+    // Bulk-Action: alle Task-Orders dieses LLMs auf einen Wert setzen
+    html += '<div style="margin-top:6px; display:flex; align-items:center; gap:6px;">';
+    html += '<span style="font-size:12px; color:#8b949e;">Set order for all tasks:</span>';
+    html += '<input type="number" id="bulk-order-input-' + path + '" min="1" step="1" placeholder="1" style="max-width:70px;">';
+    html += '<button class="btn btn-sm" onclick="setAllTaskOrders(\\'' + path + '\\')">Apply</button>';
+    html += '</div>';
     html += '</div></div>';
     // Async: Dropdowns fuellen nachdem DOM da ist
     setTimeout(() => populateTaskSelects(path), 0);
@@ -2944,6 +2950,28 @@ function removeTaskOrderRow(path, index) {
     for (const p of parts) obj = obj[p];
     obj.splice(index, 1);
     rerenderTaskOrderList(path);
+}
+
+function setAllTaskOrders(path) {
+    const inputEl = document.getElementById('bulk-order-input-' + path);
+    if (!inputEl) return;
+    const order = parseInt(inputEl.value, 10);
+    if (!order || order < 1) {
+        toast('Bitte einen Order-Wert >= 1 eingeben', 'error');
+        return;
+    }
+    const parts = parsePath(path);
+    let obj = CONFIG;
+    for (const p of parts) obj = obj && obj[p];
+    if (!Array.isArray(obj) || !obj.length) {
+        toast('Keine Tasks zugeordnet', 'error');
+        return;
+    }
+    for (const it of obj) {
+        if (it && typeof it === 'object') it.order = order;
+    }
+    rerenderTaskOrderList(path);
+    toast('Order=' + order + ' fuer alle ' + obj.length + ' Tasks gesetzt', 'success');
 }
 
 function rerenderTaskOrderList(path) {
