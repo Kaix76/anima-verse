@@ -1156,16 +1156,14 @@ class ImageGenerationSkill(BaseSkill):
             logger.info("Migration abgeschlossen")
 
         if agent_config and "instances" in agent_config:
-            # Migration: Alte ReActor-Keys entfernen, faceswap_enabled hinzufuegen
+            # Migration: Alte ReActor-Keys entfernen + faceswap_enabled
+            # raus aus der Skill-Config (lebt jetzt im Char-Profil/Bild-Tab,
+            # _migrate_faceswap_flag uebernimmt den Wert beim ersten Read).
             migrated = False
-            if "faceswap_enabled" not in agent_config:
-                # Uebernehme reactor_enabled als faceswap_enabled falls vorhanden
-                for inst_cfg in agent_config["instances"].values():
-                    if inst_cfg.get("reactor_enabled"):
-                        agent_config["faceswap_enabled"] = True
-                        break
-                if "faceswap_enabled" not in agent_config:
-                    agent_config["faceswap_enabled"] = False
+            if "faceswap_enabled" in agent_config:
+                # Falls noch nicht migriert: lazy-Migration im Caller-Pfad
+                # zieht den Wert ins Profil. Hier nur lokal entfernen.
+                del agent_config["faceswap_enabled"]
                 migrated = True
             # Backend-Defaults fuer Vergleich laden (Name → Defaults)
             backend_defaults_map = {b.name: self._get_backend_defaults(b) for b in self.backends}
@@ -1218,17 +1216,14 @@ class ImageGenerationSkill(BaseSkill):
 
         Speichert nur leere Dicts pro Instanz — Defaults kommen aus .env/Backend.
         Nur echte Overrides (die vom Default abweichen) sollen hier gespeichert werden.
+
+        ``faceswap_enabled`` lebt nicht mehr in der Skill-Config sondern im
+        Character-Profil (Bild-Tab). Default dort: deaktiviert.
         """
-        global_faceswap = os.environ.get(
-            "FACE_SERVICE_ENABLED", os.environ.get("FACESWAP_ENABLED", "false")
-        ).strip().lower() in ("true", "1", "yes")
         instances = {}
         for backend in self.backends:
             instances[backend.name] = {}
-        config = {
-            "faceswap_enabled": global_faceswap,
-            "instances": instances,
-        }
+        config: Dict[str, Any] = {"instances": instances}
         # Default-Workflow setzen (aus .env COMFY_IMAGEGEN_DEFAULT)
         if self._default_workflow:
             config["comfy_workflow"] = self._default_workflow.name
@@ -1248,52 +1243,60 @@ class ImageGenerationSkill(BaseSkill):
             instances[backend.name] = instance_cfg
         return {"instances": instances}
 
+    def _migrate_faceswap_flag(self, character_name: str) -> None:
+        """One-shot: alte Skill-Config-Variante von ``faceswap_enabled``
+        in den Character-Profil (Bild-Tab) heben und aus der Skill-Config
+        entfernen. Idempotent — ein No-Op nach der ersten Migration.
+        """
+        agent_config = get_character_skill_config(character_name, self.SKILL_ID)
+        if not agent_config or "faceswap_enabled" not in agent_config:
+            return
+        legacy = bool(agent_config.pop("faceswap_enabled"))
+        try:
+            from app.models.character import get_character_config, save_character_config
+            char_config = get_character_config(character_name) or {}
+            # Nur uebernehmen wenn das Char-Profil noch keinen expliziten Wert hat
+            if char_config.get("faceswap_enabled", "") in ("", None):
+                char_config["faceswap_enabled"] = "true" if legacy else "false"
+                save_character_config(character_name, char_config)
+            save_character_skill_config(character_name, self.SKILL_ID, agent_config)
+            logger.info("FaceSwap-Migration: %s -> faceswap_enabled=%s ins Char-Profil verschoben",
+                        character_name, legacy)
+        except Exception as e:
+            logger.warning("FaceSwap-Migration fuer %s fehlgeschlagen: %s", character_name, e)
+
     def _character_swap_disabled(self, character_name: str) -> bool:
         """True wenn FaceSwap fuer den Character deaktiviert ist.
 
-        Unterschied zu _should_faceswap: hier wird NUR auf die Config geschaut,
-        NICHT auf Face-Service-Verfuegbarkeit. Wird als harter Opt-Out genutzt:
-        wenn aktiv, werden Standalone-FaceSwap, ComfyUI-FaceSwap UND MultiSwap
-        uebersprungen — egal was der Workflow faceswap_needed sagt.
-
-        Default: Schema-Default fuer faceswap_enabled = False, also disabled
-        wenn der Character den Wert nicht explizit auf True gesetzt hat.
+        Single Source of Truth: ``character_config.faceswap_enabled``
+        (Bild-Tab im Character-Editor). Default = deaktiviert wenn nicht
+        explizit auf "true" gesetzt.
         """
-        agent_config = get_character_skill_config(character_name, self.SKILL_ID)
-        if agent_config and "faceswap_enabled" in agent_config:
-            return not bool(agent_config["faceswap_enabled"])
+        # Lazy-Migration: alten Skill-Config-Wert ins Char-Profil heben
+        self._migrate_faceswap_flag(character_name)
         from app.models.character import get_character_config
         char_config = get_character_config(character_name) or {}
         char_val = char_config.get("faceswap_enabled", "")
         if char_val != "" and char_val is not None:
             return str(char_val).lower() not in ("true", "1", "yes")
-        # Kein expliziter Wert gesetzt -> Schema-Default (False) anwenden,
-        # heisst: deaktiviert. Aktivierung muss explizit erfolgen.
+        # Kein expliziter Wert -> deaktiviert (Schema-Default)
         return True
 
     def _should_faceswap(self, character_name: str) -> bool:
         """Prueft ob standalone FaceSwap fuer diesen Agent aktiv ist.
 
-        Prueft (in Reihenfolge):
-        1. Skill-Config (image_generation.json) faceswap_enabled
-        2. Character-Config (character_config.json) faceswap_enabled (Template UI)
-        3. Fallback: Face Service Verfuegbarkeit
+        Single Source of Truth: ``character_config.faceswap_enabled``
+        (Bild-Tab). Wenn aktiviert aber Face-Service nicht erreichbar →
+        False. Wenn nicht explizit gesetzt → Auto-Modus (Face-Service-
+        Verfuegbarkeit entscheidet).
         """
         from .face_client import is_available
 
-        # 1. Skill-Config (hoechste Prioritaet)
-        agent_config = get_character_skill_config(character_name, self.SKILL_ID)
-        if agent_config and "faceswap_enabled" in agent_config:
-            agent_val = bool(agent_config["faceswap_enabled"])
-            if agent_val and not is_available():
-                logger.info("FaceSwap: skill config=enabled, but face service not reachable -> DEAKTIVIERT")
-                return False
-            logger.info("FaceSwap Config: skill_json=%s -> %s", agent_val, "AKTIV" if agent_val else "DEAKTIVIERT")
-            return agent_val
+        # Lazy-Migration: alten Skill-Config-Wert ins Char-Profil heben
+        self._migrate_faceswap_flag(character_name)
 
-        # 2. Character-Config (Template UI setting)
         from app.models.character import get_character_config
-        char_config = get_character_config(character_name)
+        char_config = get_character_config(character_name) or {}
         char_val = char_config.get("faceswap_enabled", "")
         if char_val != "" and char_val is not None:
             enabled = str(char_val).lower() in ("true", "1", "yes")
@@ -1303,7 +1306,7 @@ class ImageGenerationSkill(BaseSkill):
             logger.info("FaceSwap Config: char_config=%s -> %s", enabled, "AKTIV" if enabled else "DEAKTIVIERT")
             return enabled
 
-        # 3. Fallback: Auto (Face Service Verfuegbarkeit)
+        # Kein expliziter Wert -> Auto (Face Service Verfuegbarkeit)
         available = is_available()
         logger.info("FaceSwap Config: auto mode, face service %s -> %s",
                      "verfuegbar" if available else "nicht erreichbar",
