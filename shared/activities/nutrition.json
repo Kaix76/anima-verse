@@ -147,6 +147,23 @@
       "requires_partner": true,
       "fallback_activity": "eating",
       "invitation_text": "Wollen wir zusammen Essen?"
+    },
+    {
+      "id": "picnic",
+      "name": "Picnic",
+      "description": "Picnic at the nature",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_minutes": 0,
+      "duration_minutes": 60,
+      "outfit_type": "casual",
+      "effects": {
+        "stamina_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
     }
   ]
 }

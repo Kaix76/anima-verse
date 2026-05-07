@@ -341,33 +341,27 @@ def _build_arc_block(character_name: str) -> str:
 
 
 def _build_retrospective_block(character_name: str) -> str:
-    """Existing beliefs/improvements + a hint to reflect when overdue.
+    """Recent beliefs/lessons/goals + a hint to reflect when overdue.
 
     Returns empty when ``retrospect_enabled`` is false for this character
     (per-char config or template feature) — the agent_thought.md template
     skips the block via ``{% if retrospective_block %}``.
 
-    Otherwise: shows most recent reflections (so they influence decisions)
-    and adds a "time to reflect" hint when the last Retrospect was >24h ago.
+    Otherwise: shows most recent entries from the soul files (so they
+    influence decisions) and adds a "time to reflect" hint when the last
+    Retrospect was >24h ago. Soul files are the same ones the user can
+    edit in the Soul-Editor UI; Retrospect appends to them in place.
     """
     try:
         from app.models.character_template import is_feature_enabled
         if not is_feature_enabled(character_name, "retrospect_enabled"):
             return ""
-        from app.skills.retrospect_skill import (
-            get_beliefs_path, get_improvements_path,
-            get_seed_beliefs_path, get_seed_improvements_path,
-            load_recent_lines, get_last_retrospect_at)
+        from app.core.soul_writer import load_all_body_lines
+        from app.skills.retrospect_skill import get_last_retrospect_at
 
-        # Beliefs/Improvements aus zwei Quellen ziehen: manuell kurierte
-        # Seed-Datei + Retrospect-Output. Seed zuerst (Hintergrund/Identitaet),
-        # dann frische Retrospect-Eintraege (jüngste Reflexion).
-        seed_b = load_recent_lines(get_seed_beliefs_path(character_name), limit=5)
-        retro_b = load_recent_lines(get_beliefs_path(character_name), limit=5)
-        beliefs = seed_b + retro_b
-        seed_i = load_recent_lines(get_seed_improvements_path(character_name), limit=5)
-        retro_i = load_recent_lines(get_improvements_path(character_name), limit=5)
-        improvements = seed_i + retro_i
+        beliefs = load_all_body_lines(character_name, "beliefs", limit=6)
+        lessons = load_all_body_lines(character_name, "lessons", limit=6)
+        goals = load_all_body_lines(character_name, "goals", limit=6)
         last_at = get_last_retrospect_at(character_name)
 
         overdue = True
@@ -382,9 +376,12 @@ def _build_retrospective_block(character_name: str) -> str:
         if beliefs:
             lines.append("Your beliefs so far:")
             lines.extend(f"  {b}" for b in beliefs)
-        if improvements:
-            lines.append("Improvement intentions on record:")
-            lines.extend(f"  {i}" for i in improvements)
+        if lessons:
+            lines.append("Lessons you've learned:")
+            lines.extend(f"  {l}" for l in lessons)
+        if goals:
+            lines.append("Goals on record:")
+            lines.extend(f"  {g}" for g in goals)
         if overdue:
             lines.append("(It's been a while since you last reflected — consider Retrospect.)")
         return "\n".join(lines)

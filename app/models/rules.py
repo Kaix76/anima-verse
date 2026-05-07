@@ -386,7 +386,7 @@ def check_access(character_name: str,
         matched = False
         if scope == "location" and target.get("location_id") == location_id:
             matched = True
-        elif scope == "room" and target.get("location_id") == location_id and target.get("room_id") == room_id:
+        elif scope == "room" and target.get("location_id") == location_id and room_id in (target.get("room_ids") or []):
             matched = True
         elif scope == "any_room":
             # Gilt fuer jeden Raum. Zwei Faelle:

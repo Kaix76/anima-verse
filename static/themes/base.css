@@ -619,12 +619,112 @@ select.auth-input option { background: var(--bg-container); color: var(--text); 
 .decay-bar { width: 40px; height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; }
 .decay-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
 
-/* Mood History */
-.mood-chart-container { width: 100%; margin-bottom: 16px; background: var(--bg-alt); border-radius: var(--radius); padding: 12px; border: 1px solid var(--border); }
-.mood-chart-container canvas { width: 100%; }
-.mood-history-entry { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; font-size: 12px; border-bottom: 1px solid var(--border); }
-.mood-history-entry:last-child { border-bottom: none; }
-.mood-history-mood { font-weight: 500; color: var(--text); text-transform: capitalize; }
+/* === Memory Modal v2 === */
+/* Stabile Modal-Hoehe damit Tab-Wechsel nicht springen */
+#knowledge-modal .modal-body { min-height: 70vh; max-height: 85vh; overflow-y: auto; }
+#knowledge-modal .memory-tab-content { min-height: 60vh; }
+/* User-Sicht-Toggle: setze <body data-role="user"> um interne Felder
+   (Score, Decay, Importance-Stars, Source-Filter, Selbstbild-Tab,
+   Aufraeum-Knoepfe) auszublenden. Standardmaessig sichtbar. */
+body[data-role="user"] .admin-only { display: none !important; }
+.memory-section { margin-top: 18px; }
+.memory-section-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin: 0 0 8px 0; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.section-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--text-light); margin-left: 6px; }
+
+/* Status-Karte */
+.memory-status-card { background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.status-item { display: flex; flex-direction: column; gap: 2px; }
+.status-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+.status-value { font-size: 15px; font-weight: 600; color: var(--text); }
+.status-room { font-weight: 400; font-size: 13px; color: var(--text-muted); }
+.status-since { font-size: 11px; color: var(--text-light); }
+.status-warning { margin-top: 10px; padding: 8px 12px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+/* Bekannte Orte */
+.known-locations-grid { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.known-loc { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
+.known-loc.current { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+.known-loc.current .known-loc-visits { color: rgba(255,255,255,0.85); }
+.known-loc-name { color: inherit; }
+.known-loc-visits { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.known-loc-visits.muted { opacity: 0.5; }
+
+/* 24h-Lanes */
+.lanes-container { position: relative; width: 100%; background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; overflow-x: auto; }
+.lanes-container canvas { display: block; max-width: 100%; cursor: crosshair; }
+.lanes-tooltip { position: absolute; display: none; z-index: 10; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 12px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2); white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.lanes-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 12px; }
+.lane-list-row { display: flex; gap: 10px; align-items: flex-start; }
+.lane-list-label { font-weight: 600; min-width: 70px; flex-shrink: 0; }
+.lane-list-items { display: flex; flex-wrap: wrap; gap: 4px 10px; flex: 1; }
+.lane-list-item { color: var(--text); background: var(--bg-alt); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 11px; cursor: default; transition: border-color 0.15s, background 0.15s; }
+.lane-list-item.hover { border-color: #fbbf24; background: rgba(251,191,36,0.15); }
+.lane-list-time { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.lane-list-count { color: var(--primary); font-size: 10px; }
+
+/* Active Memories (Top-K im Heute-Tab) */
+.active-memories-list { display: flex; flex-direction: column; gap: 6px; }
+.active-memory { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-alt); }
+.active-memory-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.memory-stars { font-size: 11px; color: #f59e0b; letter-spacing: 1px; }
+.memory-score { font-size: 10px; color: var(--text-muted); background: var(--bg); padding: 1px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
+
+/* Tab Erinnerungen — Toolbar */
+.memory-list-toolbar { flex-wrap: wrap; gap: 8px; }
+.memlist-input { padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); min-width: 140px; flex: 1; }
+.memlist-select { padding: 4px 6px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
+.memlist-checkbox { font-size: 12px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; }
+.memlist-pagination { display: flex; justify-content: center; align-items: center; gap: 12px; margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+.memlist-pagination button { padding: 4px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); cursor: pointer; }
+.memlist-pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.memory-entry-meta { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Tab Beziehungen */
+.relationships-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+.rel-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-alt); display: flex; flex-direction: column; gap: 6px; }
+.rel-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rel-partner { font-weight: 600; font-size: 14px; color: var(--text); }
+.rel-type { font-size: 11px; color: var(--text-muted); background: var(--bg); padding: 2px 6px; border-radius: 3px; text-transform: capitalize; }
+.rel-strength { margin-left: auto; font-size: 12px; color: var(--text); font-weight: 600; }
+.rel-tension { font-size: 11px; color: var(--text-muted); }
+.rel-sent-grid { display: flex; flex-direction: column; gap: 4px; }
+.rel-sent-label { font-size: 10px; color: var(--text-muted); display: block; margin-bottom: 2px; }
+.sent-bar { width: 100%; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.sent-fill { height: 100%; transition: width 0.3s; }
+.rel-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--text-muted); align-items: center; }
+.rel-mem-chip { font-size: 11px; padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--primary); cursor: pointer; }
+.rel-mem-chip.muted { color: var(--text-muted); cursor: default; }
+.rel-mem-chip:not(.muted):hover { background: var(--primary); color: #fff; }
+.rel-expand-btn { font-size: 11px; padding: 2px 8px; border: 1px solid var(--border); background: var(--bg); border-radius: 3px; cursor: pointer; color: var(--text-muted); margin-left: auto; }
+.rel-history { display: none; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.rel-history.open { display: flex; }
+.rel-hist-row { display: flex; gap: 8px; font-size: 11px; align-items: baseline; }
+.rel-hist-type { color: var(--primary); font-weight: 600; min-width: 70px; }
+.rel-hist-summary { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rel-hist-ts { color: var(--text-light); }
+
+/* Tab Verlauf — Sub-Tabs */
+.history-subtabs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 12px; }
+.history-subtab { background: none; border: 1px solid var(--border); padding: 4px 10px; font-size: 12px; color: var(--text-muted); cursor: pointer; border-radius: 4px; }
+.history-subtab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.history-month { background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 8px; }
+.history-month summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 2px 0; color: var(--text); }
+.history-month .knowledge-summary-entry { margin-top: 6px; }
+
+/* Selbstbild-Evolution */
+.evo-snapshot { background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px; }
+.evo-snapshot summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text); }
+.evo-field { margin-top: 8px; padding: 6px 8px; background: var(--bg); border-radius: 4px; }
+.evo-field-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
+.evo-field-text { font-size: 12px; color: var(--text); white-space: pre-wrap; }
+.evo-field-empty { font-size: 11px; color: var(--text-light); font-style: italic; }
+.evo-line { font-size: 12px; line-height: 1.5; padding: 1px 4px; border-radius: 2px; white-space: pre-wrap; }
+.evo-line.added { background: rgba(34,197,94,0.12); color: #15803d; }
+.evo-line.removed { background: rgba(239,68,68,0.10); color: #b91c1c; }
+
+/* Util */
+.muted { color: var(--text-muted); opacity: 0.6; }
 
 /* Scheduler Grid & Tabs */
 .scheduler-grid { display: grid; grid-template-columns: 3fr 2fr; gap: 0 32px; }

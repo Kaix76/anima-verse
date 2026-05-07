@@ -4106,8 +4106,32 @@ def memory_today(character_name: str) -> Dict[str, Any]:
     now = datetime.now()
     cutoff = (now - timedelta(hours=24)).isoformat()
 
-    # --- 24h State-History (alle Types) — fuer Lanes ---
     conn = get_connection()
+    import json as _json
+
+    # --- Activity-Dauern (Cap fuer Lane-Bands, sonst zieht eine 1-min
+    # Aktivitaet wie "Orgasm" sich endlos bis zum naechsten Wechsel hin).
+    # activity_library liefert shared + world-JSON + world-DB Aktivitaeten,
+    # wir bauen daraus eine name-variant -> duration_min Map.
+    activity_durations: Dict[str, Optional[int]] = {}
+    try:
+        from app.models.activity_library import get_all_library_activities
+        for act in get_all_library_activities():
+            d = act.get("duration_minutes")
+            if not isinstance(d, (int, float)):
+                continue
+            d_int = int(d)
+            # Alle Namens-Varianten (name, name_de, name_en, name_XX) als Keys
+            for key, val in act.items():
+                if (key == "name" or key.startswith("name_")) and isinstance(val, str) and val:
+                    activity_durations[val] = d_int
+            # Auch ID, falls state_history die ID statt den Anzeigenamen nutzt
+            if act.get("id"):
+                activity_durations[act["id"]] = d_int
+    except Exception as _e:
+        logger.debug("activity duration lookup skipped: %s", _e)
+
+    # --- 24h State-History (alle Types) — fuer Lanes ---
     rows = conn.execute(
         "SELECT ts, state_json FROM state_history "
         "WHERE character_name=? AND ts>=? ORDER BY ts ASC",
@@ -4117,7 +4141,6 @@ def memory_today(character_name: str) -> Dict[str, Any]:
     location_lane: List[Dict[str, Any]] = []
     effects_lane: List[Dict[str, Any]] = []
     last_warning: Optional[Dict[str, Any]] = None
-    import json as _json
     for ts, state_json in rows:
         try:
             s = _json.loads(state_json or "{}")
@@ -4127,6 +4150,7 @@ def memory_today(character_name: str) -> Dict[str, Any]:
         v = s.get("value", "")
         ev = {"ts": s.get("timestamp", ts), "value": v}
         if t == "activity":
+            ev["duration_min"] = activity_durations.get(v)
             activity_lane.append(ev)
         elif t == "location":
             # Location-IDs in Lesbare Namen aufloesen — fuer UI-Anzeige.

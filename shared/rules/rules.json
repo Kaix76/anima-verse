@@ -7,7 +7,7 @@
       "message": "Bin erschoepft, gehe schlafen.",
       "force_action": {
         "go_to": "home",
-        "set_activity": ""
+        "set_activity": "sleeping"
       },
       "id": "default_sleep_when_exhausted"
     },
@@ -32,6 +32,14 @@
         "set_activity": ""
       },
       "id": "rule_f4e31679"
+    },
+    {
+      "name": "Wahrnehmung",
+      "type": "discover",
+      "condition": "attention>80",
+      "message": "Aus dem Augenwinkel faellt dir ein Ort auf, den du noch nicht kanntest.",
+      "probability": 0.3,
+      "id": "rule_04d219e2"
     }
   ]
 }

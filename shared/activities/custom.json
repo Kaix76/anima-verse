@@ -1,0 +1,22 @@
+{
+  "group": "custom",
+  "activities": [
+    {
+      "id": "watching_sunset",
+      "name": "Watching the sunset",
+      "description": "Watching the sunset",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "night",
+      "effect_type": "ongoing",
+      "cooldown_minutes": 0,
+      "duration_minutes": 30,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 8
+      },
+      "interruptible": true,
+      "auto_pick": true
+    }
+  ]
+}
