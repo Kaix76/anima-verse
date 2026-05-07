@@ -708,9 +708,33 @@ def get_character_config(character_name: str) -> Dict[str, Any]:
                 config = None
 
     if config is None:
+        # Auto-Create darf nur greifen wenn der Character TATSAECHLICH existiert
+        # (Profil-Row in DB ODER Character-Verzeichnis). Sonst legt jeder
+        # get_character_config("Lirien")-Aufruf — z.B. weil ein LLM den
+        # Vornamen statt des vollen Namens nennt — eine neue Geister-Row an.
         config = _get_character_defaults()
-        save_character_config(character_name, config)
-        logger.info("Auto-Config fuer %s erstellt", character_name)
+        _exists = False
+        try:
+            conn = get_connection()
+            _row = conn.execute(
+                "SELECT 1 FROM characters WHERE name=? LIMIT 1",
+                (character_name,)
+            ).fetchone()
+            _exists = bool(_row)
+        except Exception:
+            pass
+        if not _exists:
+            try:
+                _exists = (get_user_characters_dir() / character_name).is_dir()
+            except Exception:
+                pass
+        if _exists:
+            save_character_config(character_name, config)
+            logger.info("Auto-Config fuer %s erstellt", character_name)
+        else:
+            logger.debug("get_character_config: '%s' existiert nicht — "
+                         "Defaults nur in-memory zurueck (kein DB-Write)",
+                         character_name)
     else:
         # Fill in fields that have a default but are missing in the stored
         # config — keeps existing characters in sync when new fields ship.
@@ -729,9 +753,35 @@ def get_character_config(character_name: str) -> Dict[str, Any]:
 
 
 def save_character_config(character_name: str, config: Dict[str, Any]):
-    """Speichert die per-Character Konfiguration in DB."""
+    """Speichert die per-Character Konfiguration in DB.
+
+    Akzeptiert nur Updates fuer Characters die bereits per save_character_profile
+    angelegt wurden (oder ein Verzeichnis haben). So legt ein versehentlich aus
+    einem LLM-Output durchgereichter Vorname (z.B. "Lirien" statt
+    "Lirien Edwinsdottir") keinen neuen Geister-Character an.
+    """
     if character_name.lower() in _RESERVED_NAMES:
         logger.warning("save_character_config: reservierter Name '%s' uebersprungen",
+                       character_name)
+        return
+
+    # Existenz-Check: Row in characters-Tabelle ODER Verzeichnis vorhanden
+    try:
+        conn = get_connection()
+        _row = conn.execute(
+            "SELECT 1 FROM characters WHERE name=? LIMIT 1",
+            (character_name,)).fetchone()
+        _exists = bool(_row)
+    except Exception:
+        _exists = False
+    if not _exists:
+        try:
+            _exists = (get_user_characters_dir() / character_name).is_dir()
+        except Exception:
+            pass
+    if not _exists:
+        logger.warning("save_character_config: Character '%s' existiert nicht — "
+                       "kein DB-Insert (Geister-Character verhindert)",
                        character_name)
         return
 
