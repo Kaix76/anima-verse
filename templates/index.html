@@ -1217,6 +1217,7 @@
                     <div class="scheduler-header" style="margin-bottom:8px;flex-shrink:0;">
                         <h3 style="font-size:13px;">Bibliothek</h3>
                         <button class="save-btn" style="font-size:11px;" onclick="newLibraryActivity()">+ Neu</button>
+                        <button class="reset-btn" style="font-size:11px;" onclick="copyLibraryActivity()" title="Aktuelle Aktivitaet duplizieren — neue ID, gleiche Inhalte">⧉ Kopie</button>
                     </div>
                     <input type="text" id="lib-act-search" class="agent-status-input" placeholder="Suchen..." style="margin-bottom:6px;font-size:12px;padding:6px 10px;flex-shrink:0;" oninput="_filterActivityList('activity-library-list', this.value)">
                     <div id="activity-library-list" class="world-list" style="overflow-y:auto;flex:1;">

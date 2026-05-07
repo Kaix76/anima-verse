@@ -16250,6 +16250,45 @@ function _hideAllEditForms() {
     if (ph) ph.style.display = 'block';
 }
 
+async function copyLibraryActivity() {
+    // Dupliziert die aktuell im Editor offene Aktivitaet — alle Felder
+    // werden uebernommen, neue ID mit "_copy"-Suffix vorgeschlagen, der
+    // Editor wechselt in den "Neu"-Modus damit beim Save ein NEUER
+    // Eintrag entsteht (statt das Original zu ueberschreiben).
+    if (!_libEditingId) {
+        showStatusToast('Bitte erst eine Aktivitaet auswaehlen', 'error');
+        return;
+    }
+    const sourceId = _libEditingId;
+    // Felder via editLibraryActivity befuellen — danach in den Neu-Modus wechseln
+    await editLibraryActivity(sourceId);
+    _libEditingId = null;
+    // Neue, eindeutige ID vorschlagen — zaehlt _copy / _copy2 / _copy3 hoch
+    let newId = `${sourceId}_copy`;
+    let n = 2;
+    const usedIds = new Set();
+    if (typeof _libActivityGroups === 'object' && _libActivityGroups) {
+        for (const list of Object.values(_libActivityGroups)) {
+            for (const a of (list || [])) usedIds.add(a.id);
+        }
+    }
+    while (usedIds.has(newId)) {
+        newId = `${sourceId}_copy${n++}`;
+    }
+    const idEl = document.getElementById('lib-act-id');
+    const nameEl = document.getElementById('lib-act-name');
+    if (idEl) {
+        idEl.value = newId;
+        idEl.focus();
+        idEl.select && idEl.select();
+    }
+    if (nameEl && nameEl.value) {
+        nameEl.value = `${nameEl.value} (Kopie)`;
+    }
+    document.getElementById('activity-library-form-title').textContent = 'Aktivitaet duplizieren';
+    showStatusToast(`Kopiert von "${sourceId}" — ID anpassen + Speichern`, 'success');
+}
+
 async function newLibraryActivity() {
     _libEditingId = null;
     _actFollowUps = [];
