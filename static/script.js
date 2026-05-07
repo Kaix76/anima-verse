@@ -8809,31 +8809,37 @@ function _buildCharacterSelectorOptions() {
     const _playerName = getPlayerCharacterName();
     const _shown = new Set();
     const out = [];
+    const _addOpt = (name, avatarUrl) => {
+        // Defensiv: leere/undefined Namen filtern (sonst erscheint
+        // "undefined" als Character — passierte z.B. wenn _groupSession
+        // String-Participants statt Objekte enthielt).
+        const _n = (name || '').toString().trim();
+        if (!_n || _shown.has(_n)) return;
+        out.push({ name: _n, avatarUrl: avatarUrl || '' });
+        _shown.add(_n);
+    };
     if (_playerName) {
         const _playerImg = document.getElementById('player-profile-image');
-        out.push({ name: _playerName, avatarUrl: (_playerImg && _playerImg.src) || '' });
-        _shown.add(_playerName);
+        _addOpt(_playerName, (_playerImg && _playerImg.src) || '');
     }
     if (chatMode === 'group' && _groupSession) {
         for (const p of (_groupSession.participants || [])) {
-            if (!_shown.has(p.name)) {
-                out.push({ name: p.name, avatarUrl: p.avatar_url || '' });
-                _shown.add(p.name);
+            // Participants koennen Strings ODER {name, avatar_url}-Objekte sein
+            if (typeof p === 'string') {
+                _addOpt(p, '');
+            } else if (p && typeof p === 'object') {
+                _addOpt(p.name, p.avatar_url);
             }
         }
     } else {
-        if (currentCharacterName && currentCharacterName !== 'KI' && !_shown.has(currentCharacterName)) {
+        if (currentCharacterName && currentCharacterName !== 'KI') {
             const profileImg = document.getElementById('agent-profile-image');
-            out.push({ name: currentCharacterName, avatarUrl: (profileImg && profileImg.src) || '' });
-            _shown.add(currentCharacterName);
+            _addOpt(currentCharacterName, (profileImg && profileImg.src) || '');
         }
     }
     if (window.availableOtherCharacters) {
         for (const name of window.availableOtherCharacters) {
-            if (!_shown.has(name)) {
-                out.push({ name, avatarUrl: '' });
-                _shown.add(name);
-            }
+            _addOpt(name, '');
         }
     }
     return out;
@@ -17471,7 +17477,9 @@ async function _editRule(ruleId) {
         _setRuleOriginBanner(_editingRuleOrigin);
         await _populateRuleCharacterDropdown(r.character || '');
         if (r.target) {
-            document.getElementById('rule-target-scope').value = r.target.scope || 'location';
+            // 'room' und 'location' teilen sich den Picker — UI zeigt 'location'
+            const _scopeUi = (r.target.scope === 'room') ? 'location' : (r.target.scope || 'location');
+            document.getElementById('rule-target-scope').value = _scopeUi;
             document.getElementById('rule-target-action').value = r.action || 'enter';
             if (r.target.location_id) document.getElementById('rule-target-location').value = r.target.location_id;
             if (r.target.min_danger) document.getElementById('rule-target-min-danger').value = r.target.min_danger;
@@ -17489,7 +17497,11 @@ async function _editRule(ruleId) {
             setTimeout(() => {
                 document.getElementById('rule-target-location').value = r.target.location_id;
                 _updateRuleRoomDropdown();
-                if (r.target.room_id) document.getElementById('rule-target-room').value = r.target.room_id;
+                const roomSel = document.getElementById('rule-target-room');
+                const ids = Array.isArray(r.target.room_ids) ? r.target.room_ids : [];
+                if (roomSel && ids.length) {
+                    Array.from(roomSel.options).forEach(o => { o.selected = ids.includes(o.value); });
+                }
             }, 50);
         }
         _toggleRuleFields();
@@ -17502,6 +17514,25 @@ function _toggleRuleFields() {
     document.getElementById('rule-force-fields').style.display = type === 'force' ? '' : 'none';
     const discEl = document.getElementById('rule-discover-fields');
     if (discEl) discEl.style.display = type === 'discover' ? '' : 'none';
+    // Bedingung-Block bei Block-Typ in die rechte Spalte einhaengen, sonst zurueck
+    // an seine Default-Position (vor dem Meldung-Label).
+    const condBlock = document.getElementById('rule-condition-block');
+    const condSlot = document.getElementById('rule-condition-slot');
+    if (condBlock && condSlot) {
+        if (type === 'block') {
+            if (condBlock.parentElement !== condSlot) condSlot.appendChild(condBlock);
+        } else {
+            const msgLabel = document.querySelector('#rule-edit-form > label[for], #rule-edit-form > label');
+            const msgInput = document.getElementById('rule-edit-message');
+            const form = document.getElementById('rule-edit-form');
+            if (form && msgInput) {
+                const msgLabelEl = msgInput.previousElementSibling;
+                if (msgLabelEl && condBlock.parentElement !== form) {
+                    form.insertBefore(condBlock, msgLabelEl);
+                }
+            }
+        }
+    }
     _toggleRuleTargetFields();
 }
 
@@ -17540,9 +17571,10 @@ async function _saveRule() {
             rule.target = { scope: 'any_room' };
         } else {
             const locId = document.getElementById('rule-target-location').value;
-            const roomId = document.getElementById('rule-target-room').value;
-            rule.target = { scope: roomId ? 'room' : 'location', location_id: locId };
-            if (roomId) rule.target.room_id = roomId;
+            const roomSel = document.getElementById('rule-target-room');
+            const roomIds = roomSel ? Array.from(roomSel.selectedOptions).map(o => o.value).filter(Boolean) : [];
+            rule.target = { scope: roomIds.length ? 'room' : 'location', location_id: locId };
+            if (roomIds.length) rule.target.room_ids = roomIds;
         }
     } else if (type === 'force') {
         const actSel = document.getElementById('rule-force-activity');
@@ -17636,13 +17668,12 @@ function _updateRuleRoomDropdown() {
     const roomSel = document.getElementById('rule-target-room');
     if (!roomSel) return;
     if (!locId || !_cachedWorldLocations) {
-        roomSel.innerHTML = '<option value="">-- Raum --</option>';
+        roomSel.innerHTML = '';
         return;
     }
     const loc = _cachedWorldLocations.find(l => l.id === locId);
     const rooms = loc?.rooms || [];
-    roomSel.innerHTML = '<option value="">-- alle Raeume --</option>' +
-        rooms.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('');
+    roomSel.innerHTML = rooms.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('');
 }
 
 // --- Prompt Filters (state-driven prompt block dropping) ---
@@ -23935,7 +23966,10 @@ async function _initGroupSession() {
 
         _updateGroupHeader(true);
         _showGroupChatBar(true);
-        showStatusToast(`Gruppenchat: ${_groupSession.participants.map(p => p.name).join(', ')}`, 'success');
+        const _pnames = (_groupSession.participants || [])
+            .map(p => typeof p === 'string' ? p : (p && p.name) || '')
+            .filter(Boolean);
+        showStatusToast(`Gruppenchat: ${_pnames.join(', ')}`, 'success');
     } catch (e) {
         console.error('[GroupChat] Session-Fehler:', e);
         chatMode = 'direct';
