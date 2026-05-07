@@ -12603,8 +12603,17 @@ function _renderLocationTree() {
         const t = (l.template_location_id || '').trim();
         if (t) cloneCount[t] = (cloneCount[t] || 0) + 1;
     }
+    // Sortierung: Unique-Orte (nicht passable, also nicht als Template
+    // mehrfach platzierbar) zuerst — danach passable Templates. Innerhalb
+    // jeder Gruppe alphabetisch nach Name. Klone (template_location_id
+    // gesetzt) werden weiter unten sowieso uebersprungen.
+    const _sorted = [...locations].sort((a, b) => {
+        const aPass = !!a.passable, bPass = !!b.passable;
+        if (aPass !== bPass) return aPass ? 1 : -1;
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    });
     let html = '<div class="world-tree">';
-    for (const loc of locations) {
+    for (const loc of _sorted) {
         // Klone werden im Tree NICHT angezeigt — nur Templates / normale Orte
         if ((loc.template_location_id || '').trim()) continue;
         const locId = loc.id || loc.name;
