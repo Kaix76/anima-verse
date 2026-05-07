@@ -214,19 +214,36 @@ def is_roleplay_character(character_name: str) -> bool:
 def is_feature_enabled(character_name: str, feature: str) -> bool:
     """Prueft ob ein Feature fuer den Character aktiviert ist.
 
-    Liest das Template des Characters und schaut in die features-Sektion.
-    Default: True (fail-open fuer Characters ohne Template oder ohne Eintrag).
+    Reihenfolge:
+      1. Per-Character Config-Override (UI-Toggle wie "Gedanken: Aktiviert")
+         — wenn der Key in character_config.json explizit gesetzt ist,
+         hat er Vorrang und kann das Template-Default sowohl an- als auch
+         abschalten.
+      2. Template-Feature (z.B. ``human-default.features.thoughts_enabled``).
+      3. Default: True (fail-open).
 
     Typische Features (siehe Templates):
       memory_enabled, relationships_enabled,
       relationship_summary_enabled, secrets_enabled, inventory_enabled,
       activities_enabled, locations_enabled, mood_tracking_enabled,
-      thoughts_enabled, status_effects_enabled, social_dialog_enabled,
-      random_events_enabled, outfit_system_enabled, expression_variants_enabled,
-      story_enabled, storydev_enabled
+      thoughts_enabled, retrospect_enabled, status_effects_enabled,
+      social_dialog_enabled, random_events_enabled, outfit_system_enabled,
+      expression_variants_enabled, story_enabled, storydev_enabled
     """
     try:
-        from app.models.character import get_character_profile
+        from app.models.character import get_character_profile, get_character_config
+        # 1) Per-Char-Config Override
+        try:
+            cfg = get_character_config(character_name) or {}
+            if feature in cfg:
+                val = cfg[feature]
+                # UI-Selects speichern manchmal Strings statt Booleans
+                if isinstance(val, str):
+                    return val.lower() in ("true", "1", "yes", "ja")
+                return bool(val)
+        except Exception:
+            pass
+        # 2) Template-Default
         profile = get_character_profile(character_name) or {}
         tmpl_name = profile.get("template", "human-default")
         tmpl = get_template(tmpl_name)
@@ -307,11 +324,20 @@ def build_prompt_section(
     """
     lines = []
     for field in get_prompt_fields(template):
-        # Feature-Gate: Feld nur aufnehmen wenn Feature aktiv
+        # Feature-Gate: Feld nur aufnehmen wenn Feature aktiv. Reihenfolge:
+        #   1. Per-Char Config-Override via is_feature_enabled (z.B.
+        #      retrospect_enabled aus character_config.json)
+        #   2. Template-Features-Dict (active_features)
+        # Damit gilt der UI-Toggle "Retrospect: Nein" auch wenn das Template
+        # die Underlying-Features (beliefs_enabled etc.) aktiv hat.
         required_feature = field.get("prompt_requires_feature")
-        if required_feature and active_features is not None:
-            if not active_features.get(required_feature):
-                continue
+        if required_feature:
+            if character_name:
+                if not is_feature_enabled(character_name, required_feature):
+                    continue
+            elif active_features is not None:
+                if not active_features.get(required_feature):
+                    continue
         # Self-only: Im Partner-Block (Avatar) solche Felder auslassen
         if is_partner and field.get("prompt_self_only"):
             continue

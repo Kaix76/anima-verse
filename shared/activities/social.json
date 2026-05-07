@@ -1,5 +1,5 @@
 {
-  "group": "Soziale Aktivitaeten",
+  "group": "Social",
   "activities": [
     {
       "id": "talking",
@@ -10,8 +10,7 @@
       "effects": {
         "courage_change": 2
       },
-      "name_de": "Reden",
-      "description_de": "Ein Gespraech fuehren"
+      "effect_type": "ongoing"
     },
     {
       "id": "partying",
@@ -25,8 +24,65 @@
         "mood_influence": "ausgelassen",
         "attention_change": -5
       },
-      "name_de": "Feiern",
-      "description_de": "Ausgelassen feiern und Spass haben"
+      "effect_type": "ongoing"
+    },
+    {
+      "id": "small_talk",
+      "name": "Small talk",
+      "description": "Have casual small talk",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 2
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "partner_activity": "small_talk",
+      "requires_partner": true,
+      "fallback_activity": "thinking_things"
+    },
+    {
+      "id": "private_conversations",
+      "name": "Private conversations",
+      "description": "Have a confidential conversation",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "partner_activity": "private_conversations",
+      "requires_partner": true
+    },
+    {
+      "id": "chatting",
+      "name": "Chatting",
+      "description": "Have a casual conversation",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 3,
+        "mood_influence": "chatty"
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "requires_partner": true
     }
   ]
 }

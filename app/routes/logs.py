@@ -646,11 +646,16 @@ function renderEntries(entries, searchTerm) {
         const role = e.llm_role || '';
         const roleCls = role === 'Tool-LLM' ? 'badge-role-tool' : role === 'Chat-LLM' ? 'badge-role-chat' : 'badge-role';
         const roleBadge = (role && role !== e.task) ? `<span class="badge ${roleCls}">${escapeHtml(role)}</span>` : '';
+        // Template-Basename: bevorzugt e.template (zeigt welche .md-Datei
+        // gerendert wurde — erleichtert Fehlersuche). Bei aelteren Eintraegen
+        // ohne template-Feld faellt es auf e.task zurueck.
+        const tplName = e.template || e.task || '?';
+        const tplTitle = e.template ? 'Template: ' + e.template : 'Task: ' + (e.task || '?');
         div.innerHTML = `
             <div class="entry-header" onclick="toggleEntry(this)">
                 <span class="badge badge-number">#${entryNum}</span>
                 <span class="badge badge-time">${e.starttime || ''}</span>
-                <span class="badge badge-task">${e.task || '?'}</span>
+                <span class="badge badge-task" title="${escapeHtml(tplTitle)}">${escapeHtml(tplName)}</span>
                 ${roleBadge}
                 ${charBadge}
                 ${provBadge}
@@ -687,7 +692,8 @@ function buildSections(e, searchTerm) {
     }
     // Meta-Daten
     const meta = {
-        task: e.task, llm_role: e.llm_role || '', model: e.model, service: e.service,
+        task: e.task, template: e.template || '', llm_role: e.llm_role || '',
+        model: e.model, service: e.service,
         user_id: e.user_id,
         starttime: e.starttime, endtime: e.endtime,
         duration_s: e.duration_s,
@@ -798,6 +804,62 @@ document.getElementById('searchInput').addEventListener('keydown', e => {
 document.getElementById('taskFilter').addEventListener('change', () => { currentOffset = 0; loadData(); });
 document.getElementById('modelFilter').addEventListener('change', () => { currentOffset = 0; loadData(); });
 document.getElementById('characterFilter').addEventListener('change', () => { currentOffset = 0; loadData(); });
+
+// URL-Params -> Filter-Felder uebernehmen, damit Deep-Links (z.B. vom
+// Agent-Loop-Admin: /logs/llm?character=X&search=YYYY-MM-DD HH:MM)
+// die Liste vorgefiltert anzeigen UND den ersten passenden Eintrag
+// automatisch aufklappen.
+(function applyUrlParams() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const ch = params.get('character') || '';
+        const tk = params.get('task') || '';
+        const md = params.get('model') || '';
+        const sr = params.get('search') || '';
+        if (sr) document.getElementById('searchInput').value = sr;
+        // Character/Task/Model-Selects werden erst nach loadData mit Optionen
+        // befuellt — wir setzen den Wert nach dem ersten Render via Watch.
+        window.__pendingPreselect = { ch, tk, md, search: sr };
+    } catch (_) {}
+})();
+
+// Hook: nach jedem Render pruefen ob noch ein Pending-Preselect zu
+// applizieren ist + den ersten Match auto-expand.
+const _origLoadData = loadData;
+loadData = async function() {
+    await _origLoadData.apply(this, arguments);
+    const pre = window.__pendingPreselect;
+    if (pre) {
+        let needsReload = false;
+        const setIf = (id, val) => {
+            if (!val) return false;
+            const el = document.getElementById(id);
+            if (!el) return false;
+            // Pruefen ob Wert in Options vorhanden ist — sonst Option anlegen
+            let exists = false;
+            for (const o of el.options) { if (o.value === val) { exists = true; break; } }
+            if (!exists) el.add(new Option(val, val));
+            if (el.value !== val) { el.value = val; return true; }
+            return false;
+        };
+        needsReload |= setIf('characterFilter', pre.ch);
+        needsReload |= setIf('taskFilter', pre.tk);
+        needsReload |= setIf('modelFilter', pre.md);
+        if (needsReload) {
+            window.__pendingPreselect = null;
+            currentOffset = 0;
+            await _origLoadData();
+        } else {
+            window.__pendingPreselect = null;
+        }
+        // Ersten Eintrag auto-expand (wenn nach Filterung sichtbar)
+        const firstEntry = document.querySelector('.entries .entry .entry-header');
+        if (firstEntry) {
+            firstEntry.click();
+            firstEntry.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+};
 
 // Initial laden
 loadData();

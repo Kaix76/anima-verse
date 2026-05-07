@@ -46,7 +46,8 @@ def _load_world() -> List[Dict[str, Any]]:
         from app.core.db import get_connection
         conn = get_connection()
         rows = conn.execute(
-            "SELECT id, condition, label, drop_blocks, prompt_modifier, enabled, meta "
+            "SELECT id, condition, label, drop_blocks, prompt_modifier, "
+            "enabled, meta, icon, image_modifier "
             "FROM prompt_filters"
         ).fetchall()
         out: List[Dict[str, Any]] = []
@@ -67,6 +68,8 @@ def _load_world() -> List[Dict[str, Any]]:
                 "prompt_modifier": r[4] or "",
                 "enabled": bool(r[5]),
                 "meta": meta,
+                "icon": r[7] or "",
+                "image_modifier": r[8] or "",
             })
         return out
     except Exception as e:
@@ -88,6 +91,116 @@ def load_filters() -> List[Dict[str, Any]]:
     return list(by_id.values())
 
 
+def migrate_status_modifiers_once() -> int:
+    """One-time migration: status_modifiers.json -> prompt_filters table.
+
+    Falls die Welt eine ``status_modifiers.json`` mit Eintraegen hat und
+    die ``prompt_filters``-Tabelle den jeweiligen Eintrag noch nicht
+    enthaelt, wird er angelegt. Auto-generierte ``id`` aus condition.
+    Idempotent — wenn die id schon in prompt_filters existiert, wird
+    nichts ueberschrieben (User-Aenderungen bleiben erhalten).
+
+    Returns: Anzahl der migrierten Eintraege.
+    """
+    try:
+        from app.core.paths import get_storage_dir
+        from app.core.db import transaction
+        path = get_storage_dir() / "status_modifiers.json"
+        if not path.exists():
+            return 0
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("status_modifiers.json parse failed: %s", e)
+            return 0
+        modifiers = data.get("modifiers") or []
+        if not modifiers:
+            return 0
+
+        # Bestehende ids aus prompt_filters laden — nicht ueberschreiben
+        existing_ids = {(e.get("id") or "").strip() for e in _load_world()}
+        migrated = 0
+        with transaction() as conn:
+            for mod in modifiers:
+                cond = (mod.get("condition") or "").strip()
+                if not cond:
+                    continue
+                # Auto-id: condition:drunk -> drunk, stamina<30 -> stamina_low
+                fid = _id_from_condition(cond, mod.get("label", ""))
+                if not fid or fid in existing_ids:
+                    continue
+                conn.execute("""
+                    INSERT OR IGNORE INTO prompt_filters
+                        (id, condition, label, drop_blocks, prompt_modifier,
+                         enabled, meta, icon, image_modifier)
+                    VALUES (?, ?, ?, '[]', ?, 1, '{}', ?, ?)
+                """, (
+                    fid, cond, (mod.get("label") or "").strip(),
+                    (mod.get("prompt_modifier") or "").strip(),
+                    (mod.get("icon") or "").strip(),
+                    (mod.get("image_modifier") or "").strip(),
+                ))
+                existing_ids.add(fid)
+                migrated += 1
+
+        if migrated:
+            logger.info("Migrated %d status_modifiers entries to prompt_filters", migrated)
+            # Source-Datei umbenennen damit die Migration nicht erneut laeuft
+            try:
+                path.rename(path.with_suffix(".json.migrated"))
+            except Exception:
+                pass
+        return migrated
+    except Exception as e:
+        logger.warning("migrate_status_modifiers_once failed: %s", e)
+        return 0
+
+
+def _id_from_condition(condition: str, label: str = "") -> str:
+    """Auto-generate a stable id from a condition expression."""
+    import re as _re
+    cond = (condition or "").strip().lower()
+    if cond.startswith("condition:"):
+        return _re.sub(r"[^a-z0-9_]", "_", cond[10:]).strip("_")
+    if "<" in cond or ">" in cond or "=" in cond:
+        # stat<30 -> stamina_low (bei <), stamina_high (bei >), stamina_eq_30 (bei =)
+        m = _re.match(r"^([a-z_]+)\s*([<>=])\s*(\d+)", cond)
+        if m:
+            stat, op, _ = m.groups()
+            suffix = {"<": "low", ">": "high", "=": "eq"}.get(op, "x")
+            return f"{stat}_{suffix}"
+    if label:
+        return _re.sub(r"[^a-z0-9_]", "_", label.lower()).strip("_") or "filter"
+    return _re.sub(r"[^a-z0-9_]", "_", cond)[:32].strip("_") or "filter"
+
+
+def get_filter_for_condition(condition_name: str) -> Optional[Dict[str, Any]]:
+    """Return the merged filter entry whose id (or legacy condition expression)
+    matches ``condition_name``.
+
+    Used by UI badge + image generation to look up icon/label/image_modifier
+    for an active condition. Match is case-insensitive.
+
+    Reihenfolge:
+        1. Filter-id (neues Modell — id IS der Condition-Name)
+        2. Legacy ``condition: condition:<name>``-Expression (Bestandsdaten)
+    Returns None when nothing matches.
+    """
+    if not condition_name:
+        return None
+    target_id = condition_name.strip().lower()
+    target_expr = f"condition:{target_id}"
+    legacy_match: Optional[Dict[str, Any]] = None
+    for f in load_filters():
+        fid = (f.get("id") or "").strip().lower()
+        if fid == target_id:
+            return f
+        cond = (f.get("condition") or "").strip().lower()
+        if cond == target_expr and legacy_match is None:
+            legacy_match = f
+    return legacy_match
+
+
 def _evaluate(condition: str, character_name: str, location_id: str = "") -> bool:
     """Reuse the existing condition evaluator (stamina<10, has_condition:X, …)."""
     if not condition:
@@ -99,6 +212,26 @@ def _evaluate(condition: str, character_name: str, location_id: str = "") -> boo
     except Exception as e:
         logger.debug("evaluate_condition('%s') failed for %s: %s",
                      condition, character_name, e)
+        return False
+
+
+def _has_tag_condition(character_name: str, tag: str) -> bool:
+    """True if ``tag`` is in the character's profile.active_conditions list.
+
+    Filter-id triggers implicitly when the same name is set as a tag
+    (e.g. via apply_condition). So a filter ``id=drunk`` doesn't need
+    ``condition: condition:drunk`` anymore — the id makes the tag entry
+    point automatic.
+    """
+    if not tag or not character_name:
+        return False
+    try:
+        from app.models.character import get_character_profile
+        profile = get_character_profile(character_name) or {}
+        active = profile.get("active_conditions", []) or []
+        tag_l = tag.strip().lower()
+        return any((c.get("name") or "").strip().lower() == tag_l for c in active)
+    except Exception:
         return False
 
 
@@ -120,21 +253,37 @@ def apply_filters(character_name: str,
     triggered_modifiers: List[str] = []
     dropped: set = set()
 
+    # Resolve active avatar once per call so prompt_modifier templates can
+    # reference {avatar}. Empty string when no avatar context (background
+    # jobs, periodic ticks): substitution falls back to "the avatar".
+    avatar_name = ""
+    try:
+        from app.models.account import get_active_character
+        avatar_name = (get_active_character() or "").strip()
+    except Exception:
+        pass
+    avatar_subst = avatar_name or "the avatar"
+
     for f in filters:
         if not f.get("enabled", True):
             continue
+        fid = (f.get("id") or "").strip()
         condition = (f.get("condition") or "").strip()
-        if not condition:
-            continue
-        if not _evaluate(condition, character_name, location_id):
+        # Trigger via Filter-id als Tag-Condition (implizit) ODER ueber
+        # explizite condition-Expression (stamina<10, mood:happy, …).
+        # Filter ohne Tag UND ohne Expression bleiben inaktiv.
+        triggered = (fid and _has_tag_condition(character_name, fid)) \
+            or (bool(condition) and _evaluate(condition, character_name, location_id))
+        if not triggered:
             continue
         for blk in (f.get("drop_blocks") or []):
             if isinstance(blk, str) and blk:
                 dropped.add(blk)
         modifier = (f.get("prompt_modifier") or "").strip()
         if modifier:
+            modifier = modifier.replace("{avatar}", avatar_subst)
             triggered_modifiers.append(modifier)
-        logger.debug("prompt_filter triggered: %s for %s", f.get("id"), character_name)
+        logger.debug("prompt_filter triggered: %s for %s", fid, character_name)
 
     for blk in dropped:
         if blk in ctx:

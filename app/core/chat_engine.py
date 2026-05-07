@@ -56,12 +56,14 @@ def build_chat_context(
         get_character_language_instruction)
     from app.models.account import get_active_character, get_chat_partner
     from app.models.chat import get_chat_history
-    from app.utils.history_manager import get_time_based_history, get_cached_summary, refresh_summary_if_uncovered, strip_history_artifacts
+    from app.utils.history_manager import (
+        get_time_based_history, get_cached_summary, refresh_summary_if_uncovered,
+        strip_history_artifacts, fuzzy_signature, count_assistant_repetitions)
+    from app.core import config as _cfg
     from app.routes.chat import _build_full_system_prompt, _strip_tool_hallucinations
 
     agent_config = get_character_config(character_name)
     _chat_instance = resolve_llm("chat_stream", agent_name=character_name)
-    llm = _chat_instance.create_llm() if _chat_instance else None
     lang_instruction = get_character_language_instruction(character_name)
     # For web chat: player's active character is the conversation partner identity.
     # For telegram: use account name (telegram has no character-switching).
@@ -96,6 +98,28 @@ def build_chat_context(
     # Partner-Name fuer History-Dateinamen: bei C2C explizit; sonst active character
     _history_partner = partner_name if partner_name else (speaker if speaker != "user" else "")
     full_chat_history = get_chat_history(character_name, partner_name=_history_partner)
+
+    # LLM bauen — Anti-Repetition aus chat-Section der Admin-Config:
+    # frequency_penalty (Token-Penalty) + graduellem Temperature-Bump pro
+    # detektierter Phrasen-Wiederholung.
+    _llm_overrides: Dict[str, Any] = {}
+    _freq = float(_cfg.get("chat.frequency_penalty", 0.3) or 0)
+    if _freq > 0:
+        _llm_overrides["frequency_penalty"] = _freq
+    _step = float(_cfg.get("chat.anti_rep_step", 0.1) or 0)
+    if _step > 0:
+        _lookback = int(_cfg.get("chat.anti_rep_lookback", 6) or 6)
+        _rep_count = count_assistant_repetitions(full_chat_history, _lookback)
+        if _rep_count > 0:
+            _max = float(_cfg.get("chat.anti_rep_max", 1.2) or 1.2)
+            _base_temp = float(getattr(_chat_instance, "temperature", 0.7))
+            _new_temp = min(_base_temp + _step * _rep_count, _max)
+            _llm_overrides["temperature"] = _new_temp
+            logger.info(
+                "[%s] %d Wiederholung(en) in den letzten %d Turns erkannt "
+                "→ Temperature %.2f → %.2f",
+                character_name, _rep_count, _lookback, _base_temp, _new_temp)
+    llm = _chat_instance.create_llm(**_llm_overrides) if _chat_instance else None
 
     # History window (zeitgesteuert)
     recent_history, old_history = get_time_based_history(full_chat_history)
@@ -133,25 +157,27 @@ def build_chat_context(
                 continue
             messages.append({"role": "user", "content": content})
 
-    # Self-Reinforcement-Loop brechen: identische Assistant-Antworten
-    # kollabieren (siehe chat.py fuer Details).
+    # Self-Reinforcement-Loop brechen: Fuzzy-Match auf Anfangsphrasen
+    # (siehe history_manager.fuzzy_signature). Marker/Whitespace-Variationen
+    # werden ignoriert.
     _seen: set = set()
     _deduped: list = []
     _i = 0
     while _i < len(messages):
         m = messages[_i]
         if m["role"] == "assistant":
-            key = m["content"].strip().lower()
-            if key in _seen:
+            key = fuzzy_signature(m["content"])
+            if key and key in _seen:
                 if _deduped and _deduped[-1]["role"] == "user":
                     _deduped.pop()
                 _i += 1
                 continue
-            _seen.add(key)
+            if key:
+                _seen.add(key)
         _deduped.append(m)
         _i += 1
     if len(_deduped) < len(messages):
-        logger.info("C2C-History: %d redundante Assistant-Duplikate entfernt",
+        logger.info("C2C-History: %d Fuzzy-Duplikate entfernt",
                     len(messages) - len(_deduped))
         messages = _deduped
 
@@ -484,11 +510,19 @@ def post_process_response(
     _is_thought = bool(extraction_context and extraction_context.get("source") == "thought")
     _mem_user_input = "" if _is_thought else user_input
 
+    # Partner-Name fuer Extraction: nie generische Sentinel ("user"/"Player")
+    # weiterreichen — die Extraction skippt dann sauber statt sie als Adressat
+    # in Memory-Texten zu materialisieren.
+    _extract_partner = (user_display_name or "").strip()
+    if _extract_partner.lower() in {"user", "player", "spieler"}:
+        _extract_partner = ""
+
     def _background_extraction():
         # Memory extraction
         try:
             from app.core.memory_service import extract_memories_from_exchange, apply_extracted_memories
-            extracted = extract_memories_from_exchange(character_name, _mem_user_input, cleaned, llm
+            extracted = extract_memories_from_exchange(
+                character_name, _extract_partner, _mem_user_input, cleaned, llm
             )
             if extracted:
                 count = apply_extracted_memories(character_name, extracted,
@@ -502,66 +536,75 @@ def post_process_response(
         # und ein zweiter LLM-Call mit synthetischem User-Input).
         if _is_thought:
             return
-        try:
-            from app.models.relationship import record_interaction, get_romantic_interests
-
-            summary = f"{user_display_name}: {user_input[:100]}"
-            if cleaned:
-                summary += f" — {character_name}: {cleaned[:80]}"
-
-            analysis = {"sentiment_a": 0.05, "sentiment_b": 0.05, "romantic_delta": 0.0}
+        # Relationship-Update braucht echte Charakternamen — Sentinel
+        # ("user"/"Player") sind keine validen Speaker-Namen.
+        if not _extract_partner:
+            logger.debug("[%s] relationship update skipped: no partner",
+                          character_name)
+        else:
             try:
-                ri_user = get_romantic_interests(user_display_name)
-                ri_char = get_romantic_interests(character_name)
-                romantic_context = ""
-                if ri_user or ri_char:
-                    romantic_context = "\nRomantic interest context:\n"
-                    if ri_user:
-                        romantic_context += f"- {user_display_name}'s romantic interests: {ri_user}\n"
-                    if ri_char:
-                        romantic_context += f"- {character_name}'s romantic interests: {ri_char}\n"
-                    romantic_context += "Only set romantic_delta > 0 if the conversation matches these interests."
+                from app.models.relationship import record_interaction, get_romantic_interests
 
-                from app.core.llm_router import llm_call as _llm_call
-                from app.core.prompt_templates import render_task
-                rel_system_prompt, conversation_text = render_task(
-                    "relationship_summary",
-                    user_display_name=user_display_name,
-                    character_name=character_name,
-                    user_input=user_input[:300],
-                    cleaned=cleaned[:300] if cleaned else "",
-                    romantic_context=romantic_context)
+                _speaker_a = _extract_partner
+                _speaker_b = character_name
+
+                summary = f"{_speaker_a}: {user_input[:100]}"
+                if cleaned:
+                    summary += f" — {_speaker_b}: {cleaned[:80]}"
+
+                analysis = {"sentiment_a": 0.05, "sentiment_b": 0.05, "romantic_delta": 0.0}
                 try:
-                    resp = _llm_call(
-                        task="relationship_summary",
-                        system_prompt=rel_system_prompt,
-                        user_prompt=conversation_text,
-                        agent_name=character_name)
-                    raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', resp.content).strip()
-                except RuntimeError:
-                    raw = ""
-                match = re.search(r'\{[^}]+\}', raw, re.DOTALL)
-                if match:
-                    data = json.loads(match.group(0))
-                    analysis = {
-                        "sentiment_a": max(-0.3, min(0.3, float(data.get("sentiment_a", 0.05)))),
-                        "sentiment_b": max(-0.3, min(0.3, float(data.get("sentiment_b", 0.05)))),
-                        "romantic_delta": max(-0.1, min(0.15, float(data.get("romantic_delta", 0.0)))),
-                    }
-            except Exception as rel_err:
-                logger.debug("[%s] Relationship analysis failed (defaults): %s", character_name, rel_err)
+                    ri_a = get_romantic_interests(_speaker_a)
+                    ri_b = get_romantic_interests(_speaker_b)
+                    romantic_context = ""
+                    if ri_a or ri_b:
+                        romantic_context = "\nRomantic interest context:\n"
+                        if ri_a:
+                            romantic_context += f"- {_speaker_a}'s romantic interests: {ri_a}\n"
+                        if ri_b:
+                            romantic_context += f"- {_speaker_b}'s romantic interests: {ri_b}\n"
+                        romantic_context += "Only set romantic_delta > 0 if the conversation matches these interests."
 
-            record_interaction(
-                char_a=user_display_name,
-                char_b=character_name,
-                interaction_type="chat",
-                summary=summary,
-                strength_delta=2,
-                sentiment_delta_a=analysis.get("sentiment_a", 0.05),
-                sentiment_delta_b=analysis.get("sentiment_b", 0.05),
-                romantic_delta=analysis.get("romantic_delta", 0.0))
-        except Exception as rel_err:
-            logger.error("[%s] Relationship update error: %s", character_name, rel_err)
+                    from app.core.llm_router import llm_call as _llm_call
+                    from app.core.prompt_templates import render_task
+                    rel_system_prompt, conversation_text = render_task(
+                        "relationship_summary",
+                        speaker_a=_speaker_a,
+                        speaker_b=_speaker_b,
+                        text_a=user_input[:300],
+                        text_b=cleaned[:300] if cleaned else "",
+                        romantic_context=romantic_context)
+                    try:
+                        resp = _llm_call(
+                            task="relationship_summary",
+                            system_prompt=rel_system_prompt,
+                            user_prompt=conversation_text,
+                            agent_name=character_name)
+                        raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', resp.content).strip()
+                    except RuntimeError:
+                        raw = ""
+                    match = re.search(r'\{[^}]+\}', raw, re.DOTALL)
+                    if match:
+                        data = json.loads(match.group(0))
+                        analysis = {
+                            "sentiment_a": max(-0.3, min(0.3, float(data.get("sentiment_a", 0.05)))),
+                            "sentiment_b": max(-0.3, min(0.3, float(data.get("sentiment_b", 0.05)))),
+                            "romantic_delta": max(-0.1, min(0.15, float(data.get("romantic_delta", 0.0)))),
+                        }
+                except Exception as rel_err:
+                    logger.debug("[%s] Relationship analysis failed (defaults): %s", character_name, rel_err)
+
+                record_interaction(
+                    char_a=_speaker_a,
+                    char_b=_speaker_b,
+                    interaction_type="chat",
+                    summary=summary,
+                    strength_delta=2,
+                    sentiment_delta_a=analysis.get("sentiment_a", 0.05),
+                    sentiment_delta_b=analysis.get("sentiment_b", 0.05),
+                    romantic_delta=analysis.get("romantic_delta", 0.0))
+            except Exception as rel_err:
+                logger.error("[%s] Relationship update error: %s", character_name, rel_err)
 
     # Run background extraction in thread pool
     try:
@@ -622,7 +665,8 @@ def post_process_response(
         if old_messages:
             loop = asyncio.get_event_loop()
             loop.run_in_executor(
-                None, update_summary_background, character_name, old_messages
+                None, update_summary_background, character_name, old_messages,
+                _extract_partner
             )
     except Exception as e:
         logger.error("[%s] History summary error: %s", character_name, e)

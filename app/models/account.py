@@ -291,8 +291,57 @@ def set_chat_partner(character_name: str) -> None:
 
 
 def is_player_controlled(character_name: str) -> bool:
-    """Check whether *character_name* is currently steered by a human player."""
-    return get_active_character() == character_name
+    """Check whether *character_name* is currently steered by a human player.
+
+    Im Request-Kontext genuegt der aktive User. Im Background (AgentLoop,
+    Scheduler) muss ueber alle Users iteriert werden — sonst wird ein
+    Avatar in der Multi-User-DB faelschlicherweise als freier NPC
+    behandelt.
+    """
+    if not character_name:
+        return False
+    return character_name in get_all_avatars()
+
+
+def get_all_avatars() -> set:
+    """Liefert die Menge aller Charaktere die aktuell als Avatar von
+    irgendeinem User gesteuert werden.
+
+    Quellen:
+      1. ``users.settings.active_character`` fuer jeden registrierten User
+      2. Fallback ``account.settings.active_character`` (Legacy-Single-User-Welten
+         vor der Multi-User-Migration)
+
+    Wird im Background-Context (AgentLoop-Eligibility, Scheduler-Skip)
+    genutzt — funktioniert ohne Request-Kontext.
+    """
+    avatars: set = set()
+    try:
+        from app.core.db import get_connection
+        conn = get_connection()
+        rows = conn.execute("SELECT settings FROM users").fetchall()
+        for r in rows:
+            settings_raw = r[0] if not hasattr(r, 'keys') else r["settings"]
+            if not settings_raw:
+                continue
+            try:
+                s = json.loads(settings_raw)
+            except Exception:
+                continue
+            ac = (s.get("active_character") or s.get("current_character") or "").strip()
+            if ac:
+                avatars.add(ac)
+    except Exception:
+        pass
+    # Legacy account.json fallback
+    try:
+        prof = get_user_profile()
+        ac = (prof.get("active_character") or prof.get("current_character") or "").strip()
+        if ac:
+            avatars.add(ac)
+    except Exception:
+        pass
+    return avatars
 
 
 def get_user_gender() -> str:

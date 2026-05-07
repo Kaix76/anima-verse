@@ -58,6 +58,56 @@ def _load_presets_from_file(filepath: Path) -> Tuple[dict[str, str], str]:
     return result, default_prompt
 
 
+def _load_keymap_from_file(filepath: Path) -> dict[str, str]:
+    """Build synonym -> primary-preset-key map from a preset JSON file.
+
+    Used to canonicalize free-form activity/mood strings into a stable
+    cache-key dimension (so 'serving beer' and 'bartending' collapse onto
+    the same primary pose-preset key).
+    """
+    result: dict[str, str] = {}
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for primary, entry in data.get("presets", {}).items():
+            primary_low = primary.strip().lower()
+            if not primary_low:
+                continue
+            result[primary_low] = primary_low
+            for syn in entry.get("synonyms", []):
+                result[syn.strip().lower()] = primary_low
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.error("Fehler beim Laden Key-Map %s: %s", filepath, e)
+    return result
+
+
+def _load_partner_keys_from_file(filepath: Path) -> set[str]:
+    """Collect primary keys of pose presets explicitly tagged ``"solo": false``.
+
+    Partner activities depict two people interacting (kissing, embracing).
+    The current image-gen pipeline only injects one character into the
+    prompt, so the model duplicates the subject — producing the
+    'character-hugs-themselves' artefact. Tagged keys are skipped at the
+    trigger layer; the avatar keeps showing its last variant instead.
+    """
+    result: set[str] = set()
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for primary, entry in data.get("presets", {}).items():
+            if entry.get("solo") is False:
+                primary_low = primary.strip().lower()
+                if primary_low:
+                    result.add(primary_low)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.error("Fehler beim Laden Partner-Keys %s: %s", filepath, e)
+    return result
+
+
 def _load_presets(kind: str) -> Tuple[dict[str, str], str]:
     """Load curated presets and merge with generated presets from separate file.
 
@@ -90,6 +140,71 @@ if not DEFAULT_POSE:
 logger.info("Expression-Presets geladen: %d Eintraege", len(EXPRESSION_PRESETS))
 logger.info("Pose-Presets geladen: %d Eintraege", len(POSE_PRESETS))
 
+
+# ---------------------------------------------------------------------------
+# Synonym -> primary key maps (used by variant cache to collapse equivalent
+# activities/moods onto a single cache slot).
+# ---------------------------------------------------------------------------
+
+POSE_KEY_MAP: dict[str, str] = {}
+PARTNER_POSE_KEYS: set[str] = set()
+for _kind_name, _curated, _generated in [
+    ("pose",
+     get_pose_presets_dir() / "pose_presets.json",
+     get_pose_presets_dir() / "pose_presets_generated.json"),
+]:
+    POSE_KEY_MAP.update(_load_keymap_from_file(_generated))
+    POSE_KEY_MAP.update(_load_keymap_from_file(_curated))  # curated wins
+    PARTNER_POSE_KEYS |= _load_partner_keys_from_file(_generated)
+    PARTNER_POSE_KEYS |= _load_partner_keys_from_file(_curated)
+if PARTNER_POSE_KEYS:
+    logger.info("Partner-Pose-Keys (skip variant gen): %s",
+                 sorted(PARTNER_POSE_KEYS))
+
+
+def _load_mood_buckets() -> Tuple[dict[str, str], str]:
+    """Load mood -> bucket map from expression_buckets.json.
+
+    Auto-expands using synonyms from expression_presets.json so that any
+    synonym of a bucketed mood maps to the same bucket.
+    """
+    bucket_file = get_expression_presets_dir() / "expression_buckets.json"
+    mapping: dict[str, str] = {}
+    default_bucket = "neutral"
+    try:
+        with open(bucket_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        default_bucket = (data.get("default") or "neutral").strip().lower()
+        for bucket_name, mood_list in (data.get("buckets") or {}).items():
+            b = bucket_name.strip().lower()
+            for m in mood_list or []:
+                mapping[m.strip().lower()] = b
+    except FileNotFoundError:
+        logger.warning("expression_buckets.json fehlt — alle Moods → '%s'", default_bucket)
+        return {}, default_bucket
+    except Exception as e:
+        logger.error("Fehler beim Laden expression_buckets.json: %s", e)
+        return {}, default_bucket
+
+    # Expand via expression preset synonyms: if mood X is in a bucket and X is
+    # the primary key of a preset, all of X's synonyms inherit the bucket too.
+    expression_keymap: dict[str, str] = {}
+    for _curated_name in ("expression_presets.json",
+                           "expression_presets_generated.json"):
+        expression_keymap.update(
+            _load_keymap_from_file(get_expression_presets_dir() / _curated_name))
+    for syn, primary in expression_keymap.items():
+        if syn in mapping:
+            continue
+        if primary in mapping:
+            mapping[syn] = mapping[primary]
+    return mapping, default_bucket
+
+
+MOOD_BUCKET_MAP, DEFAULT_MOOD_BUCKET = _load_mood_buckets()
+logger.info("Mood-Buckets geladen: %d Eintraege, default='%s'",
+             len(MOOD_BUCKET_MAP), DEFAULT_MOOD_BUCKET)
+
 # ---------------------------------------------------------------------------
 # Lookup helpers
 # ---------------------------------------------------------------------------
@@ -119,6 +234,67 @@ def get_pose_prompt(activity: str) -> Optional[str]:
         if preset_key in key or key in preset_key:
             return prompt
     return None
+
+
+def is_partner_activity(activity: str) -> bool:
+    """True if ``activity`` resolves to a pose preset tagged ``solo: false``.
+
+    Used at the variant-generation trigger to bail out: we can't render a
+    partner pose with only one character in the prompt without producing
+    duplicate-subject artefacts.
+    """
+    if not activity:
+        return False
+    key = resolve_pose_key(activity)
+    return bool(key and key in PARTNER_POSE_KEYS)
+
+
+def resolve_pose_key(activity: str) -> Optional[str]:
+    """Resolve free-form activity text to a canonical pose-preset primary key.
+
+    Used by the variant cache to collapse synonymous activities onto a single
+    cache slot. Pure preset/synonym lookup — does NOT call the LLM. Returns
+    None if no preset matches; the caller can fall back to its own
+    normalization (e.g. word-truncation).
+    """
+    if not activity:
+        return None
+    key = activity.strip().lower()
+    if not key:
+        return None
+    if key in POSE_KEY_MAP:
+        return POSE_KEY_MAP[key]
+    # Substring match against primary keys only (synonyms are already in the
+    # exact-match path). Prefer the longest matching primary key so 'cooking
+    # dinner' matches 'cooking' rather than a shorter accidental substring.
+    best = None
+    for preset_key in POSE_KEY_MAP.values():
+        if preset_key in key or key in preset_key:
+            if best is None or len(preset_key) > len(best):
+                best = preset_key
+    return best
+
+
+def mood_bucket(mood: str) -> str:
+    """Map a mood string to a coarse body-language bucket.
+
+    The returned bucket — not the raw mood — is what goes into the variant
+    cache key. FaceSwap removes most fine mood detail anyway, so generating a
+    separate image per mood synonym is wasted GPU time. Unknown moods fall
+    back to ``DEFAULT_MOOD_BUCKET``.
+    """
+    if not mood:
+        return DEFAULT_MOOD_BUCKET
+    key = mood.strip().lower()
+    if not key:
+        return DEFAULT_MOOD_BUCKET
+    if key in MOOD_BUCKET_MAP:
+        return MOOD_BUCKET_MAP[key]
+    # Substring fallback: catches mood-leakage like 'feels happy'
+    for mk, bucket in MOOD_BUCKET_MAP.items():
+        if mk and mk in key:
+            return bucket
+    return DEFAULT_MOOD_BUCKET
 
 
 # ---------------------------------------------------------------------------

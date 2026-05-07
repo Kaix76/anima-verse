@@ -42,7 +42,7 @@ from app.models.chat import get_chat_history, save_message
 from app.models.memory import build_memory_prompt_section, record_mood as record_mood_history
 from app.models.events import build_events_prompt_section
 from app.utils.llm_logger import estimate_tokens, get_model_name
-from app.utils.history_manager import get_time_based_history, get_cached_summary, build_daily_summary_prompt_section, refresh_summary_if_uncovered, strip_history_artifacts
+from app.utils.history_manager import get_time_based_history, get_cached_summary, build_daily_summary_prompt_section, refresh_summary_if_uncovered, strip_history_artifacts, fuzzy_signature, count_assistant_repetitions
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -83,6 +83,48 @@ def _get_chat_partner() -> str:
     """Read the current chat partner (who we talk TO) — per-user via account."""
     from app.models.account import get_chat_partner
     return get_chat_partner()
+
+
+@router.delete("/history")
+async def chat_history_delete(days: int, character: str = "") -> Dict[str, Any]:
+    """Loescht Chat-Messages der letzten ``days`` Tage.
+
+    Query-Params:
+      days      — Pflicht, >= 1. Loescht alles mit ``ts >= now - days``.
+                  Damit sind sowohl die ``recent_history`` (Sliding Window)
+                  als auch die zugrunde liegenden chat_messages-Eintraege weg.
+      character — optional. Wenn gesetzt, nur Messages mit dem Character als
+                  Avatar-Sicht ODER Partner. Sonst: weltweit fuer alle.
+
+    Returns: {deleted, character, days, cutoff}
+    """
+    if days is None or int(days) < 1:
+        raise HTTPException(status_code=400, detail="days >= 1 required")
+    from datetime import datetime, timedelta
+    from app.core.db import get_connection, transaction
+    cutoff = (datetime.now() - timedelta(days=int(days))).isoformat()
+
+    char = (character or "").strip()
+    if char:
+        sql = ("DELETE FROM chat_messages WHERE ts >= ? "
+               "AND (character_name = ? OR partner = ?)")
+        params = (cutoff, char, char)
+    else:
+        sql = "DELETE FROM chat_messages WHERE ts >= ?"
+        params = (cutoff,)
+
+    with transaction() as conn:
+        cur = conn.execute(sql, params)
+        deleted = cur.rowcount or 0
+
+    logger.info("chat history deleted: days=%d cutoff=%s character=%r → %d rows",
+                int(days), cutoff, char, deleted)
+    return {
+        "deleted": int(deleted),
+        "character": char,
+        "days": int(days),
+        "cutoff": cutoff,
+    }
 
 
 @router.get("/{user_id}/history")
@@ -1112,6 +1154,60 @@ async def chat(request: Request) -> StreamingResponse:
         except Exception as _act_err:
             logger.debug("avatar activity detect failed: %s", _act_err)
 
+    # Spell-Cast-Detection: Avatar-Inventory hat Items mit `incantation`?
+    # Tool-LLM prueft ob die User-Message einen Zauber wirkt. Bei Match
+    # wird das Effekt-Item ans Ziel gegeben, der hint-Text wird unten in
+    # den Chat-LLM-System-Prompt injiziert (einmaliger Sofort-Effekt).
+    # _spell_event traegt das Result-Dict fuer SSE-Feedback ans Frontend.
+    _spell_hint = ""
+    _spell_event: Optional[Dict[str, Any]] = None
+    _spell_routing_missing = False
+    if _avatar and current_agent and user_input:
+        try:
+            from app.core.spell_engine import (
+                detect_and_cast, build_spell_catalog, has_spell_detect_routing)
+            # Pre-Check: wenn Avatar Spell-Items hat aber kein LLM fuer
+            # den spell_detect-Task gemapt ist, wuerde detect_cast silent
+            # failen. Wir flaggen das fuer einen UI-Warntoast.
+            _avatar_catalog = build_spell_catalog(_avatar)
+            if _avatar_catalog and not has_spell_detect_routing(_avatar):
+                _spell_routing_missing = True
+                logger.warning(
+                    "spell_detect Routing fehlt — Avatar %s hat %d Spell-Item(s) "
+                    "aber kein LLM ist dem Task zugewiesen. Cast wird nicht laufen.",
+                    _avatar, len(_avatar_catalog))
+            # detect_and_cast macht einen blocking LLM-Call → Threadpool, sonst
+            # blockiert der Event-Loop bis der Tool-LLM antwortet.
+            _spell_result = await asyncio.to_thread(
+                detect_and_cast, _avatar, current_agent, user_input)
+            if _spell_result and _spell_result.get("hint"):
+                _spell_hint = _spell_result["hint"]
+                _chat_subst = (_spell_result.get("chat_substitute") or "").strip()
+                _spell_event = {
+                    "spell_id": _spell_result.get("spell_id") or "",
+                    "spell_name": _spell_result.get("spell_name") or _spell_result.get("spell_id") or "",
+                    "target": current_agent,
+                    "success": bool(_spell_result.get("success")),
+                    "chance": int(_spell_result.get("chance") or 0),
+                    "roll": int(_spell_result.get("roll") or 0),
+                    "delivered_item_id": _spell_result.get("delivered_item_id") or "",
+                    "delivered_item_name": _spell_result.get("delivered_item_name") or "",
+                    "hint": _spell_hint,
+                    "chat_substitute": _chat_subst,
+                    "original_input": user_input,
+                }
+                logger.info("Spell cast detected: %s by %s on %s — %s",
+                            _spell_result.get("spell_id"), _avatar, current_agent,
+                            "SUCCESS" if _spell_result.get("success") else "FAIL")
+                # User-Input durch narrative Beobachtung ersetzen, damit das
+                # RP-LLM nicht auf die rohe Incantation reagiert. Faellt das
+                # LLM-Feld leer aus, lassen wir die Original-Message stehen
+                # (defensive — sonst wuerde der NPC verstummen).
+                if _chat_subst:
+                    user_input = _chat_subst
+        except Exception as _spell_err:
+            logger.debug("spell detect failed: %s", _spell_err)
+
     if not current_agent:
         async def gen_empty():
             yield f"data: {json.dumps({'content': ''})}\n\n"
@@ -1126,9 +1222,36 @@ async def chat(request: Request) -> StreamingResponse:
     _t0 = _t.perf_counter()
     agent_config = get_character_config(current_agent)
     _probe("get_character_config", _t0)
+
+    # Chat-History frueh laden — fuer die Repetition-Detection beim LLM-Build.
+    _t0 = _t.perf_counter()
+    full_chat_history = get_chat_history(current_agent)
+    _probe("get_chat_history", _t0)
+
     from app.core.llm_router import resolve_llm as _resolve_llm
+    from app.core import config as _cfg
     _chat_inst = _resolve_llm("chat_stream", agent_name=current_agent)
-    llm = _chat_inst.create_llm() if _chat_inst else None
+    # Anti-Repetition: konfigurierbar via "chat"-Section in der Admin UI.
+    # frequency_penalty wirkt token-weise; Temperature wird pro detektierter
+    # Wiederholung um anti_rep_step erhoeht (capped auf anti_rep_max).
+    _llm_overrides: Dict[str, Any] = {}
+    _freq = float(_cfg.get("chat.frequency_penalty", 0.3) or 0)
+    if _freq > 0:
+        _llm_overrides["frequency_penalty"] = _freq
+    _step = float(_cfg.get("chat.anti_rep_step", 0.1) or 0)
+    if _step > 0:
+        _lookback = int(_cfg.get("chat.anti_rep_lookback", 6) or 6)
+        _rep_count = count_assistant_repetitions(full_chat_history, _lookback)
+        if _rep_count > 0:
+            _max = float(_cfg.get("chat.anti_rep_max", 1.2) or 1.2)
+            _base_temp = float(getattr(_chat_inst, "temperature", 0.7))
+            _new_temp = min(_base_temp + _step * _rep_count, _max)
+            _llm_overrides["temperature"] = _new_temp
+            logger.info(
+                "[%s] %d Wiederholung(en) in den letzten %d Turns erkannt "
+                "→ Temperature %.2f → %.2f",
+                current_agent, _rep_count, _lookback, _base_temp, _new_temp)
+    llm = _chat_inst.create_llm(**_llm_overrides) if _chat_inst else None
 
     if llm is None:
         async def gen_no_llm():
@@ -1136,10 +1259,6 @@ async def chat(request: Request) -> StreamingResponse:
         return StreamingResponse(gen_no_llm(), media_type="text/event-stream")
 
     logger.debug("LLM: %s/%s (task=chat_stream)", _chat_inst.provider_name, _chat_inst.model)
-
-    _t0 = _t.perf_counter()
-    full_chat_history = get_chat_history(current_agent)
-    _probe("get_chat_history", _t0)
 
     if not user_input and not image_id and not image_url:
         async def gen_empty():
@@ -1175,23 +1294,51 @@ async def chat(request: Request) -> StreamingResponse:
                         _image_display_url = image_url
 
         if image_path:
-            # Start analysis in background — does NOT block the chat response
-            logger.info("Chat image attached: %s — starting background analysis", image_path)
+            # Start analysis — wir warten unten synchron darauf, damit das
+            # Vision-LLM-Resultat im User-Prompt landet und der Chat-LLM
+            # das Bild "sehen" kann statt blind auf "User hat ein Bild
+            # gesendet" zu antworten.
+            logger.info("Chat image attached: %s — starting analysis", image_path)
             _image_analysis_task = asyncio.create_task(
                 asyncio.to_thread(
                     _analyze_chat_image, image_path, current_agent, user_input
                 )
             )
 
-    # Build effective user input — image analysis runs in background,
-    # so tell the LLM an image was sent without waiting for details
+    # Synchron auf Bild-Analyse warten (mit Timeout) damit der Chat-LLM
+    # die Bildbeschreibung im User-Prompt sieht. Vision-LLM ist meist
+    # schnell (2-5s) — falls es laenger dauert, fallen wir auf den
+    # blinden "User hat ein Bild gesendet"-Hinweis zurueck und logging
+    # warned ueber den Timeout.
+    _image_analysis_text = ""
+    if _image_analysis_task is not None:
+        _IMG_PRECHAT_TIMEOUT = 15  # seconds
+        try:
+            _image_analysis_text = await asyncio.wait_for(
+                asyncio.shield(_image_analysis_task),
+                timeout=_IMG_PRECHAT_TIMEOUT) or ""
+            if _image_analysis_text:
+                logger.info("Image analysis injected into user prompt: %s",
+                            _image_analysis_text[:200])
+        except asyncio.TimeoutError:
+            logger.warning("Image analysis timeout (%ds) before chat — "
+                           "antworte blind ohne Bildbeschreibung",
+                           _IMG_PRECHAT_TIMEOUT)
+        except Exception as _ia_err:
+            logger.error("Image analysis pre-chat error: %s", _ia_err)
+
+    # Build effective user input. Wenn Bild + Analyse: die Beschreibung
+    # explizit als Block einfuegen, damit der Chat-LLM das Bild kennt.
     _effective_user_input = user_input
     if _has_image:
-        _img_prefix = "[Der User hat ein Bild gesendet.]"
-        if user_input:
-            _effective_user_input = f"{_img_prefix}\n\n{user_input}"
+        if _image_analysis_text:
+            _img_block = f"[Bildbeschreibung: {_image_analysis_text.strip()}]"
         else:
-            _effective_user_input = f"{_img_prefix}\n\nReagiere auf dieses Bild."
+            _img_block = "[Der User hat ein Bild gesendet.]"
+        if user_input:
+            _effective_user_input = f"{_img_block}\n\n{user_input}"
+        else:
+            _effective_user_input = f"{_img_block}\n\nReagiere auf dieses Bild."
 
     # --- History Management (zeitgesteuert) ---
     recent_history, old_history = get_time_based_history(full_chat_history)
@@ -1233,31 +1380,29 @@ async def chat(request: Request) -> StreamingResponse:
                 continue
             messages.append({"role": "user", "content": content})
 
-    # Self-Reinforcement-Loop brechen: Wenn dieselbe Assistant-Antwort mehrfach
-    # in der History steht, sieht das LLM ein Muster und kopiert es weiter
-    # (Elias antwortet z.B. 4x identisch obwohl der User-Input wechselt). Wir
-    # behalten nur das ERSTE Vorkommen jeder Assistant-Antwort und entfernen
-    # spaetere Duplikate samt zugehoerigem User-Turn — so verschwindet das
-    # Muster aus dem LLM-Input.
+    # Self-Reinforcement-Loop brechen: Antworten mit identischer Fuzzy-Signatur
+    # (Anfang bereinigt von Markern + Whitespace + Satzzeichen) gelten als
+    # Duplikat — auch wenn sich Mood-Marker oder kleine Wort-Variationen
+    # unterscheiden. Wir behalten nur das ERSTE Vorkommen und entfernen
+    # spaetere Duplikate samt zugehoerigem User-Turn.
     _seen_assistant: set = set()
     _deduped: list = []
     _i = 0
     while _i < len(messages):
         m = messages[_i]
         if m["role"] == "assistant":
-            key = m["content"].strip().lower()
-            if key in _seen_assistant:
-                # Pruefen ob der vorausgehende User-Turn auch ein Duplikat ist:
-                # falls ja, beide raus. Sonst nur die Assistant-Antwort.
+            key = fuzzy_signature(m["content"])
+            if key and key in _seen_assistant:
                 if _deduped and _deduped[-1]["role"] == "user":
                     _deduped.pop()
                 _i += 1
                 continue
-            _seen_assistant.add(key)
+            if key:
+                _seen_assistant.add(key)
         _deduped.append(m)
         _i += 1
     if len(_deduped) < len(messages):
-        logger.info("Chat-History: %d redundante Assistant-Duplikate entfernt (%d → %d)",
+        logger.info("Chat-History: %d Fuzzy-Duplikate entfernt (%d → %d)",
                     len(messages) - len(_deduped), len(messages), len(_deduped))
         messages = _deduped
 
@@ -1282,6 +1427,18 @@ async def chat(request: Request) -> StreamingResponse:
         has_tool_llm=_has_tool_llm,
         medium=medium,
         room_item_ids=room_item_ids)
+
+    # --- Spell-Cast Sofort-Hinweis im System-Prompt ---
+    # _spell_hint wurde oben (vor dem if not current_agent: return) befuellt
+    # wenn der Avatar einen seiner Inventar-Spells gewirkt hat. Effect-Item
+    # wurde bereits ans Ziel gegeben — der Hint sagt dem NPC narrativ was
+    # gerade mit ihm passiert (Schmerz, Schwindel, Magie-Gefuehl, …).
+    if _spell_hint:
+        system_content += (
+            f"\n\nIMPORTANT — A magical event is happening to you RIGHT NOW: "
+            f"{_spell_hint} React to this within your character; do not "
+            f"explain the magic mechanically, just feel/show its effect."
+        )
 
     # --- Wake-Up Hinweis im System-Prompt ---
     _is_sleeping = is_character_sleeping(current_agent)
@@ -1352,7 +1509,12 @@ async def chat(request: Request) -> StreamingResponse:
         _tool_fmt = get_format_for_model(tool_model_name) if tool_model_name else tool_format
         _tool_appearance = get_character_appearance(current_agent)
         _tool_usage = sm.get_agent_usage_instructions(current_agent, _tool_fmt, check_limits=False)
-        user_name_for_tool = user_display_name or "Player"
+        # Sentinel-Strings ("user"/"Player"/"") sind kein echter Avatar —
+        # in dem Fall hat der Tool-LLM keinen Konversationspartner zum
+        # Referenzieren, also wird der Partner-Block weggelassen.
+        _real_partner = (user_display_name or "").strip()
+        if _real_partner.lower() in {"user", "player", "spieler", "admin", ""}:
+            _real_partner = ""
         from app.core.prompt_builder import is_photographer_mode as _is_pm
         _tool_photographer = _is_pm(current_agent)
         _tool_user_appearance = get_user_appearance() or "" if _tool_photographer else ""
@@ -1386,13 +1548,23 @@ async def chat(request: Request) -> StreamingResponse:
         if _tool_avatar_outfit and _tool_avatar_name:
             _outfit_block += f"\n{_tool_avatar_name} currently wears: {_tool_avatar_outfit}"
 
+        if _real_partner:
+            _partner_header = f"Character: {current_agent}. Conversation partner: {_real_partner}.\n"
+            _partner_talk_warn = (
+                f"IMPORTANT: Do NOT use TalkTo for {_real_partner} — "
+                f"they are already in the conversation.\n"
+            )
+        else:
+            _partner_header = f"Character: {current_agent}.\n"
+            _partner_talk_warn = ""
+
         tool_system_content = (
-            f"Character: {current_agent}. Conversation partner: {user_name_for_tool}.\n"
+            f"{_partner_header}"
             f"{tool_instr_block}\n\n"
             f"Available tools: {', '.join(available_tool_names)}\n"
             f"Decide which tools to call based on the conversation. "
             f"If no tools are needed, respond with: NONE\n"
-            f"IMPORTANT: Do NOT use TalkTo for {user_name_for_tool} — they are already in the conversation.\n"
+            f"{_partner_talk_warn}"
             f"\nKnown locations: {_tool_loc_list}\n"
             f"Available activities at current location: {_tool_act_list}"
             f"{_outfit_block}"
@@ -1484,6 +1656,14 @@ async def chat(request: Request) -> StreamingResponse:
             _was_sleeping = is_character_sleeping(current_agent)
             if _was_sleeping:
                 save_character_current_activity(current_agent, "")
+                # Wenn er offmap geschlafen hat: vor-Offmap-Standort wieder
+                # herstellen, sonst hat der Char nach dem Aufwachen keinen Ort
+                # (Pathfinder/Compliance/Outfit alle ohne Standort kaputt).
+                try:
+                    from app.models.character import wake_from_offmap
+                    wake_from_offmap(current_agent)
+                except Exception:
+                    pass
                 yield f"data: {json.dumps({'wake_up': True, 'activity': ''})}\n\n"
                 logger.info("Character %s wurde durch Chat aufgeweckt", current_agent)
 
@@ -1492,6 +1672,17 @@ async def chat(request: Request) -> StreamingResponse:
             if tool_llm and tool_llm is not llm:
                 _model_info["tool_model"] = get_model_name(tool_llm)
             yield f"data: {json.dumps({'model_info': _model_info})}\n\n"
+
+            # --- Spell-Cast Event (Avatar hat einen Zauber gewirkt) ---
+            # Frontend zeigt System-Notiz in der Chat-Scroll: "🪄 Zauber XYZ
+            # auf Thalion — gelungen (100/100)" + ggf. Hinweis auf
+            # uebergebenes Effekt-Item.
+            if _spell_event:
+                yield f"data: {json.dumps({'spell_event': _spell_event})}\n\n"
+            # Routing-Warnung wenn Avatar Spell-Items hat aber Cast nicht
+            # laufen kann (kein LLM dem spell_detect-Task zugewiesen).
+            if _spell_routing_missing:
+                yield f"data: {json.dumps({'spell_routing_missing': True})}\n\n"
 
             # Check if background image analysis has completed quickly
             _image_analysis = None
@@ -1882,13 +2073,16 @@ def _extract_location(agent_name: str, response: str) -> Optional[Dict[str, str]
             resolved = loc_obj.get("name", new_name)
             logger.info("Location %s: %s -> %s (%s)", agent_name, old_loc, new_id, resolved)
             return {"name": resolved, "id": new_id}
-    elif new_name != old_loc:
-        save_character_current_location(agent_name, new_name)
-        save_character_current_room(agent_name, '')
-        _move_avatar_loc(new_name)
-        logger.info("Location %s: %s -> %s (temporaer)", agent_name, old_loc, new_name)
-        return {"name": new_name}
-    return None
+    else:
+        # Weder Raum am aktuellen Ort noch bekannte Welt-Location — ignorieren.
+        # Frueher wurde der Name als "temporaer" in current_location geschrieben,
+        # was die DB-Referenz vergiftet hat (Pathfinding/Map/Compliance brachen,
+        # weil current_location eine ID-Referenz ist). Lieber kein Save als ein
+        # halluzinierter Ort.
+        logger.info(
+            "Location-Extract fuer %s ignoriert: '%s' ist weder Raum am aktuellen Ort noch eine Welt-Location",
+            agent_name, new_name)
+        return None
 
 
 def _extract_activity(agent_name: str, response: str) -> Optional[str]:
@@ -1993,11 +2187,14 @@ def _extract_activity(agent_name: str, response: str) -> Optional[str]:
             save_character_current_room(agent_name, matched_room.get("id", ""))
         # Outfit-Compliance nach Room/Location Dress-Code
         from app.models.inventory import apply_outfit_type_compliance
+        from app.core.outfit_rules import default_outfit_type
         _ot = ""
         if matched_room:
             _ot = (matched_room.get("outfit_type") or "").strip()
         if not _ot and loc_data:
             _ot = (loc_data.get("outfit_type") or "").strip()
+        if not _ot:
+            _ot = default_outfit_type()
         if _ot:
             apply_outfit_type_compliance(agent_name, _ot)
 
@@ -2022,6 +2219,12 @@ def _apply_removed_pieces(character_name: str,
     Match: case-insensitiver Vergleich gegen den Item-Namen. Pieces die nicht
     angelegt sind, werden ignoriert. Erfundene Namen (nicht equipped) werden
     ignoriert. Returns Liste der tatsaechlich abgelegten Eintraege "Name (slot)".
+
+    Safety-Cap: wenn die Extraktion ALLE equipped Pieces gleichzeitig
+    entfernen wuerde, ist das praktisch immer ein Outfit-Wechsel-Wunsch der
+    via Tool laufen sollte — wir lassen das Outfit dann unveraendert (besser
+    als komplett nackt). Echte "kompletter Strip"-Szenen (Sex/Bath/Sleep)
+    machen die Pieces meist Stueck fuer Stueck ueber mehrere Antworten ab.
     """
     if not removed_names or not character_name:
         return []
@@ -2034,6 +2237,17 @@ def _apply_removed_pieces(character_name: str,
 
         wanted = {n.strip().lower() for n in removed_names if n and n.strip()}
         if not wanted:
+            return []
+
+        # Anzahl distinct equipped Items (Multi-Slot zaehlt als 1)
+        distinct_equipped = len({iid for iid in eq.values() if iid})
+        if distinct_equipped >= 2 and len(wanted) >= distinct_equipped:
+            logger.warning(
+                "Chat-Extraktion [%s]: %d/%d Pieces sollen entfernt werden — "
+                "vermutlich Outfit-Wechsel ohne Tool-Aufruf, ignoriere "
+                "removed-Liste (Pieces: %s)",
+                character_name, len(wanted), distinct_equipped,
+                ", ".join(sorted(wanted))[:200])
             return []
 
         unequipped: List[str] = []
@@ -2130,14 +2344,37 @@ def _extract_context_from_last_chat(agent_name: str,
             last_user_msg = msg.get("content", "").strip()
             break
 
+    # Tool-Marker aus dem Quelltext rausziehen, BEVOR das Extraktions-LLM
+    # ihn sieht. Sonst interpretiert es Outfit-Tool-Aufrufe als Aktions-
+    # Beschreibung ("Kahiro emittiert *OutfitChange: Graue Jeans...*" =>
+    # LLM denkt die alten Pieces sind ausgezogen) und der Agent landet nackt
+    # weil das Tool selbst die alten Pieces ueber den Tool-Skill verdraengen
+    # wuerde — nicht ueber die Extraktion.
+    #
+    # Erkennt drei Formate:
+    #   <tool name="X">...</tool>     — kanonischer Tool-Tag
+    #   *ToolName: ...*               — degenerierter Marker (Sterne)
+    #   [Tool-Aufruf: X(...)]         — narrative Bracket-Notation
+    _TOOL_MARKER_PATTERNS = [
+        re.compile(r'<tool\s+name="[^"]+">[\s\S]*?</tool>', re.IGNORECASE),
+        re.compile(r'\*\s*(?:OutfitChange|ChangeOutfit|SetActivity|TalkTo|SendMessage|SetLocation)\s*[:\(][^\*\n]*\*', re.IGNORECASE),
+        re.compile(r'\[(?:Tool-Aufruf|Tool Call):\s*[^\]]*\]', re.IGNORECASE),
+    ]
+
+    def _strip_tool_markers(text: str) -> str:
+        for pat in _TOOL_MARKER_PATTERNS:
+            text = pat.sub("", text)
+        # Zusammengeschrumpfte Leerzeilen aufraeumen
+        return re.sub(r'\n\s*\n\s*\n+', '\n\n', text).strip()
+
     # Quellen strikt getrennt:
     # - Avatar-Aenderungen kommen aus der User-Eingabe ("Ich ziehe die Jacke aus")
     # - Character-Aenderungen kommen aus der Character-Antwort
     # Jeder Call sieht nur seine eigene Quelle → keine Fehlzuordnung moeglich.
     character_source = "\n".join(
-        f"Character: {m}" for m in reversed(last_assistant_msgs)
+        f"Character: {_strip_tool_markers(m)}" for m in reversed(last_assistant_msgs)
     )
-    avatar_source = f"User: {last_user_msg}" if last_user_msg else ""
+    avatar_source = f"User: {_strip_tool_markers(last_user_msg)}" if last_user_msg else ""
 
     # Avatar-Name fuer User-Zuordnung (Full-Extraction: Outfit-Aenderungen
     # des Spielers landen auf seinem Avatar-Character, nicht auf dem Login-Konto).
@@ -2195,6 +2432,13 @@ def _extract_context_from_last_chat(agent_name: str,
             piece_list = "\n".join(f"- {n}" for n in _names)
 
         source_label = "User input" if is_avatar else "Character reply"
+        # Kontext-Text: die jeweils ANDERE Quelle als Disambiguierungs-Hilfe.
+        # Bei Character-Extraktion bekommt der LLM den User-Input zu sehen
+        # (damit "Natuerlich, Lirien" als Reaktion auf "zieh dich aus"
+        # interpretierbar ist), bei Avatar-Extraktion umgekehrt. Extraktion
+        # bleibt aber strikt auf source_text begrenzt — der Template-Prompt
+        # macht das explizit klar.
+        context_text = avatar_source if not is_avatar else character_source
         from app.core.prompt_templates import render_task
         sys_prompt, user_prompt = render_task(
             "extraction_chat_context",
@@ -2202,6 +2446,7 @@ def _extract_context_from_last_chat(agent_name: str,
             piece_list=piece_list,
             source_label=source_label,
             source_text=source_text,
+            context_text=context_text,
             outfit_locked=outfit_locked,
             is_avatar=is_avatar)
 
@@ -2315,9 +2560,21 @@ def _build_full_system_prompt(character_name: str,
             if partner_template:
                 p_app = partner_profile.get("character_appearance", "")
                 if p_app and "{" in p_app:
-                    partner_profile["character_appearance"] = resolve_profile_tokens(
+                    p_app = resolve_profile_tokens(
                         p_app, partner_profile, template=partner_template,
                         target_key="character_appearance")
+                # Slot-Fragmente unbedeckter, ungetragener Slots anhaengen
+                # (gleiche Logik wie beim Variant-Bild). So weiss der LLM
+                # was unter dem Outfit zu sehen waere.
+                try:
+                    from app.models.character import build_unworn_slot_fragments
+                    _slot_extras = build_unworn_slot_fragments(
+                        _partner_name, profile=partner_profile)
+                    if _slot_extras:
+                        p_app = (p_app + ", " + _slot_extras).strip(", ").strip()
+                except Exception:
+                    pass
+                partner_profile["character_appearance"] = p_app
                 p_loc_id = partner_profile.get("current_location", "")
                 if p_loc_id:
                     p_loc_name = get_location_name(p_loc_id)
@@ -2409,9 +2666,20 @@ def _build_full_system_prompt(character_name: str,
     if char_template:
         appearance = char_profile.get("character_appearance", "")
         if appearance and "{" in appearance:
-            char_profile["character_appearance"] = resolve_profile_tokens(
+            appearance = resolve_profile_tokens(
                 appearance, char_profile, template=char_template,
                 target_key="character_appearance")
+        # Slot-Fragmente unbedeckter, ungetragener Slots anhaengen — selbe
+        # Logik wie im Partner-Block + Variant-Bild.
+        try:
+            from app.models.character import build_unworn_slot_fragments
+            _slot_extras = build_unworn_slot_fragments(
+                character_name, profile=char_profile)
+            if _slot_extras:
+                appearance = (appearance + ", " + _slot_extras).strip(", ").strip()
+        except Exception:
+            pass
+        char_profile["character_appearance"] = appearance
         current_outfit = (build_equipped_outfit_prompt(character_name) or "").removeprefix("wearing: ")
         if current_outfit:
             char_profile["default_outfit"] = current_outfit
@@ -2498,7 +2766,7 @@ def _build_full_system_prompt(character_name: str,
     memory_section = ""
     if _has("memory_enabled"):
         memory_section = build_memory_prompt_section(
-            character_name, user_name=_partner_name, current_message="") or ""
+            character_name, partner_name=_partner_name, current_message="") or ""
 
     # ---- Relationships -------------------------------------------------
     relationships_section = ""

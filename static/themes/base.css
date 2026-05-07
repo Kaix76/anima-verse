@@ -336,11 +336,22 @@ select.auth-input option { background: var(--bg-container); color: var(--text); 
 .gallery-view-btn:hover:not(.active) { background: var(--bg-alt); }
 
 /* Gallery Tabs */
-.gallery-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-bottom: 4px; }
-.gallery-tab { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text-light); font-size: 12px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
-.gallery-tab img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; }
-.gallery-tab.active { background: var(--primary); color: white; border-color: var(--primary); }
-.gallery-tab:hover:not(.active) { background: var(--bg-container); border-color: var(--text-muted); }
+.gallery-tabs { display: flex; gap: 6px; margin-top: 10px; padding-bottom: 4px; flex-wrap: wrap; }
+.gallery-char-btn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text-light); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.gallery-char-btn img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.gallery-char-btn:hover:not(.active) { border-color: var(--text-muted); }
+.gallery-char-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+.char-select { position: relative; display: inline-block; }
+.char-select-trigger { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text-light); font-size: 12px; cursor: pointer; min-width: 160px; }
+.char-select-trigger img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.char-select-trigger-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.char-select-trigger-arrow { font-size: 10px; opacity: 0.6; flex-shrink: 0; }
+.char-select-trigger:hover { border-color: var(--text-muted); }
+.char-select-dropdown { position: absolute; top: 100%; left: 0; z-index: 20; background: var(--bg-container); border: 1px solid var(--border); border-radius: 6px; margin-top: 4px; min-width: 100%; max-height: 320px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.char-select-option { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; color: var(--text-light); font-size: 12px; white-space: nowrap; }
+.char-select-option img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.char-select-option:hover { background: var(--bg-alt); }
+.char-select-option.active { background: var(--primary); color: white; }
 
 /* Gallery Upload & Feed */
 .gallery-upload-bar { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg-alt); }
@@ -447,6 +458,14 @@ select.auth-input option { background: var(--bg-container); color: var(--text); 
 /* Tool Status Indicator */
 .tool-status-indicator { display: flex; align-items: center; gap: 8px; padding: 10px 14px; margin: 8px 0; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; color: var(--text-muted); font-size: 13px; animation: toolStatusFadeIn 0.3s ease; }
 .tool-status-spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: toolSpin 0.8s linear infinite; flex-shrink: 0; }
+
+/* Spell-Cast System-Notiz im Chat-Scroll */
+.spell-event-note { padding: 8px 12px; margin: 8px 0; border-radius: 8px; font-size: 12px; line-height: 1.4; border: 1px solid var(--border); background: var(--bg-alt); animation: toolStatusFadeIn 0.3s ease; }
+.spell-event-note.spell-success { border-left: 3px solid #8b5cf6; }
+.spell-event-note.spell-fail    { border-left: 3px solid #6b7280; opacity: 0.85; }
+.spell-event-note .spell-headline { color: var(--text); }
+.spell-event-note .spell-roll { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.spell-event-note .spell-delivered { color: var(--text-muted); margin-top: 2px; font-size: 11px; }
 
 /* Typing Indicator */
 .typing-indicator { display: flex; align-items: center; gap: 4px; padding: 12px 16px; }
@@ -622,16 +641,17 @@ select.auth-input option { background: var(--bg-container); color: var(--text); 
 .tagesablauf-table th { padding: 2px 0; width: 28px; min-width: 28px; text-align: center; font-size: 10px; font-weight: 600; color: var(--text-muted); position: sticky; top: 0; background: var(--bg-container); z-index: 2; }
 .tagesablauf-corner { position: sticky; left: 0; top: 0; z-index: 3; background: var(--bg-container); }
 .tagesablauf-loc-header td { font-weight: 700; font-size: 12px; padding: 5px 8px; background: var(--bg-hover); color: var(--text); border-bottom: 1px solid var(--border); user-select: none; }
-.tagesablauf-loc-header:hover td { background: var(--bg-alt); }
+.tagesablauf-loc-header[onclick]:hover td { background: var(--bg-alt); }
 .tagesablauf-toggle { display: inline-block; width: 14px; font-size: 10px; color: var(--text-muted); }
+.tagesablauf-section-hint { font-weight: 400; font-size: 11px; color: var(--text-muted); margin-left: 8px; }
 .tagesablauf-row-label { padding: 2px 8px; font-size: 11px; white-space: nowrap; position: sticky; left: 0; background: var(--bg-container); z-index: 1; min-width: 100px; color: var(--text-muted); }
 .tagesablauf-cell { width: 28px; min-width: 28px; height: 22px; border: 1px solid var(--border-light); cursor: pointer; padding: 0; }
 .tagesablauf-cell:hover { background: var(--bg-hover); }
 .tagesablauf-cell.tagesablauf-filled { background: var(--primary); opacity: 0.85; }
 .tagesablauf-cell.tagesablauf-preview { background: var(--primary); opacity: 0.4; }
 .tagesablauf-sleep-header td { background: var(--bg-alt); color: var(--text-muted); }
-tr[data-ta-loc-row="__sleep__"] .tagesablauf-cell.tagesablauf-filled { background: #6366f1; opacity: 0.7; }
-tr[data-ta-loc-row="__sleep__"] .tagesablauf-cell.tagesablauf-preview { background: #6366f1; opacity: 0.35; }
+.tagesablauf-cell.tagesablauf-sleep { background: #6366f1; opacity: 0.7; }
+.tagesablauf-cell[data-section="sleep"].tagesablauf-preview { background: #6366f1; opacity: 0.35; }
 .job-daily td { opacity: 0.6; font-style: italic; }
 
 .instagram-empty { text-align: center; color: var(--text-muted); padding: 40px 20px; font-style: italic; }
@@ -1318,6 +1338,18 @@ body.chat-busy #btn-save-appearance, body.chat-busy #btn-save-personality { opac
 .worldmap-sleeping-btn:hover { background: rgba(60,100,160,0.18); }
 .worldmap-sleeping-btn .worldmap-avatar { filter: grayscale(0.4) brightness(0.85); }
 .worldmap-sleep-badge { font-size: 13px; line-height: 1; opacity: 0.8; margin-left: 2px; }
+/* Travel indicator: walking character */
+.worldmap-avatar-wrap { position: relative; display: inline-block; line-height: 0; }
+.worldmap-avatar-wrap.traveling .worldmap-avatar { box-shadow: 0 0 6px 2px rgba(255, 200, 80, 0.9); border-color: rgba(255, 200, 80, 0.95); }
+.worldmap-travel-badge { position: absolute; right: -4px; bottom: -4px; font-size: 11px; line-height: 1; background: rgba(40, 40, 40, 0.85); border-radius: 50%; padding: 1px 2px; pointer-events: none; }
+/* Passable tiles (Durchgangsorte) — dimmer + smaller label, signals "transit only" */
+.worldmap-tile-passable .worldmap-map-bg { opacity: 0.55; filter: saturate(0.7); }
+.worldmap-tile-passable .worldmap-cell-name { font-size: 8px; opacity: 0.75; background: rgba(0,0,0,0.4); font-style: italic; }
+/* World-tree clone counter badge */
+.world-tree-clone-count { display: inline-block; margin-left: 6px; padding: 1px 5px; background: var(--bg-alt); border-radius: 8px; font-size: 10px; color: var(--text-muted); }
+/* Tray template stamp (passable templates, infinitely placeable) */
+.worldmap-tray-template { border-style: dashed; opacity: 0.95; }
+.worldmap-tray-stamp-badge { font-size: 11px; opacity: 0.6; margin-left: 2px; }
 
 /* Story Dev */
 .storydev-container { padding: 95px 15px 15px 15px; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
@@ -1494,9 +1526,12 @@ body[data-worlddev="1"] .worlddev-container { padding-top: 10px; }
 .player-profile-image { width: 100px; height: 100px; border-radius: 10px; border: 2px solid var(--profile-border); object-fit: cover; cursor: pointer; display: block; }
 .player-gen-btn { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 4px; font-size: 12px; padding: 2px 5px; cursor: pointer; opacity: 0; transition: opacity 0.2s; z-index: 2; }
 .player-avatar-wrapper:hover .player-gen-btn { opacity: 1; }
-.player-status-bars { position: absolute; bottom: 0; left: 0; right: 0; display: flex; flex-direction: column; gap: 1px; padding: 2px; background: rgba(0,0,0,0.4); border-radius: 0 0 8px 8px; }
-.player-status-bars .status-bar { height: 4px; border-radius: 2px; background: var(--bg-alt); overflow: hidden; }
-.player-status-bars .status-bar-fill { height: 100%; border-radius: 2px; }
+.player-status-bars { position: absolute; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1px 4px; padding: 2px 3px; background: rgba(0,0,0,0.65); border-radius: 0 0 8px 8px; z-index: 5; }
+.player-status-bars .status-bar-row { display: grid; grid-template-columns: 18px 1fr 14px; align-items: center; gap: 2px; height: 9px; }
+.player-status-bars .status-bar-label { font-size: 6px; color: rgba(255,255,255,0.8); text-transform: uppercase; letter-spacing: 0.2px; overflow: hidden; }
+.player-status-bars .status-bar-track { height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; overflow: hidden; }
+.player-status-bars .status-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
+.player-status-bars .status-bar-value { font-size: 6px; color: rgba(255,255,255,0.9); text-align: right; font-weight: 600; }
 .player-info-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .player-btn-col { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 .player-btn-col-secondary { opacity: 0.7; }

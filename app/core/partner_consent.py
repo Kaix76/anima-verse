@@ -6,7 +6,11 @@ Partner-LLM antwortet natuerlich, die Antwort wird per Keyword-Heuristik
 klassifiziert (Yes/No). Bei Yes laeuft der normale Auto-Transfer,
 bei No bekommt der Initiator seine `fallback_activity`.
 
-Keine LLM-Klassifikation — simple Wortliste, No schlaegt Yes.
+Keine LLM-Klassifikation — simple Wortliste. Default ist NO: nur
+explizite Zustimmung zaehlt als Yes; Ambiguitaet, leere Antwort,
+fehlende LLM-Antwort und Exceptions werden als Ablehnung gewertet,
+damit kein Phantom-Consent entstehen kann (insbesondere wenn der
+Partner ein vom User gesteuerter Avatar ist).
 """
 from typing import Tuple
 
@@ -50,18 +54,20 @@ def _classify_response(text: str) -> bool:
 
     Regeln:
     - No-Woerter haben Prioritaet ueber Yes
-    - Leere/unverstaendliche Antwort -> Yes (bestehende Semantik: Partner kommt mit)
+    - Nur explizite Yes-Woerter -> True
+    - Leere/unverstaendliche/ambivalente Antwort -> False
+      (kein Phantom-Consent ohne klares Ja)
     """
     t = (text or "").lower()
     if not t.strip():
-        return True
+        return False
     for w in _NO_WORDS:
         if w in t:
             return False
     for w in _YES_WORDS:
         if w in t:
             return True
-    return True  # Ambiguitaet -> Yes
+    return False  # Ambiguitaet -> No
 
 
 def ask_partner_to_join(initiator: str,
@@ -77,11 +83,14 @@ def ask_partner_to_join(initiator: str,
     - Chat-History-Eintrag (via run_chat_turn)
     - Beziehungs-Delta: +1 bei Ja, -1 bei Nein
     """
-    # Partner ist Player-Character? -> Skip, Initiator bekommt fallback
+    # Partner ist Player-Character? -> Skip, Initiator bekommt fallback.
+    # Wichtig: is_player_controlled nutzen (Multi-User / Background-robust),
+    # NICHT get_active_character — letzteres greift im AgentLoop ohne
+    # Request-Kontext nicht zuverlaessig und liess Avatar-Partner als
+    # NPCs durchrutschen (silent auto-consent Bug).
     try:
-        from app.models.account import get_active_character
-        avatar = get_active_character() or ""
-        if avatar and avatar == partner:
+        from app.models.account import is_player_controlled
+        if is_player_controlled(partner):
             logger.info("Partner %s ist Player-Character — Consent uebersprungen",
                         partner)
             return False, "player_character"
@@ -121,12 +130,12 @@ def ask_partner_to_join(initiator: str,
             medium="in_person",
             task_type="consent_ask")
     except Exception as e:
-        logger.warning("Consent-Ask fehlgeschlagen (%s) — default Yes", e)
-        return True, ""
+        logger.warning("Consent-Ask fehlgeschlagen (%s) — default No", e)
+        return False, "consent_ask_failed"
 
     if not reply:
-        logger.info("Partner %s antwortet nicht — default Yes", partner)
-        return True, ""
+        logger.info("Partner %s antwortet nicht — default No", partner)
+        return False, "no_reply"
 
     accepted = _classify_response(reply)
     preview = reply.strip()[:120]

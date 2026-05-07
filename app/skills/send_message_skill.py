@@ -7,7 +7,6 @@ spaeter als separates Tool oder Parameter.
 Input-Format: "CharacterName, Nachricht"
 Beispiel: "Luna, bist du heute Abend frei?"
 """
-import os
 from typing import Any, Dict
 
 from .base import BaseSkill, ToolSpec
@@ -29,14 +28,10 @@ class SendMessageSkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get("SKILL_SEND_MESSAGE_NAME", "SendMessage")
-        self.description = os.environ.get(
-            "SKILL_SEND_MESSAGE_DESCRIPTION",
-            "Send a remote text message — to another character OR to the user/avatar. "
-            "Use this to proactively reach out (e.g. share important news, ask a "
-            "question, react to something you observed). The message lands in the "
-            "recipient's chat. For in-person conversation in the same room use TalkTo."
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("send_message")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {"enabled": True}
         logger.info("SendMessage Skill initialized")
 

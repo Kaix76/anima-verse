@@ -52,6 +52,34 @@ _RECENT_HISTORY = 20
 _IN_CHAT_HOT_MIN = 10
 _IN_CHAT_WARM_MIN = 30
 
+# Pacing — vermeiden dass bei wenigen Charakteren der Loop zu eng taktet.
+# Werte werden live aus der Welt-Config gelesen (Admin-Tab "Gedanken"):
+#   thoughts.min_turn_gap_seconds        (default 30)
+#   thoughts.min_per_char_cooldown_minutes (default 5)
+# Beide Cooldowns gelten zusaetzlich zum Importance-Round-Robin und zu
+# in-chat-skip / no_llm-Backoff.
+_MIN_TURN_GAP_DEFAULT = 30
+_MIN_PER_CHAR_COOLDOWN_MIN_DEFAULT = 5
+
+
+def _get_min_turn_gap() -> int:
+    """Read thoughts.min_turn_gap_seconds from config (live)."""
+    try:
+        from app.core import config as _cfg
+        return int(_cfg.get("thoughts.min_turn_gap_seconds") or _MIN_TURN_GAP_DEFAULT)
+    except Exception:
+        return _MIN_TURN_GAP_DEFAULT
+
+
+def _get_per_char_cooldown_min() -> int:
+    """Read thoughts.min_per_char_cooldown_minutes from config (live)."""
+    try:
+        from app.core import config as _cfg
+        return int(_cfg.get("thoughts.min_per_char_cooldown_minutes")
+                   or _MIN_PER_CHAR_COOLDOWN_MIN_DEFAULT)
+    except Exception:
+        return _MIN_PER_CHAR_COOLDOWN_MIN_DEFAULT
+
 
 class AgentLoop:
     """Asyncio task that ticks one agent thought turn at a time."""
@@ -70,12 +98,22 @@ class AgentLoop:
         # planned to do X — decide now" prompt prefix. Multiple hints for
         # the same character accumulate (newline-joined).
         self._bump_hints: Dict[str, str] = {}
+        # Per-character last-real-turn timestamp for cooldown enforcement.
+        # Real = full LLM turn (not in_chat_skip / no_llm / error). Used to
+        # skip the same char if they ran within _MIN_PER_CHAR_COOLDOWN_MIN.
+        self._last_real_turn_at: Dict[str, datetime] = {}
         self._current_agent: str = ""
         self._recent: List[Dict[str, Any]] = []  # [{name, ts, action}]
         self._lock = asyncio.Lock()
         # Standby mode: set when no 'thought' LLM is reachable. Loop polls
         # availability on each idle tick instead of running turns.
         self._llm_standby: bool = False
+        # Per-Character "im aktiven Chat" Cooldown. Wenn ein in_chat_skip
+        # ausgeloest wurde, wird der Char bis zu diesem Zeitpunkt aus der
+        # Eligibility ausgenommen — sonst spinnt der Loop in 100Hz auf ihn
+        # und floodet das Log. Wird automatisch verworfen sobald die Zeit
+        # erreicht ist.
+        self._chat_skip_until: Dict[str, datetime] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -206,13 +244,27 @@ class AgentLoop:
                 last = self._recent[-1] if self._recent else None
                 if last:
                     outcome_val = last.get("outcome")
-                    # in_chat_skip is a healthy fast skip — don't penalize.
-                    if outcome_val != "in_chat_skip":
-                        bad_outcome = outcome_val in ("no_llm", "timeout") \
-                            or str(outcome_val or "").startswith("error")
-                        too_fast = last.get("duration_s", 0) < 1.0
-                        if bad_outcome or too_fast:
-                            await asyncio.sleep(_IDLE_SLEEP_SECONDS)
+                    if outcome_val == "in_chat_skip":
+                        # in_chat_skip ist OK + schnell, aber wir brauchen einen
+                        # minimalen Atemzug damit der Loop nicht in 100Hz andere
+                        # eligible Chars durchmaht (oder bei nur einem Char in
+                        # einem Hot-Spin haengt — der Per-Char-Cooldown faengt
+                        # ihn ab, aber wir wollen auch keinen zu engen Tick).
+                        await asyncio.sleep(2)
+                        continue
+                    bad_outcome = outcome_val in ("no_llm", "timeout") \
+                        or str(outcome_val or "").startswith("error")
+                    too_fast = last.get("duration_s", 0) < 1.0
+                    if bad_outcome or too_fast:
+                        await asyncio.sleep(_IDLE_SLEEP_SECONDS)
+                        continue
+                    # Echter Turn — globaler Min-Abstand zum naechsten,
+                    # damit der Loop bei wenigen Charakteren nicht zu
+                    # eng taktet. Wert kommt aus Admin-Config (Tab
+                    # "Gedanken" → Min Turn Gap).
+                    gap = _get_min_turn_gap()
+                    if gap > 0:
+                        await asyncio.sleep(gap)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -233,19 +285,46 @@ class AgentLoop:
           3. Refill round and try again
 
         Agents that became ineligible (sleep, disabled, removed) are
-        silently skipped.
+        silently skipped. Per-Char-Cooldown wird ebenfalls hier gefiltert
+        — ein Char der vor < _MIN_PER_CHAR_COOLDOWN_MIN einen echten Turn
+        hatte wird uebersprungen. Bumps umgehen den Cooldown bewusst
+        (externe Trigger wie Avatar-Roomentry sollen sofort wirken).
         """
-        # 1) Bumped agents come first.
+        # 1) Bumped agents come first — Cooldown ignorieren (Bump = Prioritaet).
         while self._bump_queue:
             candidate = self._bump_queue.pop(0)
             if _is_agent_eligible(candidate):
                 return candidate
 
+        cooldown = timedelta(minutes=_get_per_char_cooldown_min())
+        now = datetime.now()
+
+        def _on_cooldown(name: str) -> bool:
+            last = self._last_real_turn_at.get(name)
+            if not last:
+                return False
+            return (now - last) < cooldown
+
+        def _in_chat_skip(name: str) -> bool:
+            until = self._chat_skip_until.get(name)
+            if not until:
+                return False
+            if until <= now:
+                # abgelaufen — Eintrag verwerfen damit das Dict nicht waechst
+                self._chat_skip_until.pop(name, None)
+                return False
+            return True
+
         # 2) Current round.
         while self._tickets:
             candidate = self._tickets.pop(0)
-            if _is_agent_eligible(candidate):
-                return candidate
+            if not _is_agent_eligible(candidate):
+                continue
+            if _on_cooldown(candidate):
+                continue  # naechstes Ticket — diesen Char ueberspringen
+            if _in_chat_skip(candidate):
+                continue  # Char ist gerade im Chat — kein Thought
+            return candidate
 
         # 3) Refill round.
         self._tickets = _build_round_tickets()
@@ -253,8 +332,13 @@ class AgentLoop:
             return None
         while self._tickets:
             candidate = self._tickets.pop(0)
-            if _is_agent_eligible(candidate):
-                return candidate
+            if not _is_agent_eligible(candidate):
+                continue
+            if _on_cooldown(candidate):
+                continue
+            if _in_chat_skip(candidate):
+                continue
+            return candidate
         return None
 
     # ------------------------------------------------------------------
@@ -279,17 +363,89 @@ class AgentLoop:
                 # trimmed in-chat template, otherwise regular thought.
                 chat_age_min = _minutes_since_last_chat_with_avatar(character_name)
                 if chat_age_min is not None and chat_age_min < _IN_CHAT_HOT_MIN:
-                    logger.info("AgentLoop skip %s: in active chat (%.1f min ago)",
-                                character_name, chat_age_min)
+                    # Per-Char-Cooldown setzen: wenn der Chat noch HOT ist,
+                    # erst nach dem fehlenden Restbetrag wieder eligible.
+                    # Sonst spinnt der Loop diesen Char 100Hz an.
+                    remaining_s = max(60.0,
+                        (_IN_CHAT_HOT_MIN - chat_age_min) * 60.0)
+                    self._chat_skip_until[character_name] = (
+                        datetime.now() + timedelta(seconds=remaining_s))
+                    logger.info(
+                        "AgentLoop skip %s: in active chat (%.1f min ago) "
+                        "— cooldown %.0fs",
+                        character_name, chat_age_min, remaining_s)
                     outcome = "in_chat_skip"
                     turn_info = {"preview": f"in-chat skip ({chat_age_min:.1f}min)",
                                  "tools": [], "intents": []}
+                    return
+
+                # Deterministischer Auto-Sleep: bei Erschoepfung (stamina<10)
+                # bringt der Loop den Char selbststaendig nach Hause / offmap,
+                # ohne LLM-Thought zu konsultieren. Verhindert dass ein
+                # exhausted Character ewig irgendwo am Map herumsteht weil das
+                # LLM die "go home"-Anweisung nicht in einen Tool-Call umsetzt.
+                _auto_sleep = self._maybe_auto_sleep(character_name)
+                if _auto_sleep:
+                    outcome = _auto_sleep["outcome"]
+                    turn_info = {"preview": _auto_sleep["preview"],
+                                 "tools": _auto_sleep.get("tools", []),
+                                 "intents": []}
                     return
 
                 template_name = "chat/agent_thought.md"
                 if (chat_age_min is not None
                         and _IN_CHAT_HOT_MIN <= chat_age_min < _IN_CHAT_WARM_MIN):
                     template_name = "chat/agent_thought_in_chat.md"
+
+                # Programmierter Walk-Step: ein Grid-Schritt Richtung
+                # movement_target. LLM hat das Ziel vorher gewaehlt; der Tick
+                # wandert es ohne LLM ab. Wird waehrend WARM-Window pausiert
+                # (Character noch im Gespraech). Bei Ankunft loescht
+                # save_character_current_location das Target automatisch.
+                try:
+                    if chat_age_min is None or chat_age_min >= _IN_CHAT_WARM_MIN:
+                        from app.models.character import (
+                            get_movement_target, clear_movement_target,
+                            save_character_current_location)
+                        from app.models.world import next_step_toward
+                        target = get_movement_target(character_name)
+                        if target:
+                            next_loc = next_step_toward(character_name, target)
+                            if next_loc is None:
+                                clear_movement_target(character_name)
+                                logger.info(
+                                    "Movement-Target %s fuer %s nicht erreichbar — Target geloescht",
+                                    target, character_name)
+                                try:
+                                    from app.models.character import _record_state_change
+                                    from app.models.world import get_location_name
+                                    _name = get_location_name(target) or target
+                                    _record_state_change(
+                                        character_name, "travel_failed", _name,
+                                        metadata={"location_id": target,
+                                                  "reason": "path_lost_in_transit"})
+                                except Exception:
+                                    pass
+                            else:
+                                save_character_current_location(
+                                    character_name, next_loc,
+                                    _preserve_movement_target=True)
+                                logger.info(
+                                    "AgentLoop walk: %s -> %s (Ziel: %s)",
+                                    character_name, next_loc, target)
+                except Exception as _we:
+                    logger.debug("Walk-Step fuer %s fehlgeschlagen: %s",
+                                 character_name, _we)
+
+                # Discovery-Check: vor dem Thought-Build, damit der entdeckte
+                # Ort sofort im list_locations_for_character-Kontext auftaucht
+                # und der Character im aktuellen Tick darueber nachdenken kann.
+                try:
+                    from app.models.rules import check_discover_rules
+                    check_discover_rules(character_name)
+                except Exception as _de:
+                    logger.debug("Discover-Check fuer %s fehlgeschlagen: %s",
+                                 character_name, _de)
 
                 ctx = build_thought_context(character_name)
                 system_prompt = render(template_name, **ctx)
@@ -334,6 +490,124 @@ class AgentLoop:
                 self._record_turn(character_name, started_at, outcome, turn_info)
                 self._current_agent = ""
 
+    def _maybe_auto_sleep(self, character_name: str) -> Optional[Dict[str, Any]]:
+        """Bei Erschoepfung (stamina<10) den Char autonom nach Hause schicken.
+
+        Drei Pfade:
+          1. Char hat home_location=__offmap__ → enter_offmap_sleep direkt
+          2. Char ist bereits am home_location → SetActivity Sleeping
+          3. Char ist anderswo → SetLocation home (Walk oder Direct-Move)
+
+        Returns dict {outcome, preview, tools} bei Aktion, sonst None.
+        Cooldown via _chat_skip_until — ein erschoepfter Char wird nicht in
+        jedem Tick neu geprueft, sonst spinnt der Loop.
+        """
+        try:
+            from app.models.character import (
+                get_character_profile, get_character_config,
+                get_character_current_location, OFFMAP_SLEEP_SENTINEL,
+                enter_offmap_sleep, save_character_current_activity,
+                set_movement_target)
+            profile = get_character_profile(character_name) or {}
+            stamina = (profile.get("status_effects") or {}).get("stamina")
+            if stamina is None or stamina >= 10:
+                return None  # nicht erschoepft
+
+            cfg = get_character_config(character_name) or {}
+            home_loc = (cfg.get("home_location") or "").strip()
+            if not home_loc:
+                return None  # kein home_location -> wir koennen nichts tun
+
+            cur_loc = (get_character_current_location(character_name) or "").strip()
+            already_offmap = not cur_loc
+
+            # Kein Cooldown via _chat_skip_until — sonst koennte der Char
+            # zwischen den Walk-Steps nicht erneut gepickt werden und
+            # wuerde nur alle 5 min einen Schritt machen. Die maybe_auto_sleep-
+            # Logik ist idempotent: bereits-zuhause → SetActivity Sleep, en
+            # route → naechster Schritt, offmap → continue. Jeder Tick
+            # bringt den Char einen Step naeher.
+
+            # Pfad 1: home ist offmap
+            if home_loc == OFFMAP_SLEEP_SENTINEL:
+                if already_offmap:
+                    save_character_current_activity(character_name, "Sleeping")
+                    logger.info("Auto-Sleep: %s bereits offmap, Activity=Sleeping",
+                                character_name)
+                    return {"outcome": "auto_sleep_offmap_continue",
+                            "preview": f"already offmap, sleeping (stamina={stamina})",
+                            "tools": ["SetActivity"]}
+                if enter_offmap_sleep(character_name):
+                    save_character_current_activity(character_name, "Sleeping")
+                    logger.info("Auto-Sleep: %s erschoepft (stamina=%s) -> offmap",
+                                character_name, stamina)
+                    return {"outcome": "auto_sleep_offmap",
+                            "preview": f"exhausted (stamina={stamina}) → offmap sleep",
+                            "tools": ["SetLocation", "SetActivity"]}
+
+            # Pfad 2/3: home ist eine reguläre Location
+            if cur_loc == home_loc:
+                # Schon zuhause — Activity auf Sleeping setzen
+                save_character_current_activity(character_name, "Sleeping")
+                logger.info("Auto-Sleep: %s zuhause, Activity=Sleeping",
+                            character_name)
+                return {"outcome": "auto_sleep_at_home",
+                        "preview": f"home & exhausted (stamina={stamina}) → sleeping",
+                        "tools": ["SetActivity"]}
+
+            # Anderswo — movement_target setzen UND sofort den ersten
+            # Schritt ausfuehren. Der Walk-Step im normalen Tick-Flow wird
+            # nicht erreicht weil _maybe_auto_sleep frueh returnt; ohne den
+            # Inline-Step wuerde der Char waehrend der naechsten 5min
+            # (_chat_skip_until-Cooldown) gar nicht laufen.
+            set_movement_target(character_name, home_loc)
+            steps_taken = 0
+            arrived = False
+            try:
+                from app.models.character import (
+                    save_character_current_location,
+                    clear_movement_target)
+                from app.models.world import next_step_toward
+                next_loc = next_step_toward(character_name, home_loc)
+                if next_loc is None:
+                    # Pfad nicht erreichbar — Target loeschen, sonst haengt
+                    # der Char ewig im "walking home"-State.
+                    clear_movement_target(character_name)
+                    logger.warning(
+                        "Auto-Sleep walk: kein Pfad von %s nach %s — Target geloescht",
+                        character_name, home_loc)
+                else:
+                    save_character_current_location(
+                        character_name, next_loc, _preserve_movement_target=True)
+                    steps_taken = 1
+                    arrived = (next_loc == home_loc)
+                    logger.info(
+                        "Auto-Sleep walk: %s -> %s (Ziel: %s)%s",
+                        character_name, next_loc, home_loc,
+                        " — angekommen" if arrived else "")
+            except Exception as _we:
+                logger.debug("Auto-Sleep walk-step fehlgeschlagen: %s", _we)
+
+            # Wenn beim ersten Step schon angekommen: Activity sofort auf
+            # Sleeping setzen, sonst kommt Char zwar an, ist aber wach.
+            if arrived:
+                save_character_current_activity(character_name, "Sleeping")
+                logger.info("Auto-Sleep: %s zuhause angekommen, Activity=Sleeping",
+                            character_name)
+                return {"outcome": "auto_sleep_arrived_home",
+                        "preview": f"exhausted (stamina={stamina}) → arrived home → sleeping",
+                        "tools": ["SetLocation", "SetActivity"]}
+
+            logger.info("Auto-Sleep: %s erschoepft (stamina=%s) -> Reise nach Hause (%s) [Schritte: %d]",
+                        character_name, stamina, home_loc, steps_taken)
+            return {"outcome": "auto_sleep_walking_home",
+                    "preview": f"exhausted (stamina={stamina}) → walking home (step {steps_taken})",
+                    "tools": ["SetLocation"]}
+        except Exception as e:
+            logger.debug("_maybe_auto_sleep failed for %s: %s",
+                         character_name, e)
+            return None
+
     def _record_turn(self, name: str, started_at: datetime, outcome: str,
                      turn_info: Optional[Dict[str, Any]] = None) -> None:
         info = turn_info or {}
@@ -348,6 +622,13 @@ class AgentLoop:
         })
         if len(self._recent) > _RECENT_HISTORY:
             self._recent = self._recent[-_RECENT_HISTORY:]
+        # Per-Char Cooldown nur fuer ECHTE Turns (LLM lief, hat Output
+        # produziert oder Tools getriggert). Skips/Errors triggern den
+        # Cooldown bewusst NICHT — sonst wuerde ein in_chat_skip einen
+        # 5min-Block ausloesen, obwohl gar nichts passiert ist.
+        is_real = outcome == "ok" or (outcome or "").startswith("ok")
+        if is_real:
+            self._last_real_turn_at[name] = datetime.now()
 
 
 # ---------------------------------------------------------------------------
@@ -380,25 +661,48 @@ def _thought_llm_available() -> bool:
 
 
 def _minutes_since_last_chat_with_avatar(character_name: str) -> Optional[float]:
-    """Returns minutes since the last chat message between this character
-    and the player's avatar, or None if no such conversation exists.
+    """Returns minutes since this character's last chat message **with an
+    avatar (player-controlled character)**, or None if there is no such
+    message.
 
     Used to gate AgentLoop turns: if a chat is active right now, the
     character should either skip or run a trimmed in-chat template instead
     of pursuing unrelated initiatives.
+
+    Wichtig: TalkTo NPC↔NPC-Nachrichten zaehlen NICHT als "in-chat" — der
+    Skip soll nur bei aktiver Avatar↔Char-Konversation greifen. Frueher
+    hat die Funktion blind den letzten chat_messages-Eintrag genommen,
+    was Rosi vom Denken aussperrte sobald sie via TalkTo mit einem NPC
+    sprach (0.5min ago = "in chat" → skip).
+
+    Implementierung: alle aktuellen Avatare einsammeln (siehe
+    ``account.get_all_avatars`` — multi-user, beruecksichtigt
+    users.settings.active_character) und nur Nachrichten zaehlen wo der
+    Partner ein Avatar ist.
     """
     try:
-        from app.models.account import get_active_character
         from app.core.db import get_connection
-        avatar = (get_active_character() or "").strip()
-        if not avatar:
+        from app.models.account import get_all_avatars
+        avatars = get_all_avatars() or set()
+        # Char selbst raus (er ist nie sein eigener Avatar — und wenn doch,
+        # wuerde der Loop ihn schon vorher als is_player_controlled skippen)
+        avatars = {a for a in avatars if a and a != character_name}
+        if not avatars:
             return None
+        # Latest message wo character_name im Chat ist UND partner ein
+        # Avatar — beide Storage-Richtungen (A,B)/(B,A) abdecken.
+        placeholders = ",".join(["?"] * len(avatars))
+        params = (
+            list(avatars) + [character_name]   # Bedingung 1: char=Avatar AND partner=this
+            + [character_name] + list(avatars) # Bedingung 2: char=this AND partner=Avatar
+        )
+        sql = (
+            f"SELECT MAX(ts) FROM chat_messages WHERE "
+            f"(character_name IN ({placeholders}) AND partner=?) "
+            f"OR (character_name=? AND partner IN ({placeholders}))"
+        )
         conn = get_connection()
-        row = conn.execute(
-            "SELECT MAX(ts) FROM chat_messages "
-            "WHERE character_name=? AND partner=?",
-            (character_name, avatar),
-        ).fetchone()
+        row = conn.execute(sql, params).fetchone()
         if not row or not row[0]:
             return None
         try:
@@ -423,9 +727,12 @@ def _is_agent_eligible(character_name: str) -> bool:
     except Exception:
         pass
     try:
-        from app.models.character import is_character_sleeping
+        from app.models.character import is_character_sleeping, wake_from_offmap
         if is_character_sleeping(character_name):
             return False
+        # Char nicht mehr im Schlaf-Slot, aber evtl. noch offmap-vergessen?
+        # Lazy zurueckholen damit der Loop danach normal mit ihm arbeitet.
+        wake_from_offmap(character_name)
     except Exception:
         pass
     try:

@@ -57,15 +57,10 @@ class OutfitCreationSkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get('SKILL_OUTFIT_CREATION_NAME', 'OutfitCreation')
-        self.description = os.environ.get(
-            'SKILL_OUTFIT_CREATION_DESCRIPTION',
-            'Creates new clothing pieces (outfit_piece items) when the character '
-            'needs clothing they do not yet own. Each piece gets a slot '
-            '(head/neck/top/bottom/outer/feet/...) and outfit-type tags '
-            '(Casual/Business/Sport/...). Pieces are added to inventory and '
-            'equipped. To switch between already-owned pieces, use ChangeOutfit.'
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("outfit_creation")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {
             "enabled": True,
             "outfit_language": os.environ.get('SKILL_OUTFIT_CREATION_LANGUAGE', 'en'),

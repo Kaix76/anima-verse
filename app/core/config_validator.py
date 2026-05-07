@@ -91,6 +91,11 @@ def _check_llm_routing(config: dict) -> list:
         if not isinstance(entry, dict):
             issues.append(_err("llm_routing", f"Eintrag #{idx+1}: kein Objekt"))
             continue
+        # Disabled-Eintraege werden zur Laufzeit ignoriert -> keine
+        # Coverage/Order-/Provider-Validierung (sonst meldet die UI Fehler
+        # fuer bewusst stillgelegte Modelle).
+        if entry.get("enabled") is False:
+            continue
         provider = (entry.get("provider") or "").strip()
         model = (entry.get("model") or "").strip()
         label = model or f"#{idx+1}"
@@ -145,7 +150,9 @@ def _check_image_backends(config: dict) -> list:
     issues = []
     ig = config.get("image_generation", {})
     backends = ig.get("backends", [])
+    providers = config.get("providers", [])
 
+    active_comfyui_backends = []
     for be in backends:
         name = be.get("name", "?")
         enabled = be.get("enabled", True)
@@ -163,6 +170,25 @@ def _check_image_backends(config: dict) -> list:
         if api_type in ("mammouth", "civitai", "together") and not api_key:
             issues.append(_err("image_generation", f"Backend '{name}': API Key fehlt (Cloud-Backend '{api_type}')"))
 
+        if api_type == "comfyui":
+            active_comfyui_backends.append(name)
+
+    # Aktive ComfyUI-Backends brauchen mindestens einen Provider mit einer GPU
+    # vom Typ 'comfyui' — sonst wirft submit_gpu_task zur Laufzeit
+    # "No channel for gpu_type='comfyui'".
+    if active_comfyui_backends:
+        has_comfyui_channel = any(
+            any("comfyui" in (g.get("types") or []) for g in (p.get("gpus") or []))
+            for p in providers
+        )
+        if not has_comfyui_channel:
+            be_list = ", ".join(active_comfyui_backends)
+            issues.append(_err(
+                "providers",
+                f"Aktive ComfyUI-Backends ({be_list}), aber kein Provider hat eine GPU "
+                "mit types=['comfyui']. Bildgenerierung schlaegt mit "
+                "\"No channel for gpu_type='comfyui'\" fehl. "
+                "Bei einem Provider unter 'GPUs' den types-Eintrag um 'comfyui' erweitern."))
 
     return issues
 

@@ -115,14 +115,45 @@ class UnifiedChatManager:
         try:
             conn = get_connection()
             if partner:
-                q = """
-                    SELECT id, ts, role, content, channel, channel_message_id, metadata
-                    FROM chat_messages
-                    WHERE character_name=? AND partner=?
-                    ORDER BY ts ASC
-                """
-                params = (character_name, partner)
-                rows = conn.execute(q, params).fetchall()
+                # Konversation A↔B kann je nach damaligem Avatar als
+                # (A, partner=B) ODER (B, partner=A) gespeichert sein —
+                # je nachdem wer der "antwortende" Character war. Beim
+                # Avatar-Wechsel wuerde sonst die alte Richtung versteckt
+                # bleiben. Wir vereinen beide Richtungen und tauschen die
+                # Rollen im flipped-Batch, damit aus Sicht des aktuellen
+                # character_name role=assistant immer DIESEN Character
+                # bedeutet.
+                base_q = (
+                    "SELECT id, ts, role, content, channel, "
+                    "channel_message_id, metadata FROM chat_messages "
+                    "WHERE character_name=? AND partner=?")
+                rows_direct = conn.execute(
+                    base_q, (character_name, partner)).fetchall()
+                rows_flipped = conn.execute(
+                    base_q, (partner, character_name)).fetchall()
+
+                merged = list(rows_direct)
+                for r in rows_flipped:
+                    # role swap: was als (B,A) gespeichert wurde, sieht aus
+                    # A's Sicht andersrum aus.
+                    new_role = "user" if r[2] == "assistant" else "assistant"
+                    merged.append((r[0], r[1], new_role, r[3], r[4], r[5], r[6]))
+                merged.sort(key=lambda x: (x[1] or "", x[0]))
+                # Dedup: TalkTo-Konversationen (NPC↔NPC) werden in BEIDE
+                # Buckets geschrieben, damit jeder Char eine vollstaendige
+                # eigene History hat. Nach role-swap kollidiert das im
+                # merged-View. Eindeutiger Schluessel: (ts, role, content).
+                # Avatar↔NPC-Messages haben unique ts/content kombiniert,
+                # werden also nicht entfernt.
+                seen: set = set()
+                deduped: List[tuple] = []
+                for r in merged:
+                    key = (r[1] or "", r[2] or "", r[3] or "")
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    deduped.append(r)
+                rows = deduped
                 # Frueher gab es einen Fallback auf den Account-Login-Namen
                 # (get_user_name) als Partner — der hat aber nur bestehende
                 # Admin-Chats sichtbar gemacht und neue Avatar-Chats blieben

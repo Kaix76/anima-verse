@@ -101,9 +101,14 @@ def calculate_response_scores(
     def _get_strength(char_name: str) -> float:
         try:
             from app.models.relationship import get_relationship
-            from app.models.account import get_player_identity
-            user_name = get_player_identity("Player")
-            rel = get_relationship(char_name, user_name)
+            from app.models.account import get_active_character
+            avatar = (get_active_character() or "").strip()
+            if not avatar:
+                # Kein Avatar aktiv → keine Avatar-Beziehung lookup-bar.
+                # Default-Score; Sentinel "Player" wuerde nichts matchen
+                # und nur als Pseudo-Charakter durchs System wandern.
+                return 10.0
+            rel = get_relationship(char_name, avatar)
             if rel:
                 return rel.get("strength", 10)
         except Exception:

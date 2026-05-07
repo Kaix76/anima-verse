@@ -96,6 +96,123 @@ def init_schema() -> None:
     for stmt in POST_MIGRATION_STATEMENTS:
         conn.execute(stmt)
 
+    # One-shot Daten-Cleanup: Items mit rarity="generic" auf "common"
+    # migrieren (das alte "Generic = einfaerbbar"-Feature wurde entfernt).
+    # Idempotent: laeuft nur solange noch generic-Items existieren.
+    try:
+        import json as _json
+        rows = conn.execute("SELECT id, meta FROM items").fetchall()
+        migrated = 0
+        for iid, meta_raw in rows:
+            try:
+                meta = _json.loads(meta_raw or "{}")
+            except Exception:
+                continue
+            if (meta.get("rarity") or "").strip().lower() == "generic":
+                meta["rarity"] = "common"
+                conn.execute("UPDATE items SET meta=? WHERE id=?",
+                             (_json.dumps(meta, ensure_ascii=False), iid))
+                migrated += 1
+        if migrated:
+            logger.info("items rarity-Migration: %d 'generic' -> 'common'",
+                        migrated)
+    except Exception as e:
+        logger.warning("items rarity-Migration fehlgeschlagen: %s", e)
+
+    # One-shot Daten-Cleanup: Lebensdauer-Feature (auto_expire_minutes/TTL)
+    # wurde entfernt. Ueberbleibsel ``expires_at`` aus inventory_items.meta
+    # rauspulen, sonst bleibt es ewig als toter String drin. Idempotent —
+    # via schema_meta-Flag gegated, laeuft genau einmal pro Welt.
+    flag = conn.execute(
+        "SELECT value FROM schema_meta WHERE key='inventory_expires_at_purged'"
+    ).fetchone()
+    if not flag:
+        try:
+            import json as _json
+            rows = conn.execute(
+                "SELECT character_name, item_id, meta FROM inventory_items"
+            ).fetchall()
+            purged = 0
+            for char_name, item_id, meta_raw in rows:
+                try:
+                    meta = _json.loads(meta_raw or "{}")
+                except Exception:
+                    continue
+                if "expires_at" in meta:
+                    meta.pop("expires_at", None)
+                    conn.execute(
+                        "UPDATE inventory_items SET meta=? "
+                        "WHERE character_name=? AND item_id=?",
+                        (_json.dumps(meta, ensure_ascii=False), char_name, item_id),
+                    )
+                    purged += 1
+            if purged:
+                logger.info("inventory_items expires_at-Cleanup: %d Eintraege bereinigt",
+                            purged)
+            conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('inventory_expires_at_purged', '1')"
+            )
+        except Exception as e:
+            logger.warning("inventory_items expires_at-Cleanup fehlgeschlagen: %s", e)
+
+    # One-shot Migration: summaries.UNIQUE-Constraint von 3 auf 4 Spalten
+    # umstellen (zusaetzlich `partner`). SQLite kann Constraints nicht inline
+    # aendern — Tabelle muss rebuilt werden. Idempotent via schema_meta-Flag.
+    flag = conn.execute(
+        "SELECT value FROM schema_meta WHERE key='summaries_partner_unique_v2'"
+    ).fetchone()
+    if not flag:
+        try:
+            # Pruefen ob die alte UNIQUE noch aktiv ist: SQLite legt sie als
+            # sqlite_autoindex_summaries_* an. Wenn der hoechste Index nur 3
+            # Spalten hat → migrieren.
+            old_idx = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='index' AND tbl_name='summaries' "
+                "AND name LIKE 'sqlite_autoindex_summaries_%'"
+            ).fetchall()
+            needs_rebuild = False
+            for (idx_name,) in old_idx:
+                cols = conn.execute(
+                    f"PRAGMA index_info({idx_name})"
+                ).fetchall()
+                if len(cols) == 3:
+                    needs_rebuild = True
+                    break
+            if needs_rebuild:
+                logger.info("summaries: UNIQUE-Constraint wird auf 4 Spalten "
+                            "umgebaut (partner ergaenzt)")
+                conn.execute("ALTER TABLE summaries RENAME TO summaries_old_v1")
+                conn.execute("""
+                    CREATE TABLE summaries (
+                        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                        character_name TEXT NOT NULL,
+                        kind           TEXT NOT NULL,
+                        date_key       TEXT NOT NULL,
+                        partner        TEXT NOT NULL DEFAULT '',
+                        content        TEXT NOT NULL,
+                        meta           TEXT DEFAULT '{}',
+                        UNIQUE(character_name, kind, date_key, partner),
+                        FOREIGN KEY(character_name) REFERENCES characters(name)
+                            ON DELETE CASCADE
+                    )
+                """)
+                conn.execute("""
+                    INSERT INTO summaries
+                    (id, character_name, kind, date_key, partner, content, meta)
+                    SELECT id, character_name, kind, date_key,
+                           COALESCE(partner, ''), content, COALESCE(meta, '{}')
+                    FROM summaries_old_v1
+                """)
+                conn.execute("DROP TABLE summaries_old_v1")
+            conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('summaries_partner_unique_v2', '1')"
+            )
+        except Exception as e:
+            logger.warning("summaries partner-Migration fehlgeschlagen: %s", e)
+
     conn.execute(
         "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -107,3 +224,14 @@ def init_schema() -> None:
             "World-DB Schema initialisiert: version %d (war %d)",
             SCHEMA_VERSION, current_version
         )
+
+    # Default-Rules seeden — Sleep + Wake. Idempotent: nur fehlende werden
+    # angelegt (Match by id), User-Aenderungen bleiben. Frueher waren
+    # diese Pfade hardcoded im AgentLoop / hourly_tick — durch das Seed
+    # sind frische Welten direkt funktional, bestehende Welten bekommen
+    # die Defaults beim naechsten Restart nachgereicht.
+    try:
+        from app.models.rules import ensure_default_rules
+        ensure_default_rules()
+    except Exception as e:
+        logger.warning("Default-Rules seeding fehlgeschlagen: %s", e)

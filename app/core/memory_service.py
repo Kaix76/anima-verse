@@ -19,12 +19,19 @@ logger = get_logger("memory_service")
 # ---------------------------------------------------------------------------
 
 def extract_memories_from_exchange(character_name: str,
-    user_message: str,
-    assistant_message: str,
+    partner_name: str,
+    partner_message: str,
+    own_message: str,
     llm) -> List[Dict[str, Any]]:
-    """Extrahiert Memories aus einem Chat-Austausch (User + Character).
+    """Extrahiert Memories aus einem Charakter-zu-Charakter-Austausch.
 
-    Analysiert BEIDE Seiten des Gespraechs (Character-zu-Character).
+    Args:
+        character_name: Memory-Owner (Speaker B im Template)
+        partner_name:   Konversationspartner (Speaker A im Template) — z.B.
+                        ein Avatar-Name oder ein anderer NPC-Name. Wenn leer,
+                        wird die Extraktion uebersprungen.
+        partner_message: Was der Partner sagte (text_a)
+        own_message:    Was der Memory-Owner sagte (text_b)
 
     Returns list of extracted memory dicts.
     """
@@ -32,6 +39,12 @@ def extract_memories_from_exchange(character_name: str,
     config = get_character_config(character_name)
 
     if not config.get("extraction_enabled", True):
+        return []
+
+    # Ohne Partner kein dyadischer Austausch → nichts zu extrahieren.
+    partner_name = (partner_name or "").strip()
+    if not partner_name:
+        logger.debug("[%s] extraction skipped: no partner_name", character_name)
         return []
 
     # Bestehende Memories fuer Deduplizierung + Commitment-Tracking
@@ -51,19 +64,12 @@ def extract_memories_from_exchange(character_name: str,
         f"- [ID:{c['id']}] {c['content']}" for c in open_commitments[-10:]
     ) if open_commitments else ""
 
-    # Player's active character name
-    try:
-        from app.models.account import get_player_identity
-        user_display = get_player_identity("Player")
-    except Exception:
-        user_display = "Player"
-
-    # Clean assistant message (remove meta-tags)
-    clean_assistant = re.sub(r'\*\*I\s+feel\s+[^*]+\*\*', '', assistant_message, flags=re.IGNORECASE)
-    clean_assistant = re.sub(r'\*\*I\s+am\s+at\s+[^*]+\*\*', '', clean_assistant, flags=re.IGNORECASE)
-    clean_assistant = re.sub(r'\*\*I\s+do\s+[^*]+\*\*', '', clean_assistant, flags=re.IGNORECASE)
-    clean_assistant = re.sub(r'\[INTENT:[^\]]+\]', '', clean_assistant)
-    clean_assistant = clean_assistant.strip()
+    # Clean own message (remove meta-tags)
+    clean_own = re.sub(r'\*\*I\s+feel\s+[^*]+\*\*', '', own_message, flags=re.IGNORECASE)
+    clean_own = re.sub(r'\*\*I\s+am\s+at\s+[^*]+\*\*', '', clean_own, flags=re.IGNORECASE)
+    clean_own = re.sub(r'\*\*I\s+do\s+[^*]+\*\*', '', clean_own, flags=re.IGNORECASE)
+    clean_own = re.sub(r'\[INTENT:[^\]]+\]', '', clean_own)
+    clean_own = clean_own.strip()
 
     commitments_block = (
         "Open promises/plans (check if any was fulfilled by this exchange):\n"
@@ -76,10 +82,10 @@ def extract_memories_from_exchange(character_name: str,
 
         sys_prompt, user_prompt = render_task(
             "extraction_memory",
-            user_display=user_display,
-            user_message=user_message,
-            character_name=character_name,
-            character_response=clean_assistant[:1500],
+            speaker_a=partner_name,
+            speaker_b=character_name,
+            text_a=partner_message,
+            text_b=clean_own[:1500],
             existing_summary=existing_summary,
             commitments_block=commitments_block)
 
@@ -131,6 +137,19 @@ def extract_memories_from_exchange(character_name: str,
                 "importance": importance,
                 "tags": tags,
             }
+            # related_character: Adressat des Memories. LLM-Output bevorzugt,
+            # ansonsten Default = Konversationspartner. Damit Commitments
+            # nicht "dem Spieler/User" sondern dem echten Charakter zugeordnet
+            # werden.
+            related = (item.get("related_character") or "").strip()
+            if not related:
+                related = partner_name
+            # Generische Labels herausfiltern — niemals als Adressat speichern.
+            if related.lower() in {"user", "player", "spieler", "the user",
+                                    "assistant", "character"}:
+                related = partner_name
+            if related:
+                entry["related_character"] = related
             # Delay fuer Commitments erfassen
             delay = (item.get("delay") or "").strip()
             if delay and mem_type == "commitment":
@@ -262,6 +281,7 @@ def apply_extracted_memories(character_name: str,
             memory_type=mem_type,
             importance=importance,
             tags=tags,
+            related_character=item.get("related_character", ""),
             extra_meta=extra_meta or None)
         if result:
             count += 1
@@ -573,7 +593,9 @@ def _consolidate_episodics_to_daily(character_name: str) -> int:
     Episodische Originale werden geloescht.
     """
     from app.models.memory import load_memories, save_memories
-    from app.utils.history_manager import get_memory_thresholds, load_daily_summaries, save_daily_summary
+    from app.utils.history_manager import (get_memory_thresholds,
+                                            load_daily_summaries_combined,
+                                            save_daily_summary)
 
     thresholds = get_memory_thresholds()
     cutoff = datetime.now() - timedelta(days=thresholds["short_term_days"])
@@ -597,7 +619,10 @@ def _consolidate_episodics_to_daily(character_name: str) -> int:
     if not by_day:
         return 0
 
-    existing_daily = load_daily_summaries(character_name)
+    # Episodische → Tages-Konsolidierung schreibt in den partner-leeren Slot
+    # ('') der summaries-Tabelle. Vorhandene Texte (alle Partner kombiniert)
+    # werden als Kontext gelesen, damit Episodics nicht widersprechen.
+    existing_daily = load_daily_summaries_combined(character_name)
     removed_total = 0
     ids_to_remove = set()
 
@@ -680,12 +705,15 @@ def save_weekly_summary(character_name: str, week_key: str, summary: str):
 
 def _consolidate_daily_to_weekly(character_name: str) -> int:
     """Konsolidiert Tages-Summaries aelter als MID_TERM_DAYS zu Wochen-Summaries."""
-    from app.utils.history_manager import get_memory_thresholds, load_daily_summaries, save_daily_summary
+    from app.utils.history_manager import (get_memory_thresholds,
+                                            load_daily_summaries_combined)
 
     thresholds = get_memory_thresholds()
     cutoff = (datetime.now() - timedelta(days=thresholds["mid_term_days"])).date()
 
-    daily = load_daily_summaries(character_name)
+    # Wochen-Konsolidierung verdichtet ueber alle Partner — kombinierter
+    # Text pro Tag (alle Partner-Slots zusammen).
+    daily = load_daily_summaries_combined(character_name)
     if not daily:
         return 0
 
@@ -950,7 +978,9 @@ def _migrate_three_tier(character_name: str) -> int:
     Returns Anzahl konsolidierter Episodics, oder -1 bei Fehler.
     """
     from app.models.memory import load_memories, save_memories
-    from app.utils.history_manager import get_memory_thresholds, load_daily_summaries, save_daily_summary
+    from app.utils.history_manager import (get_memory_thresholds,
+                                            load_daily_summaries_combined,
+                                            save_daily_summary)
 
     thresholds = get_memory_thresholds()
     cutoff = datetime.now() - timedelta(days=thresholds["short_term_days"])
@@ -979,7 +1009,7 @@ def _migrate_three_tier(character_name: str) -> int:
         _consolidate_weekly_to_monthly(character_name)
         return 0
 
-    existing_daily = load_daily_summaries(character_name)
+    existing_daily = load_daily_summaries_combined(character_name)
     ids_to_remove = set()
     total_migrated = 0
 

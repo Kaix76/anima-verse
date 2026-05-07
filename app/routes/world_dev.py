@@ -1,7 +1,7 @@
 """World Development routes - Chat with LLM to create/edit world elements."""
 import json
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from app.core.auth_dependency import require_admin
@@ -28,13 +28,18 @@ _sessions: Dict[str, Dict[str, Any]] = {}
 
 
 def _load_schema(schema_name: str, **kwargs) -> str:
-    """Loads a schema definition file and fills in placeholders."""
+    """Loads a schema definition file and fills in placeholders.
+
+    Schemas verwenden `{key}`-Notation (einfache Klammern) — wie in den .md-
+    Dateien sichtbar. KEIN .format() weil die Schemas auch JSON-Beispiele mit
+    geschweiften Klammern enthalten, die als Literal stehen bleiben muessen.
+    """
     path = _get_schemas_dir() / f"{schema_name}.md"
     if not path.exists():
         raise FileNotFoundError(f"Schema '{schema_name}' nicht gefunden: {path}")
     content = path.read_text(encoding="utf-8")
     for key, value in kwargs.items():
-        content = content.replace(f"{{{{{key}}}}}", str(value))
+        content = content.replace(f"{{{key}}}", str(value))
     return content
 
 
@@ -125,6 +130,23 @@ def _format_generable_fields_for_templates(selected_template: str = "") -> str:
     header = "### Immer verfuegbare Felder\n\n" + "\n".join(always)
 
     return header + "\n\n" + "\n\n".join(sections)
+
+
+def _format_existing_outfit_types() -> str:
+    """Liste aller in der Welt bekannten Outfit-Typen (aus Rules + Items + Locations).
+
+    World Dev darf keine neuen Outfit-Typen erfinden — nur die bestehende Liste
+    nutzen, damit Outfit-Auto-Swap und Rules konsistent bleiben.
+    """
+    try:
+        from app.core.outfit_rules import known_outfit_types
+        types = [t for t in (known_outfit_types() or []) if t and t.strip()]
+    except Exception:
+        types = []
+    if not types:
+        return "(noch keine Outfit-Typen definiert — leg KEINE neuen an, " \
+               "frage den Benutzer ob er ueber Admin-UI Outfit-Typen anlegen moechte)"
+    return ", ".join(f"`{t}`" for t in sorted(set(types), key=str.lower))
 
 
 def _format_context_locations(location_ids: list) -> str:
@@ -244,9 +266,18 @@ def _extract_json_block(text: str, block_type: str) -> Dict[str, Any] | None:
         parsed = json.loads(raw)
         logger.info("Extracted %s JSON: %d keys", block_type, len(parsed))
         return parsed
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse %s JSON: %s\nRaw: %s", block_type, e, raw[:200])
-        return None
+    except json.JSONDecodeError:
+        # Tolerate common LLM JSON glitches: leading "+" on positive numbers
+        # ("attention_change": +5) and trailing commas before } or ].
+        sanitized = re.sub(r'([:\[,]\s*)\+(\d)', r'\1\2', raw)
+        sanitized = re.sub(r',(\s*[}\]])', r'\1', sanitized)
+        try:
+            parsed = json.loads(sanitized)
+            logger.info("Extracted %s JSON (after sanitize): %d keys", block_type, len(parsed))
+            return parsed
+        except json.JSONDecodeError as e2:
+            logger.warning("Failed to parse %s JSON: %s\nRaw: %s", block_type, e2, raw[:200])
+            return None
 
 
 def _validate_character_fields(char_data: Dict[str, Any], selected_template: str = "") -> list[str]:
@@ -405,10 +436,12 @@ async def world_dev_chat(request: Request):
                     "- **animal-default**: Tier-Character (Hund, Katze, Fuchs, etc.)\n\n"
                     "Frage den Benutzer oder waehle basierend auf dem Kontext."
                 )
+            existing_outfit_types = _format_existing_outfit_types()
             system_prompt = _load_schema(
                 schema,
                 existing_locations=existing_locations,
                 existing_characters=existing_characters,
+                existing_outfit_types=existing_outfit_types,
                 generable_fields=generable_fields,
                 selected_template=selected_template_text)
         except FileNotFoundError as e:
@@ -435,6 +468,7 @@ async def world_dev_chat(request: Request):
                             schema,
                             existing_locations=existing_locations,
                             existing_characters=existing_characters,
+                            existing_outfit_types=existing_outfit_types,
                             generable_fields=generable_fields,
                             selected_template=selected_template_text)
 
@@ -701,38 +735,33 @@ def _get_generable_fields(template_name: str) -> tuple[set, set]:
     return profile_fields, config_fields
 
 
-@router.post("/apply-character")
-async def apply_character_data(request: Request):
-    """Applies generated character data (profile + outfits)."""
-    data = await request.json()
-    user_id = data.get("user_id", "")
-    char_data = data.get("character_data", {})
-    if not char_data or not char_data.get("character_name"):
-        raise HTTPException(status_code=400, detail="character_data mit character_name erforderlich")
+def _apply_character_internal(char_data: Dict[str, Any],
+                              selected_template: str = "",
+                              created_by: str = "") -> Dict[str, Any]:
+    """Apply character JSON in-process (profile + soul MD + outfits + config).
 
+    Used by both /apply-character (HTTP) and /apply-json (smart import). Caller
+    is responsible for handing in a *normalized* dict — flat fields, no nested
+    soul object. Sub-sections without a template source_file mapping (e.g.
+    soul/soul.md, soul/tasks.md) can be passed via the special key
+    ``_extra_soul_md`` as ``{"<section>": "<full markdown>"}``.
+    """
     char_name = char_data["character_name"]
-    selected_template = data.get("selected_template", "")
     template = char_data.get("template") or selected_template or "human-default"
-    # Ensure template is in char_data for profile saving
     char_data["template"] = template
 
-    # Determine allowed fields from template
     profile_fields, config_fields = _get_generable_fields(template)
 
-    # Load existing profile or create minimal one
     profile = get_character_profile(char_name)
     if not profile.get("character_name"):
-        # New character — set essentials
         profile["character_name"] = char_name
         profile["template"] = template
-        profile["created_by"] = user_id
+        profile["created_by"] = created_by or "world_dev"
 
-    # Felder mit source_file werden als MD-Datei geschrieben (plan-character-md-files),
-    # alle anderen wandern ins Profil-JSON. Mapping: template-Feld kennt seinen MD-Pfad.
     from app.models.character_template import get_template
     from app.models.character import get_character_dir
     tmpl = get_template(template)
-    soul_field_map: Dict[str, str] = {}  # field_key -> relative MD path
+    soul_field_map: Dict[str, str] = {}
     if tmpl:
         for section in tmpl.get("sections", []):
             for field in section.get("fields", []):
@@ -741,14 +770,12 @@ async def apply_character_data(request: Request):
                 if fk and sf:
                     soul_field_map[fk] = sf
 
-    # Apply LLM-generated profile fields (ohne soul-Felder — die landen in MD)
     for key in profile_fields:
         if key in soul_field_map:
             continue
         if key in char_data:
             profile[key] = char_data[key]
 
-    # Fill missing fields with template defaults, merge where needed
     if tmpl:
         for section in tmpl.get("sections", []):
             for field in section.get("fields", []):
@@ -757,28 +784,22 @@ async def apply_character_data(request: Request):
                 if not key or default is None:
                     continue
                 if key in soul_field_map:
-                    continue  # source_file-Felder sind MD, kein JSON-Default
+                    continue
                 if key not in profile:
-                    # Field missing entirely — use default
                     profile[key] = default
                 elif key == "roleplay_instructions" and isinstance(default, str) and default:
-                    # Merge: ensure default rules are always included
                     current = str(profile[key])
                     if default not in current:
                         profile[key] = default + "\n\n" + current
 
-    # Stale soul-Felder aus dem Profil-JSON entfernen (Migrations-Hygiene fuer
-    # vorhandene Characters, die noch character_personality etc. im Blob haben).
     for k in list(profile.keys()):
         if k in soul_field_map:
             profile.pop(k, None)
 
-    # Save profile
     save_character_profile(char_name, profile)
 
-    # Soul-Dateien aus den generierten Inhalten anlegen / ueberschreiben
     if soul_field_map:
-        char_dir = get_character_dir(char_name)
+        char_dir = get_character_dir(char_name, create=True)
         for fk, rel_path in soul_field_map.items():
             content = char_data.get(fk)
             if content is None or not str(content).strip():
@@ -787,7 +808,20 @@ async def apply_character_data(request: Request):
             md_path.parent.mkdir(parents=True, exist_ok=True)
             md_path.write_text(str(content).rstrip() + "\n", encoding="utf-8")
 
-    # Apply config fields
+    # Extra soul MDs (sections without template source_file mapping —
+    # Smart-Import rendert dort z.B. nested ``"# Soul"``/``"# Tasks"`` rein).
+    extra_md = char_data.get("_extra_soul_md") or {}
+    if isinstance(extra_md, dict) and extra_md:
+        from app.core.soul_sections import SECTION_FILE_MAP
+        char_dir = get_character_dir(char_name, create=True)
+        for section_key, content in extra_md.items():
+            rel = SECTION_FILE_MAP.get(section_key)
+            if not rel or not str(content or "").strip():
+                continue
+            md_path = char_dir / rel
+            md_path.parent.mkdir(parents=True, exist_ok=True)
+            md_path.write_text(str(content).rstrip() + "\n", encoding="utf-8")
+
     config = get_character_config(char_name)
     config_changed = False
     for key in config_fields:
@@ -802,13 +836,25 @@ async def apply_character_data(request: Request):
     if config_changed:
         save_character_config(char_name, config)
 
-    # Apply outfits via Helper (Pieces-Format mit Dedupe + Freitext-Fallback).
+    outfits_applied = []
     for outfit in char_data.get("outfits", []):
-        _apply_one_outfit(char_name, outfit)
+        outfits_applied.append(_apply_one_outfit(char_name, outfit))
 
-    logger.info("WorldDev: Character '%s' (template=%s) applied",
-                char_name, template)
-    return {"status": "success", "character": char_name, "template": template}
+    logger.info("WorldDev: Character '%s' (template=%s) applied", char_name, template)
+    return {"status": "success", "character": char_name, "template": template,
+            "outfits": outfits_applied}
+
+
+@router.post("/apply-character")
+async def apply_character_data(request: Request):
+    """Applies generated character data (profile + outfits)."""
+    data = await request.json()
+    user_id = data.get("user_id", "")
+    char_data = data.get("character_data", {})
+    if not char_data or not char_data.get("character_name"):
+        raise HTTPException(status_code=400, detail="character_data mit character_name erforderlich")
+    selected_template = data.get("selected_template", "")
+    return _apply_character_internal(char_data, selected_template, created_by=user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -920,7 +966,7 @@ async def apply_soul_data(request: Request):
         raise HTTPException(status_code=400, detail="character_name erforderlich")
     if not section:
         raise HTTPException(status_code=400, detail="section erforderlich")
-    from app.skills.edit_self_skill import SECTION_FILE_MAP
+    from app.core.soul_sections import SECTION_FILE_MAP
     if section not in SECTION_FILE_MAP:
         raise HTTPException(status_code=400,
             detail=f"Unbekannte section '{section}' (erlaubt: {sorted(SECTION_FILE_MAP.keys())})")
@@ -1119,3 +1165,311 @@ async def trigger_thought(character_name: str,
     except Exception as e:
         logger.error("Thought trigger error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Smart JSON-Import — type detection, soul-flattening, manual apply dialog
+# ---------------------------------------------------------------------------
+
+_SOUL_HEADING_TO_FIELD = {
+    "personality":    ("character_personality", "section"),
+    "presence":       ("character_presence",    "section"),
+    "roleplay rules": ("roleplay_instructions", "section"),
+    "roleplay_rules": ("roleplay_instructions", "section"),
+    "soul":           ("soul",                  "extra"),
+    "tasks":          ("tasks",                 "extra"),
+    "beliefs":        ("beliefs",               "extra"),
+    "lessons":        ("lessons",               "extra"),
+    "goals":          ("goals",                 "extra"),
+}
+
+
+def _strip_md_heading(s: str) -> str:
+    """'# Personality' / '## Core nature' → 'personality' / 'core nature'."""
+    return s.lstrip("#").strip().lower()
+
+
+def _render_md_section(top_heading: str, sub_dict: Dict[str, Any]) -> str:
+    """Renders {'# Personality': {'## Core nature': '...', ...}} → markdown.
+
+    ``sub_dict`` may also be a plain string (no sub-sections) or a dict
+    of subheading→body. Headings are written verbatim.
+    """
+    if isinstance(sub_dict, str):
+        return f"{top_heading.strip()}\n\n{sub_dict.strip()}\n"
+    if not isinstance(sub_dict, dict):
+        return ""
+    parts = [top_heading.strip(), ""]
+    for sub_h, body in sub_dict.items():
+        parts.append(str(sub_h).strip())
+        parts.append("")
+        parts.append(str(body).strip())
+        parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def _normalize_character_json(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Flattens nested ``soul`` objects + maps unknown templates.
+
+    Returns ``(char_data, warnings)``. ``char_data`` is the flat, ready-to-apply
+    dict. Sections that do not have a ``source_file`` template field land in
+    ``char_data["_extra_soul_md"]`` and are written to the matching ``soul/*.md``.
+    """
+    from app.models.character_template import get_template
+
+    out = dict(payload)  # shallow copy — caller still owns nested lists
+    warnings: List[str] = []
+
+    # Normalize "name" → "character_name"
+    if not out.get("character_name") and out.get("name"):
+        out["character_name"] = out.pop("name")
+
+    # Validate / map template
+    template = out.get("template", "")
+    if template:
+        if not get_template(template):
+            # Best-effort alias mapping for common LLM mistakes
+            alias = None
+            if "roleplay" in template.lower():
+                alias = "human-roleplay"
+            elif template.lower() in ("human", "default"):
+                alias = "human-default"
+            elif template.lower() in ("animal", "pet"):
+                alias = "animal-default"
+            if alias and get_template(alias):
+                warnings.append(f"Template '{template}' existiert nicht — auf '{alias}' gemappt.")
+                out["template"] = alias
+            else:
+                warnings.append(f"Template '{template}' existiert nicht — bitte korrigieren.")
+
+    # Flatten nested soul object: {"# Personality": {"## Core nature": "..."}}
+    soul = out.pop("soul", None)
+    extra_md: Dict[str, str] = {}
+    if isinstance(soul, dict):
+        for raw_heading, body in soul.items():
+            key = _strip_md_heading(str(raw_heading))
+            mapping = _SOUL_HEADING_TO_FIELD.get(key)
+            if not mapping:
+                warnings.append(f"Soul-Section '{raw_heading}' unbekannt — uebersprungen.")
+                continue
+            target, kind = mapping
+            md = _render_md_section(str(raw_heading), body)
+            if not md.strip():
+                continue
+            if kind == "section":
+                if out.get(target):
+                    # Prefer nested (richer) version over flat top-level summary
+                    warnings.append(f"Feld '{target}' aus 'soul.{raw_heading}' uebernommen "
+                                    f"(top-level Wert wurde ueberschrieben).")
+                out[target] = md
+            else:
+                extra_md[target] = md
+    if extra_md:
+        out["_extra_soul_md"] = extra_md
+
+    return out, warnings
+
+
+def _detect_json_type(payload: Dict[str, Any]) -> str:
+    """Best-effort type detection from JSON shape. '' if unknown."""
+    if not isinstance(payload, dict):
+        return ""
+    has_char = bool(payload.get("character_name") or payload.get("name"))
+    # Granular outfit update: {character_name, outfit: {...}}
+    if has_char and isinstance(payload.get("outfit"), dict):
+        return "outfit"
+    # Soul section update: {character_name, section, content}
+    if has_char and "section" in payload and "content" in payload:
+        return "soul"
+    # Profile patch: {character_name, fields: {...}}
+    if has_char and isinstance(payload.get("fields"), dict):
+        return "profile-patch"
+    # Full character: has character markers
+    char_markers = ("template", "character_personality", "character_appearance",
+                    "outfits", "soul")
+    if has_char and any(m in payload for m in char_markers):
+        return "character"
+    # Location: name + rooms (list)
+    if "name" in payload and isinstance(payload.get("rooms"), list):
+        return "location"
+    return ""
+
+
+def _coerce_json_payload(raw: Any) -> Dict[str, Any]:
+    """Accepts either a parsed dict or a JSON string."""
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Ungueltiges JSON: {e}")
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="json muss ein Objekt sein")
+    return raw
+
+
+@router.post("/preview-json")
+async def preview_json(request: Request):
+    """Type-detect + normalize JSON without applying. Used by the import dialog
+    for live-feedback while the user pastes/edits.
+
+    Body: {"json": <obj|string>, "type_hint"?: "character|location|outfit|soul|profile-patch"}
+    Returns: {detected_type, type_hint_used, normalized: {...}, warnings: [...],
+              valid: bool, error?: "..."}
+    """
+    data = await request.json()
+    try:
+        payload = _coerce_json_payload(data.get("json"))
+    except HTTPException as e:
+        return {"valid": False, "error": e.detail, "detected_type": "",
+                "warnings": [], "normalized": None}
+
+    type_hint = (data.get("type_hint") or "").strip()
+    detected = type_hint or _detect_json_type(payload)
+    warnings: List[str] = []
+    normalized: Dict[str, Any] = payload
+
+    if detected == "character":
+        normalized, warnings = _normalize_character_json(payload)
+    elif detected == "":
+        return {"valid": False, "error": "Typ konnte nicht erkannt werden — bitte Override waehlen.",
+                "detected_type": "", "warnings": [], "normalized": payload}
+
+    # Sanity preview info
+    info: Dict[str, Any] = {"name": ""}
+    if detected == "character":
+        info["name"] = normalized.get("character_name", "")
+        info["template"] = normalized.get("template", "")
+        info["outfits"] = len(normalized.get("outfits", []) or [])
+        info["soul_md_files"] = list((normalized.get("_extra_soul_md") or {}).keys())
+    elif detected == "location":
+        info["name"] = normalized.get("name", "")
+        info["rooms"] = len(normalized.get("rooms", []) or [])
+    elif detected == "outfit":
+        info["name"] = (normalized.get("outfit") or {}).get("name", "")
+        info["character_name"] = normalized.get("character_name", "")
+    elif detected == "soul":
+        info["name"] = normalized.get("character_name", "")
+        info["section"] = normalized.get("section", "")
+    elif detected == "profile-patch":
+        info["name"] = normalized.get("character_name", "")
+        info["fields"] = list((normalized.get("fields") or {}).keys())
+
+    return {"valid": True, "detected_type": detected,
+            "type_hint_used": bool(type_hint),
+            "normalized": normalized, "warnings": warnings, "info": info}
+
+
+@router.post("/apply-json")
+async def apply_json(request: Request):
+    """Smart import: detect type, normalize, route to the right apply logic.
+
+    Body: {"json": <obj|string>, "type_hint"?: "...", "user_id"?: "..."}
+    Returns: {status, type, name, warnings, ...result}
+    """
+    data = await request.json()
+    payload = _coerce_json_payload(data.get("json"))
+    type_hint = (data.get("type_hint") or "").strip()
+    user_id = data.get("user_id", "")
+
+    detected = type_hint or _detect_json_type(payload)
+    if not detected:
+        raise HTTPException(status_code=400,
+            detail="Typ konnte nicht erkannt werden — bitte type_hint setzen")
+
+    if detected == "character":
+        char_data, warnings = _normalize_character_json(payload)
+        if not char_data.get("character_name"):
+            raise HTTPException(status_code=400, detail="character_name fehlt")
+        result = _apply_character_internal(char_data, created_by=user_id)
+        return {"status": "success", "type": "character", "name": result["character"],
+                "warnings": warnings, **result}
+
+    if detected == "location":
+        if not payload.get("name"):
+            raise HTTPException(status_code=400, detail="location.name fehlt")
+        rooms = payload.get("rooms", []) or []
+        for room in rooms:
+            if not isinstance(room, dict):
+                continue
+            if "activities" not in room:
+                room["activities"] = []
+            if "image_prompt" in room and "image_prompt_day" not in room:
+                room["image_prompt_day"] = room.pop("image_prompt")
+            if "image_prompt_night" not in room:
+                room["image_prompt_night"] = ""
+        result = add_location(
+            name=payload["name"],
+            description=payload.get("description", ""),
+            rooms=rooms,
+            image_prompt_day=payload.get("image_prompt_day"),
+            image_prompt_night=payload.get("image_prompt_night"),
+            image_prompt_map=payload.get("image_prompt_map"))
+        return {"status": "success", "type": "location", "name": payload["name"],
+                "warnings": [], "location": result}
+
+    if detected == "outfit":
+        char_name = (payload.get("character_name") or "").strip()
+        outfit = payload.get("outfit") or {}
+        if not char_name or not outfit.get("name"):
+            raise HTTPException(status_code=400,
+                detail="outfit braucht character_name + outfit.name")
+        profile = get_character_profile(char_name)
+        if not profile.get("character_name"):
+            raise HTTPException(status_code=404, detail=f"Character '{char_name}' nicht gefunden")
+        r = _apply_one_outfit(char_name, outfit)
+        return {"status": "success", "type": "outfit", "name": r["name"],
+                "character": char_name, "warnings": [], **r}
+
+    if detected == "soul":
+        char_name = (payload.get("character_name") or "").strip()
+        section = (payload.get("section") or "").strip()
+        content = payload.get("content") or ""
+        from app.core.soul_sections import SECTION_FILE_MAP
+        if not char_name:
+            raise HTTPException(status_code=400, detail="character_name erforderlich")
+        if section not in SECTION_FILE_MAP:
+            raise HTTPException(status_code=400,
+                detail=f"section '{section}' unbekannt (erlaubt: {sorted(SECTION_FILE_MAP)})")
+        profile = get_character_profile(char_name)
+        if not profile.get("character_name"):
+            raise HTTPException(status_code=404, detail=f"Character '{char_name}' nicht gefunden")
+        from app.models.character import get_character_dir
+        char_dir = get_character_dir(char_name, create=True)
+        md_path = char_dir / SECTION_FILE_MAP[section]
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(str(content).rstrip() + "\n", encoding="utf-8")
+        return {"status": "success", "type": "soul", "name": char_name,
+                "section": section, "warnings": [], "size": len(content)}
+
+    if detected == "profile-patch":
+        char_name = (payload.get("character_name") or "").strip()
+        fields = payload.get("fields") or {}
+        if not char_name:
+            raise HTTPException(status_code=400, detail="character_name erforderlich")
+        if not isinstance(fields, dict) or not fields:
+            raise HTTPException(status_code=400, detail="fields (dict) erforderlich")
+        profile = get_character_profile(char_name)
+        if not profile.get("character_name"):
+            raise HTTPException(status_code=404, detail=f"Character '{char_name}' nicht gefunden")
+        # Filter soul fields (those go via /apply-soul)
+        template = profile.get("template", "")
+        soul_field_keys: set = set()
+        if template:
+            from app.models.character_template import get_template
+            tmpl = get_template(template)
+            if tmpl:
+                for sec in tmpl.get("sections", []):
+                    for fld in sec.get("fields", []):
+                        if fld.get("source_file") and fld.get("key"):
+                            soul_field_keys.add(fld["key"])
+        applied = {}
+        for k, v in fields.items():
+            if k in soul_field_keys:
+                continue
+            profile[k] = v
+            applied[k] = v
+        save_character_profile(char_name, profile)
+        return {"status": "success", "type": "profile-patch", "name": char_name,
+                "applied_fields": list(applied.keys()), "warnings": []}
+
+    raise HTTPException(status_code=400, detail=f"Unbekannter Typ: {detected}")

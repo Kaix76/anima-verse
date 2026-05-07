@@ -25,12 +25,41 @@ def _get_rules_path() -> Path:
     return get_storage_dir() / "rules.json"
 
 
-def load_rules() -> List[Dict[str, Any]]:
-    """Laedt alle Regeln der aktuellen Welt aus der DB.
+def _get_shared_rules_path() -> Path:
+    """Shared baseline: globale Regeln die in allen Welten gelten — solange
+    nicht per id-overlay in der Welt ueberschrieben."""
+    return Path(__file__).resolve().parent.parent.parent / "shared" / "rules" / "rules.json"
 
-    Schema: (id TEXT PK, text, category, meta)
-    Das komplette Rule-Dict wird im meta-Blob gespeichert.
-    """
+
+def _load_shared_rules() -> List[Dict[str, Any]]:
+    """Liest Regeln aus shared/rules/rules.json. Leerer Fallback wenn die
+    Datei fehlt oder defekt ist."""
+    path = _get_shared_rules_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        rules = data.get("rules", []) if isinstance(data, dict) else []
+        # Origin-Marker damit das UI shared/world unterscheiden kann
+        for r in rules:
+            r["_origin"] = "shared"
+        return rules
+    except Exception as e:
+        logger.warning("shared/rules/rules.json laden fehlgeschlagen: %s", e)
+        return []
+
+
+def _save_shared_rules(rules: List[Dict[str, Any]]):
+    """Schreibt rules in shared/rules/rules.json zurueck (ohne Origin-Marker)."""
+    path = _get_shared_rules_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rules]
+    path.write_text(json.dumps({"rules": clean}, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+
+
+def _load_world_rules() -> List[Dict[str, Any]]:
+    """Liest die Welt-spezifischen Regeln aus der DB."""
     try:
         conn = get_connection()
         rows = conn.execute(
@@ -43,35 +72,71 @@ def load_rules() -> List[Dict[str, Any]]:
                 meta = json.loads(r[3] or "{}")
             except Exception:
                 pass
-            # id/name/type aus den Spalten in meta ergaenzen — meta kann
-            # durch Teil-Saves verstuemmelt sein. Kritische Identifier immer
-            # aus Spalten-Werten spiegeln.
             meta.setdefault("id", r[0])
             if r[1] and not (meta.get("name") or meta.get("message")):
                 meta["message"] = r[1]
             if r[2] and not meta.get("type"):
                 meta["type"] = r[2]
+            meta["_origin"] = "world"
             rules.append(meta)
         return rules
     except Exception as e:
-        logger.warning("load_rules DB-Fehler: %s", e)
-        # Fallback: JSON-Datei
-        path = _get_rules_path()
-        if not path.exists():
-            return []
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return data.get("rules", [])
-        except Exception as exc:
-            logger.error("Rules laden fehlgeschlagen: %s", exc)
-            return []
+        logger.warning("_load_world_rules DB-Fehler: %s", e)
+        return []
 
 
-def save_rules(rules: List[Dict[str, Any]]):
-    """Speichert alle Regeln in die DB (Upsert).
+def load_rules() -> List[Dict[str, Any]]:
+    """Merged shared-baseline + world-overlay. Welt-Eintraege ueberschreiben
+    Shared-Eintraege bei id-Match — analog zum Items/Activities-Pattern.
 
-    Schema: (id TEXT PK, text, category, meta) — meta haelt das komplette Rule-Dict.
+    Origin-Marker im Eintrag:
+      "_origin": "shared"           — kommt aus shared/rules/rules.json
+      "_origin": "world"            — kommt aus world.db, kein shared-Konflikt
+      "_origin": "world override"   — Welt-Eintrag der eine Shared-Rule mit
+                                       gleicher id ueberschreibt
     """
+    shared = _load_shared_rules()
+    world = _load_world_rules()
+    if not world:
+        return shared
+    if not shared:
+        return world
+
+    by_id: Dict[str, Dict[str, Any]] = {}
+    for r in shared:
+        rid = (r.get("id") or "").strip()
+        if rid:
+            by_id[rid] = r
+    for r in world:
+        rid = (r.get("id") or "").strip()
+        if not rid:
+            continue
+        if rid in by_id:
+            r = dict(r)
+            r["_origin"] = "world override"
+        by_id[rid] = r
+    return list(by_id.values())
+
+
+def save_rules(rules: List[Dict[str, Any]], target_dir: str = "world"):
+    """Speichert Regeln. ``target_dir``:
+        "world"  — Welt-DB (Default; backward kompatibel)
+        "shared" — shared/rules/rules.json (globale Baseline fuer alle Welten)
+
+    Bei "world": Upsert in DB, Eintraege deren id nicht in der Liste sind
+    werden geloescht (full-replace-Semantik fuer Welt-Layer).
+    Bei "shared": die Liste wird als komplette shared/rules/rules.json
+    geschrieben.
+    """
+    if target_dir == "shared":
+        try:
+            _save_shared_rules(rules)
+            logger.info("Shared-Rules gespeichert: %d Eintraege", len(rules))
+        except Exception as e:
+            logger.error("save_rules shared-Fehler: %s", e)
+        return
+
+    # World-DB upsert + Cleanup verwaister IDs
     try:
         with transaction() as conn:
             existing_ids = {r[0] for r in conn.execute(
@@ -86,10 +151,12 @@ def save_rules(rules: List[Dict[str, Any]]):
                 rid = rule.get("id")
                 if not rid:
                     continue
+                # _origin Marker nicht persistieren (Render-Field, nicht Daten)
+                clean = {k: v for k, v in rule.items() if not k.startswith("_")}
                 # text = Lesbare Zusammenfassung der Regel fuer die Tabelle
-                text = rule.get("name", rule.get("text", ""))
-                category = rule.get("type", rule.get("category", ""))
-                meta_str = json.dumps(rule, ensure_ascii=False)
+                text = clean.get("name", clean.get("text", ""))
+                category = clean.get("type", clean.get("category", ""))
+                meta_str = json.dumps(clean, ensure_ascii=False)
                 conn.execute("""
                     INSERT INTO rules (id, text, category, meta)
                     VALUES (?, ?, ?, ?)
@@ -102,38 +169,178 @@ def save_rules(rules: List[Dict[str, Any]]):
         logger.error("save_rules DB-Fehler: %s", e)
 
 
-def add_rule(rule: Dict[str, Any]) -> Dict[str, Any]:
-    """Fuegt eine neue Regel hinzu."""
-    rules = load_rules()
+# Default-Rules-Seed: bei Welt-Init oder bei expliziter Migration werden
+# Sleep- und Wake-Rules angelegt falls sie noch nicht existieren. Damit
+# kommen frische Welten direkt mit funktionierender Erschoepfungs-/
+# Aufwach-Logik. Bestehende Welten bleiben unangetastet (Idempotenz via
+# id-Match — wer eine eigene Rule mit derselben id angelegt hat behaelt sie).
+DEFAULT_RULES = [
+    {
+        "id": "default_sleep_when_exhausted",
+        "name": "Erschoepfung",
+        "type": "force",
+        "condition": "stamina<10",
+        "force_action": {
+            "go_to": "home",
+            "set_activity": "Sleeping",
+        },
+        "message": "Bin erschoepft, gehe schlafen.",
+    },
+    {
+        "id": "default_wake_when_rested",
+        "name": "Aufwachen",
+        "type": "force",
+        # Char wacht auf wenn Stamina hoch genug UND aktuell schlafend UND
+        # der Tagesablauf nicht (mehr) Schlaf vorschreibt. Letzte Bedingung
+        # verhindert dass ein Char waehrend des Schedule-Schlaf-Fensters
+        # vorzeitig aufwacht (z.B. zu kurz "ausgeschlafen" um 04:00 weil
+        # Stamina knapp ueber Schwelle ist) — der Schedule entscheidet
+        # dann mit ob's wirklich Zeit ist.
+        "condition": "stamina>60 AND current_activity:sleeping AND NOT schedule:sleeping",
+        "force_action": {
+            "go_to": "stay",
+            "set_activity": "",
+        },
+        "message": "Ausgeschlafen, wache auf.",
+    },
+]
+
+
+def ensure_default_rules() -> int:
+    """Stellt sicher dass die Default-Sleep/Wake-Rules in der Shared-Baseline
+    (``shared/rules/rules.json``) existieren — von dort sind sie automatisch
+    in jeder Welt verfuegbar (es sei denn, eine Welt ueberschreibt sie per
+    id-overlay in der DB).
+
+    Idempotent: pruefen ob eine Rule mit der ID schon im shared-File
+    eingetragen ist; nur fehlende werden ergaenzt.
+
+    Returns: Anzahl neu angelegter Rules (0 wenn alles schon da war).
+    """
+    try:
+        # Nur shared-baseline pruefen — wenn eine Welt die Rule explizit
+        # geloescht hat (DB-Override mit z.B. enabled=False), bleibt die
+        # User-Entscheidung erhalten weil load_world_rules() fuer den
+        # Override-Pfad sorgt.
+        shared = _load_shared_rules()
+        shared_ids = {(r.get("id") or "").strip() for r in shared}
+        added = 0
+        for default in DEFAULT_RULES:
+            if default["id"] in shared_ids:
+                continue
+            shared.append(dict(default))
+            added += 1
+        if added:
+            save_rules(shared, target_dir="shared")
+            logger.info("Default-Rules in shared baseline geseedet: %d neu", added)
+        return added
+    except Exception as e:
+        logger.warning("ensure_default_rules fehlgeschlagen: %s", e)
+        return 0
+
+
+def add_rule(rule: Dict[str, Any], target_dir: str = "world") -> Dict[str, Any]:
+    """Fuegt eine neue Regel hinzu (Upsert nach id).
+
+    target_dir:
+      "world"  — Default. Rule landet in der Welt-DB; nur in dieser Welt.
+      "shared" — Rule landet in shared/rules/rules.json; gilt fuer alle Welten.
+
+    Falls die id im Ziel-Layer schon existiert wird der Eintrag ersetzt — das
+    erlaubt dem UI, eine Rule per "Speicherort wechseln" zu verschieben (alte
+    Seite via DELETE entfernen, neue Seite via POST setzen).
+    """
     if not rule.get("id"):
         rule["id"] = f"rule_{uuid.uuid4().hex[:8]}"
-    rules.append(rule)
-    save_rules(rules)
-    logger.info("Rule erstellt: %s (%s)", rule.get("name", "?"), rule["id"])
+    rule_id = rule["id"]
+    clean = {k: v for k, v in rule.items() if not k.startswith("_")}
+    if target_dir == "shared":
+        existing = _load_shared_rules()
+        existing = [r for r in existing if r.get("id") != rule_id]
+        existing.append(clean)
+        save_rules(existing, target_dir="shared")
+    else:
+        world_only = _load_world_rules()
+        world_only = [r for r in world_only if r.get("id") != rule_id]
+        world_only.append(clean)
+        save_rules(world_only, target_dir="world")
+    logger.info("Rule upsert: %s (%s) → %s",
+                rule.get("name", "?"), rule_id, target_dir)
     return rule
 
 
-def update_rule(rule_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Aktualisiert eine bestehende Regel."""
-    rules = load_rules()
-    for r in rules:
+def update_rule(rule_id: str, updates: Dict[str, Any],
+                target_dir: str = "world") -> Optional[Dict[str, Any]]:
+    """Aktualisiert eine bestehende Regel.
+
+    target_dir:
+      "world"  — die Welt-DB-Version updaten (legt sie als Override an
+                 wenn die ID nur in shared existiert).
+      "shared" — die shared-baseline-Version updaten.
+    """
+    if target_dir == "shared":
+        rules = _load_shared_rules()
+        for r in rules:
+            if r.get("id") == rule_id:
+                r.update({k: v for k, v in updates.items()
+                         if k != "id" and not k.startswith("_")})
+                save_rules(rules, target_dir="shared")
+                logger.info("Shared-Rule aktualisiert: %s", rule_id)
+                return r
+        return None
+
+    # World-Update: vorhandenen Welt-Eintrag updaten oder als Override anlegen
+    world_rules = _load_world_rules()
+    for r in world_rules:
         if r.get("id") == rule_id:
-            r.update({k: v for k, v in updates.items() if k != "id"})
-            save_rules(rules)
+            r.update({k: v for k, v in updates.items()
+                     if k != "id" and not k.startswith("_")})
+            save_rules(world_rules, target_dir="world")
             logger.info("Rule aktualisiert: %s", rule_id)
             return r
+    # Shared-Eintrag wird per Welt-Override veraendert: kopieren + updates
+    shared = _load_shared_rules()
+    for r in shared:
+        if r.get("id") == rule_id:
+            override = {k: v for k, v in r.items() if not k.startswith("_")}
+            override.update({k: v for k, v in updates.items()
+                            if k != "id" and not k.startswith("_")})
+            world_rules.append(override)
+            save_rules(world_rules, target_dir="world")
+            logger.info("Rule aus Shared in Welt ueberschrieben: %s", rule_id)
+            return override
     return None
 
 
-def delete_rule(rule_id: str) -> bool:
-    """Loescht eine Regel."""
-    rules = load_rules()
-    new_rules = [r for r in rules if r.get("id") != rule_id]
-    if len(new_rules) < len(rules):
-        save_rules(new_rules)
-        logger.info("Rule geloescht: %s", rule_id)
+def delete_rule(rule_id: str, target_dir: str = "") -> bool:
+    """Loescht eine Regel.
+
+    target_dir:
+      ""       — Auto: bevorzugt Welt-Eintrag (Override) loeschen, sonst Shared.
+      "world"  — nur den Welt-Eintrag entfernen (Shared bleibt → Rule erscheint wieder).
+      "shared" — den Shared-Eintrag entfernen (gilt fuer alle Welten).
+    """
+    if target_dir == "world":
+        world_rules = _load_world_rules()
+        new = [r for r in world_rules if r.get("id") != rule_id]
+        if len(new) < len(world_rules):
+            save_rules(new, target_dir="world")
+            logger.info("World-Rule geloescht: %s", rule_id)
+            return True
+        return False
+    if target_dir == "shared":
+        shared = _load_shared_rules()
+        new = [r for r in shared if r.get("id") != rule_id]
+        if len(new) < len(shared):
+            save_rules(new, target_dir="shared")
+            logger.info("Shared-Rule geloescht: %s", rule_id)
+            return True
+        return False
+
+    # Auto-Modus: Welt zuerst, sonst Shared
+    if delete_rule(rule_id, target_dir="world"):
         return True
-    return False
+    return delete_rule(rule_id, target_dir="shared")
 
 
 def get_rule(rule_id: str) -> Optional[Dict[str, Any]]:
@@ -319,6 +526,97 @@ def resolve_force_destination(character_name: str,
 
     # Direkte Location-ID
     return go_to, ""
+
+
+# ============================================================
+# DISCOVER-REGELN: Entdecken angrenzender Locations
+# ============================================================
+
+def check_discover_rules(character_name: str) -> Optional[Dict[str, Any]]:
+    """Prueft Discover-Regeln und entdeckt ggf. einen angrenzenden, noch
+    unbekannten Ort.
+
+    Vorgang:
+    - Iteriert die Discover-Regeln in Reihenfolge.
+    - Pro Regel: Character-Filter, Bedingung in der aktuellen Location, dann
+      Wahrscheinlichkeits-Wuerfel.
+    - Erste Regel mit erfolgreichem Wuerfelwurf gewinnt — dann wird ein
+      zufaelliger noch unbekannter Nachbar (Grid-adjacent) zur known_locations-
+      Liste hinzugefuegt.
+
+    Wird nicht aktiv fuer Characters ohne known_locations-Feld (Legacy/
+    unrestricted) — die sehen ohnehin schon alles.
+
+    Returns: Dict mit location_id/location_name/rule_*/message bei Treffer,
+    sonst None (nichts entdeckt diese Runde).
+    """
+    import random as _random
+    from app.core.activity_engine import evaluate_condition
+    from app.models.character import (
+        get_character_current_location, get_known_locations,
+        add_known_location, _record_state_change)
+    from app.models.world import get_neighbor_location_ids, get_location_by_id
+
+    location_id = get_character_current_location(character_name) or ""
+    if not location_id:
+        return None
+
+    known = get_known_locations(character_name)
+    if known is None:
+        # Legacy/unrestricted — nichts zu entdecken
+        return None
+
+    try:
+        neighbors = get_neighbor_location_ids(location_id)
+    except Exception:
+        neighbors = []
+    unknown = [n for n in neighbors if n and n not in known]
+    if not unknown:
+        return None
+
+    for rule in load_rules():
+        if rule.get("type") != "discover":
+            continue
+        rule_char = (rule.get("character") or "").strip()
+        if rule_char and rule_char != character_name:
+            continue
+        condition = (rule.get("condition") or "").strip()
+        if condition:
+            passed, _ = evaluate_condition(condition, character_name, location_id)
+            if not passed:
+                continue
+        try:
+            probability = float(rule.get("probability", 0))
+        except (TypeError, ValueError):
+            probability = 0.0
+        probability = max(0.0, min(1.0, probability))
+        if probability <= 0.0 or _random.random() >= probability:
+            continue
+
+        discovered_id = _random.choice(unknown)
+        add_known_location(character_name, discovered_id)
+        loc = get_location_by_id(discovered_id) or {}
+        loc_name = loc.get("name", discovered_id)
+        message = (rule.get("message") or "").strip() \
+            or f"Hat einen neuen Ort entdeckt: {loc_name}"
+        try:
+            _record_state_change(character_name, "discovery", loc_name,
+                metadata={"location_id": discovered_id,
+                          "rule_id": rule.get("id", ""),
+                          "rule_name": rule.get("name", "")})
+        except Exception:
+            pass
+        logger.info("Discover-Rule '%s' fuer %s -> %s",
+                    rule.get("name", "?"), character_name, loc_name)
+        return {
+            "location_id": discovered_id,
+            "location_name": loc_name,
+            "rule_id": rule.get("id", ""),
+            "rule_name": rule.get("name", ""),
+            "message": message,
+        }
+
+    return None
 
 
 # ============================================================

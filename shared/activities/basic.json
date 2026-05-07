@@ -1,0 +1,184 @@
+{
+  "group": "Basic",
+  "activities": [
+    {
+      "id": "cleaning",
+      "name": "Cleaning",
+      "description": "Clean up and tidy",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -8,
+        "mood_influence": "zufrieden"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "cooking",
+      "name": "Cooking",
+      "description": "Prepare a meal",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -5,
+        "mood_influence": "pleased"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "reading",
+      "name": "Reading",
+      "description": "Read a book or magazine",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "reading_newspaper",
+      "name": "Reading newspaper",
+      "description": "Read the newspaper",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -2,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "relaxing",
+      "name": "Relaxing",
+      "description": "Relax and take it easy",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "entspannt",
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "sitting",
+      "name": "Sitting",
+      "description": "Sit down and rest",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "sleeping",
+      "name": "Sleeping",
+      "description": "Sleep and rest",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "bed",
+      "effects": {
+        "stamina_change": 15,
+        "courage_change": 10,
+        "attention_change": 15
+      },
+      "interruptible": true,
+      "auto_pick": false
+    },
+    {
+      "id": "thinking_things",
+      "name": "Thinking things over",
+      "description": "Think about things",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -3,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "watching_tv",
+      "name": "Watching TV",
+      "description": "Watch television",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 5,
+        "mood_influence": "chatting",
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "changing_clothes",
+      "name": "Changing clothes / outfit",
+      "description": "Change clothes / Change Outfit",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "intimate",
+      "effects": {},
+      "interruptible": true,
+      "auto_pick": true
+    }
+  ]
+}

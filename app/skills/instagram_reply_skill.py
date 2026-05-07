@@ -5,7 +5,6 @@ neuen Kommentar getriggert wurde.
 
 Input-Format: "post_id @commenter: text" oder JSON {post_id, commenter, text}
 """
-import os
 from typing import Any, Dict
 
 from .base import BaseSkill, ToolSpec
@@ -24,12 +23,10 @@ class InstagramReplySkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get("SKILL_INSTAGRAM_REPLY_NAME", "InstagramReply")
-        self.description = os.environ.get(
-            "SKILL_INSTAGRAM_REPLY_DESCRIPTION",
-            "Reply to a comment on YOUR OWN Instagram post. "
-            "Input: 'post_id @commenter: reply text' or JSON {'post_id', 'commenter', 'text'}."
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("instagram_reply")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {"enabled": True}
         logger.info("InstagramReply Skill initialized")
 

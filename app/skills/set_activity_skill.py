@@ -5,7 +5,6 @@ ohne den Standort wechseln zu muessen. Wird automatisch vom Chat-System erkannt
 wenn der User z.B. sagt "Lass uns einen Kaffee trinken" oder "Ich lese ein Buch".
 """
 import json
-import os
 from typing import Any, Dict
 
 from .base import BaseSkill, ToolSpec
@@ -45,11 +44,10 @@ class SetActivitySkill(BaseSkill):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        self.name = os.environ.get("SKILL_SETACTIVITY_NAME", "SetActivity")
-        self.description = os.environ.get(
-            "SKILL_SETACTIVITY_DESCRIPTION",
-            "Sets the current activity of the agent at the current location"
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("set_activity")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {}
 
     def execute(self, raw_input: str) -> str:
@@ -70,17 +68,52 @@ class SetActivitySkill(BaseSkill):
     def _execute_inner(self, raw_input: str) -> str:
         ctx = self._parse_base_input(raw_input)
         input_text = ctx.get("input", raw_input).strip()
-        character_name = ctx.get("agent_name", "").strip()
+        agent_name = ctx.get("agent_name", "").strip()
         user_id = ctx.get("user_id", "").strip()
 
-        if not character_name:
+        if not agent_name:
             return "Fehler: Agent-Name fehlt."
         if not input_text:
             return "Fehler: Keine Aktivitaet angegeben."
 
+        # Optional JSON-Input: {"activity": "...", "target": "..."} — target
+        # ueberschreibt das Subjekt der Aktion. Plaintext bleibt selbst-bezogen.
+        target_name = ""
+        if input_text.startswith("{"):
+            try:
+                parsed = json.loads(input_text)
+                if isinstance(parsed, dict):
+                    _act = (parsed.get("activity") or parsed.get("name") or "").strip()
+                    _tgt = (parsed.get("target") or "").strip()
+                    if _act:
+                        input_text = _act
+                    if _tgt:
+                        target_name = _tgt
+            except Exception:
+                pass
+
+        # Effektives Subjekt der Aktion — Target falls angegeben, sonst Agent selbst.
+        # Cooldowns, Effects, Conditions, Raum/Outfit-Compliance laufen alle
+        # auf character_name; das passt natuerlich, weil das Subjekt der
+        # Aktion das ist was sich aendert.
+        character_name = target_name or agent_name
+        if target_name and target_name != agent_name:
+            # Existenz pruefen — sonst wuerden wir blind eine ID fabrizieren
+            try:
+                from app.models.character import list_available_characters
+                if target_name not in list_available_characters():
+                    return f"Fehler: Target '{target_name}' nicht bekannt."
+            except Exception:
+                pass
+
         requested_activity = input_text.strip()
 
-        logger.info(f"Aktivitaetswechsel fuer {character_name}: '{requested_activity}'")
+        if target_name and target_name != agent_name:
+            logger.info("Aktivitaetswechsel von %s fuer %s: '%s'",
+                        agent_name, character_name, requested_activity)
+        else:
+            logger.info("Aktivitaetswechsel fuer %s: '%s'",
+                        character_name, requested_activity)
 
         # Aktuellen Standort ermitteln
         current_loc_id = get_character_current_location(character_name)
@@ -131,9 +164,31 @@ class SetActivitySkill(BaseSkill):
             location_name = ""
             activity = requested_activity
 
-        # --- requires_partner Check (Bibliothek + Spezial) ---
+        # --- Role-Check (Bibliothek) ---
+        # required_roles wird sonst nur in get_available_activities gefiltert.
+        # Wenn das LLM via Freitext eine rollen-gebundene Activity aufruft
+        # (z.B. "Posen" ohne 'photomodel'-Rolle), muss der Skill ablehnen —
+        # sonst landet die Activity trotz Filter im current_activity.
         from app.models.activity_library import get_library_activity, find_library_activity_by_name
         lib_act = get_library_activity(activity) or find_library_activity_by_name(activity)
+        if lib_act:
+            req_roles_raw = lib_act.get("required_roles", []) or []
+            if isinstance(req_roles_raw, str):
+                req_roles_raw = req_roles_raw.split(",")
+            req_roles = {str(r).strip().lower() for r in req_roles_raw if str(r).strip()}
+            if req_roles:
+                from app.models.character import get_character_config
+                _cfg = get_character_config(character_name) or {}
+                _char_roles_raw = _cfg.get("roles", []) or []
+                if isinstance(_char_roles_raw, str):
+                    _char_roles_raw = _char_roles_raw.split(",")
+                _char_roles = {str(r).strip().lower() for r in _char_roles_raw if str(r).strip()}
+                if not (req_roles & _char_roles):
+                    return (f"Aktivitaet '{activity}' nicht verfuegbar: "
+                            f"Erforderliche Rollen {sorted(req_roles)}, "
+                            f"{character_name} hat {sorted(_char_roles) or 'keine'}.")
+
+        # --- requires_partner Check (Bibliothek + Spezial) ---
         if lib_act and lib_act.get("requires_partner"):
             partner_ok, partner_reason = check_partner_available(character_name, current_loc_id or "")
             if not partner_ok:
@@ -206,6 +261,33 @@ class SetActivitySkill(BaseSkill):
             except Exception:
                 pass
 
+        # Fallback: kein Avatar (z.B. autonomer AgentLoop-Call ohne
+        # Request-Kontext) → einen co-lokalen anderen Character nehmen,
+        # bevorzugt mit hoher Beziehungs-Staerke / romantic_tension.
+        # Verhindert "Sex (with niemand)"-Eintraege wenn Lirien autonom
+        # eine partner-Activity setzt waehrend tatsaechlich jemand anwesend ist.
+        if _needs_partner and not matched_partner and current_loc_id:
+            try:
+                from app.models.character import list_available_characters, get_character_current_location as _loc
+                from app.models.relationship import get_relationship
+                _candidates = []
+                for _c in list_available_characters():
+                    if _c == character_name:
+                        continue
+                    if _loc(_c) != current_loc_id:
+                        continue
+                    rel = get_relationship(character_name, _c) or {}
+                    score = (rel.get("strength") or 0) + (rel.get("romantic_tension") or 0) * 50
+                    _candidates.append((score, _c))
+                if _candidates:
+                    _candidates.sort(key=lambda x: x[0], reverse=True)
+                    matched_partner = _candidates[0][1]
+                    logger.info("set_activity: kein Avatar — Partner via co-located "
+                                "Fallback: %s (score=%d)",
+                                matched_partner, _candidates[0][0])
+            except Exception as _pe:
+                logger.debug("Co-located Partner-Fallback fehlgeschlagen: %s", _pe)
+
         # Partner-Consent: Der Initiator fragt den Partner, der Partner-LLM
         # entscheidet natuerlich. Bei Ablehnung -> fallback_activity.
         # Player-Character wird nicht gefragt — Player soll selbst entscheiden
@@ -277,7 +359,7 @@ class SetActivitySkill(BaseSkill):
                 consume_item(character_name, _consumes)
 
             # Cooldown-Timestamp setzen
-            if act_def.get("cooldown_hours", 0) > 0:
+            if act_def.get("cooldown_minutes", 0) > 0:
                 set_cooldown_timestamp(character_name, activity)
 
             # Effects werden zeitproportional via save_character_current_activity
@@ -288,54 +370,29 @@ class SetActivitySkill(BaseSkill):
             if on_start:
                 execute_trigger(character_name, on_start)
 
-            # Duration auto-complete: Scheduler-Job der nach X Minuten die Aktivitaet beendet
-            duration = act_def.get("duration_minutes", 0)
-            if duration and duration > 0:
-                self._schedule_duration_complete(character_name, activity, act_def, duration)
+            # Duration auto-complete laeuft seit dem world_admin_tick-Refactor
+            # ueber periodic_jobs._sub_activity_expiry — pro Tick werden alle
+            # Chars geprueft und Activities deren ``activity_started_at +
+            # activity_duration_minutes`` ueberschritten ist beendet (mit
+            # on_complete-Trigger). Profil-Felder werden von
+            # save_character_current_activity() automatisch gesetzt; hier
+            # ist nichts mehr zu planen.
 
         logger.info(f"Gesetzt: Activity='{activity}'"
                     + (f", Room='{room_name}'" if room_name else "")
                     + (f" @ {location_name}" if location_name else ""))
 
         # Bestaetigung
-        result = f"Aktivitaet aktualisiert: {activity}"
+        if target_name and target_name != agent_name:
+            result = f"Aktivitaet von {target_name} aktualisiert: {activity}"
+        else:
+            result = f"Aktivitaet aktualisiert: {activity}"
         if room_name:
             result += f" (Raum: {room_name})"
         if location_name:
             result += f" @ {location_name}"
         return result
 
-    def _schedule_duration_complete(self, character_name, activity, act_def, duration_minutes):
-        """Plant einen One-Time Job der die Aktivitaet nach duration_minutes beendet."""
-        try:
-            from app.routes.scheduler import get_scheduler_manager
-            from datetime import datetime, timedelta
-
-            run_at = datetime.now() + timedelta(minutes=duration_minutes)
-            job_id = f"activity_done_{character_name}_{datetime.now().strftime('%H%M%S')}"
-
-            # on_complete Trigger als custom action speichern
-            triggers = act_def.get("triggers", {}) or {}
-            on_complete = triggers.get("on_complete")
-
-            scheduler = get_scheduler_manager()
-            scheduler.add_job(
-                agent=character_name,
-                trigger={
-                    "type": "date",
-                    "run_date": run_at.isoformat(),
-                    "one_time": True,
-                },
-                action={
-                    "type": "set_status",
-                    "activity": "__default__",
-                    "_on_complete_trigger": json.dumps(on_complete) if on_complete else "",
-                    "_completed_activity": activity,
-                },
-                job_id=job_id)
-            logger.info("Duration-Job geplant: %s in %d Min fuer %s", job_id, duration_minutes, character_name)
-        except Exception as e:
-            logger.warning("Duration-Job konnte nicht geplant werden: %s", e)
 
     def get_usage_instructions(self, format_name: str = "", **kwargs) -> str:
         from app.core.tool_formats import format_example

@@ -31,15 +31,16 @@ TASK_TYPES: Dict[str, Dict[str, object]] = {
     "random_event":       {"label": "Random Event",             "priority": Priority.LOW,    "category": "tool",   "gate": "random_events.enabled"},
     "secret_generation":  {"label": "Secret Generation",        "priority": Priority.LOW,    "category": "tool"},
     "outfit_generation":  {"label": "Outfit Generation",        "priority": Priority.NORMAL, "category": "tool",   "gate": "image_generation.enabled"},
-    "send_message":       {"label": "Send Message",             "priority": Priority.NORMAL, "category": "tool",   "gate": "skills.send_message.enabled"},
-    "talk_to":            {"label": "Talk-To (Char-to-Char)",   "priority": Priority.LOW,    "category": "tool",   "gate": "skills.talk_to.enabled"},
-    "thought":            {"label": "Thought (Fallback)",       "priority": Priority.LOW,    "category": "helper"},
-    "thought_greeting":   {"label": "Thought: Avatar-Begruessung", "priority": Priority.LOW, "category": "helper"},
+    "send_message":       {"label": "Send Message",             "priority": Priority.NORMAL, "category": "chat",   "gate": "skills.send_message.enabled"},
+    "talk_to":            {"label": "Talk-To (Char-to-Char)",   "priority": Priority.LOW,    "category": "chat",   "gate": "skills.talk_to.enabled"},
+    "thought":            {"label": "Thought (Fallback)",       "priority": Priority.LOW,    "category": "chat"},
+    "thought_greeting":   {"label": "Thought: Avatar-Begruessung", "priority": Priority.LOW, "category": "chat"},
     # "intent" bleibt als Fallback wenn ein spezifischer intent_*-Task nicht
     # geroutet ist (siehe llm_router.resolve_llm). Direkt nutzen sollte ihn
     # neuer Code nicht mehr — stattdessen einen der intent_*-Sub-Tasks.
     "intent":             {"label": "Intent (Fallback)",        "priority": Priority.NORMAL, "category": "tool"},
     "classify_activity":  {"label": "Classify Activity",            "priority": Priority.NORMAL, "category": "tool"},
+    "spell_detect":       {"label": "Spell Cast Detection",      "priority": Priority.NORMAL, "category": "tool"},
 
     # Summaries
     "memory_consolidation":  {"label": "Memory Consolidation",     "priority": Priority.LOW, "category": "helper"},

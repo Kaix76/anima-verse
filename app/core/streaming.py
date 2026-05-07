@@ -147,6 +147,44 @@ def _inject_rp_context(tool_input: str, rp_response: str, user_input: str = "") 
 _STREAM_END = object()
 
 
+# Tools die State setzen (kein Append-Verhalten) — bei Mehrfach-Aufruf in
+# einem Stream wuerden alle Calls nacheinander laufen und nur der letzte
+# bleibt erhalten. Wir behalten daher pro Stream nur den letzten Call.
+_SINGLETON_TOOLS = frozenset({
+    "SetActivity", "SetLocation", "SetMood", "SetFeeling",
+    "OutfitChange", "ChangeOutfit",
+})
+
+
+def _dedupe_singleton_tools(matches: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+    """Fuer Tools aus _SINGLETON_TOOLS: nur den letzten Call pro Tool-Name behalten.
+
+    Reihenfolge der nicht-Singleton-Tools bleibt unangetastet — Singleton-Eintraege
+    werden auf ihre letzte Position verschoben.
+    """
+    last_seen: Dict[str, int] = {}
+    for i, (name, _) in enumerate(matches):
+        if name in _SINGLETON_TOOLS:
+            last_seen[name] = i
+    if not last_seen:
+        return matches
+    keep_singleton_indices = set(last_seen.values())
+    out: List[Tuple[str, str]] = []
+    dropped = 0
+    for i, m in enumerate(matches):
+        name = m[0]
+        if name in _SINGLETON_TOOLS and i not in keep_singleton_indices:
+            dropped += 1
+            continue
+        out.append(m)
+    if dropped:
+        from app.core.log import get_logger as _gl
+        _gl("agent_loop").info(
+            "Singleton-Tool-Dedup: %d redundante Call(s) entfernt — Tools: %s",
+            dropped, sorted({n for n, _ in matches if n in _SINGLETON_TOOLS}))
+    return out
+
+
 async def _safe_anext(aiter):
     """Wrapper um __anext__ der StopAsyncIteration in Sentinel wandelt.
 
@@ -303,7 +341,7 @@ class StreamingAgent:
     # Mapping: Tool-Name → Action-Trigger-Beschreibung (fuer constrained Mode).
     _TOOL_ACTION_HINTS = {
         "TalkTo":           "Character speaks to someone present in the room",
-        "SendMessage":      "Character writes a remote text message to someone NOT in the same room (other character OR the user/avatar — use this to proactively reach out)",
+        "SendMessage":      "Character writes a remote text message to another character NOT in the same room (use this to proactively reach out)",
         "ChangeOutfit":     "Character changes/puts on/takes off clothes (e.g. gets dressed because not alone anymore)",
         "OutfitCreation":   "Character creates a brand new outfit (when nothing fitting exists)",
         "SetActivity":      "Character starts a different activity (e.g. stops what they were doing)",
@@ -315,7 +353,7 @@ class StreamingAgent:
         "WebSearch":        "Character looks something up on the web",
         "KnowledgeSearch":  "Character searches their own knowledge",
         "KnowledgeExtract": "Character extracts/saves a fact from the conversation",
-        "EditSelf":         "Character writes a new belief/lesson/goal into their own mind",
+        "ConsumeItem":      "Character drinks/eats/applies one item from their inventory",
         "DescribeRoom":     "Character looks around and describes what they see",
         "VideoGenerator":   "Character records a short video",
     }
@@ -840,7 +878,14 @@ class StreamingAgent:
                     break  # Tool-LLM: jede Antwort akzeptieren (SKIP/NONE/Tool)
                 if iteration_response.strip().upper() != "SKIP":
                     break  # Gueltige Chat-Antwort
-                # SKIP von Chat-LLM → retry (Model-Loading-Artefakt)
+                # SKIP-Behandlung context-abhaengig:
+                # - In Chat (log_task='chat_stream' o.ae.) ist SKIP unerwartet
+                #   und meist Model-Loading-Artefakt → retry
+                # - In Thought-Turns (log_task='thought*') ist SKIP eine
+                #   bewusste Entscheidung des Agents (siehe in_chat-Template:
+                #   "Default action: SKIP") → akzeptieren ohne retry
+                if (self.log_task or "").startswith("thought"):
+                    break
                 logger.warning("LLM antwortete mit 'SKIP' — retry (%d/%d)",
                                _attempt + 1, _EMPTY_RETRIES)
                 continue
@@ -883,6 +928,11 @@ class StreamingAgent:
                 self.tool_format, iteration_response, self.tools_dict
             )
             if state.tool_matches:
+                # Singleton-Tools (State-Setter): mehrere Calls in einem
+                # Stream sind sinnlos — nur der letzte gewinnt sowieso
+                # (z.B. SetActivity:kuss + SetActivity:flirten → flirten).
+                # Wir reduzieren auf den letzten Call pro Singleton-Name.
+                state.tool_matches = _dedupe_singleton_tools(state.tool_matches)
                 logger.info("%d Tool-Match(es) erkannt", len(state.tool_matches))
 
         state.response = iteration_response

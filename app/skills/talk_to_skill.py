@@ -6,7 +6,6 @@ Fuer Fernkommunikation siehe SendMessage Skill.
 Input-Format: "CharacterName, Nachricht"
 Beispiel: "Pixel, kannst du mir kurz helfen?"
 """
-import os
 from typing import Any, Dict
 
 from .base import BaseSkill, ToolSpec
@@ -30,15 +29,10 @@ class TalkToSkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get("SKILL_TALK_TO_NAME", "TalkTo")
-        self.description = os.environ.get(
-            "SKILL_TALK_TO_DESCRIPTION",
-            "Speak face-to-face to a THIRD character who is NOT part of the current "
-            "conversation but IS at your current location. NEVER use this to address the "
-            "user or the character you are already chatting with — they already receive "
-            "your words through the RP itself. Also do NOT use for remote contact "
-            "(different location) — use SendMessage instead."
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("talk_to")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {"enabled": True}
         logger.info("TalkTo Skill initialized")
 

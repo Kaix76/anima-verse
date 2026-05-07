@@ -31,6 +31,29 @@ SECTIONS = {
                 "default": "./storage",
                 "description": "Basisverzeichnis fuer Datenbanken, Configs und Uploads",
             },
+            "log_retention_days": {
+                "type": "int",
+                "label": "Log Aufbewahrung (Tage)",
+                "default": 5,
+                "min": 1,
+                "max": 365,
+                "description": "Eintraege in logs/llm_calls.jsonl und logs/image_prompts.jsonl, "
+                               "die aelter als diese Anzahl Tage sind, werden beim Server-Start "
+                               "automatisch entfernt.",
+            },
+            "world_admin_tick_interval_seconds": {
+                "type": "int",
+                "label": "World-Admin-Tick Intervall (Sek.)",
+                "default": 60,
+                "min": 10,
+                "max": 3600,
+                "description": "Frequenz des zentralen Hintergrund-Ticks. Triggert: "
+                               "Status-Decay, Force-Rules (z.B. Wake-Up), Assignment-Expiry, "
+                               "Random-Events, Relationship-Decay. Sub-Tasks haben eigene "
+                               "Sub-Frequenzen — Status-Decay laeuft z.B. nur stuendlich, "
+                               "Force-Rules jeden Tick. Niedrigere Werte = schnellere Reaktion "
+                               "auf Stat-Schwellen, hoehere Werte = weniger CPU-Last.",
+            },
         },
     },
     "beszel": {
@@ -38,8 +61,7 @@ SECTIONS = {
         "icon": "📊",
         "fields": {
             "url": {"type": "str", "label": "Beszel URL", "placeholder": "http://host:8090", "description": "Fuer intelligentes VRAM-Management: Models nur entladen wenn VRAM knapp"},
-            "email": {"type": "str", "label": "E-Mail"},
-            "password": {"type": "password", "label": "Passwort", "sensitive": True},
+            "token": {"type": "password", "label": "API Token", "sensitive": True, "description": "Read-only API token (Beszel UI -> Settings -> Tokens)"},
         },
     },
     "providers": {
@@ -85,6 +107,18 @@ SECTIONS = {
         "is_array": True,
         "item_label_field": "model",
         "fields": {
+            "enabled": {
+                "type": "bool",
+                "label": "Enabled",
+                "default": True,
+                "description": "Disable to skip this LLM in routing without removing it (preserves task assignments).",
+            },
+            "preload_on_startup": {
+                "type": "bool",
+                "label": "Preload on Startup",
+                "default": False,
+                "description": "Send a 1-token warmup request at server start so the backend (e.g. llama-swap, vLLM) loads the model into memory. Runs asynchronously and does not block startup. Useful for slow-loading local models.",
+            },
             "provider": {"type": "provider_select", "label": "Provider", "required": True},
             "model": {"type": "model_select", "label": "Model", "required": True},
             "temperature": {
@@ -107,6 +141,16 @@ SECTIONS = {
                 "label": "Tasks",
                 "description": "Tasks this LLM serves. Order is the fallback rank between LLMs that share the same task (1 = primary, 2 = fallback if primary unavailable). Use the + All <category> buttons below to bulk-add a whole task group.",
             },
+        },
+    },
+    "chat": {
+        "label": "Chat / Anti-Repetition",
+        "icon": "💬",
+        "fields": {
+            "frequency_penalty": {"type": "float", "label": "Frequency Penalty", "default": 0.3, "min": 0, "max": 2, "step": 0.05, "description": "OpenAI-API-Parameter: Token-Wiederholungen werden mit dieser Strafe gewichtet. 0 = aus, 0.3 = leicht, 0.6+ = aggressiv. Wirkt auf Token-Ebene."},
+            "anti_rep_step": {"type": "float", "label": "Temperature-Bump pro Wiederholung", "default": 0.1, "min": 0, "max": 0.5, "step": 0.05, "description": "Wenn der LLM in den letzten Turns Phrasen wiederholt, wird die Temperature pro erkannter Wiederholung um diesen Wert erhoeht. 0 = aus."},
+            "anti_rep_max": {"type": "float", "label": "Temperature Max", "default": 1.2, "min": 0.7, "max": 2, "step": 0.05, "description": "Obergrenze fuer die dynamisch erhoehte Temperature. Verhindert dass extreme Wiederholungs-Spiralen die Antwort total chaotisieren."},
+            "anti_rep_lookback": {"type": "int", "label": "Wiederholungs-Lookback (Turns)", "default": 6, "min": 2, "max": 20, "description": "Wie viele letzte Assistant-Antworten auf Fuzzy-Duplikate gepruefte werden."},
         },
     },
     "memory": {
@@ -137,7 +181,7 @@ SECTIONS = {
 
             # --- Prompt-Prefixes ---
             "profile_image_prompt_prefix": {"type": "str", "label": "Profil-Bild Prompt Prefix", "default": "photorealistic, portrait, only head,", "description": "Wird Profilbild-Prompts vorangestellt (z.B. 'photorealistic, portrait')"},
-            "outfit_image_prompt_prefix": {"type": "str", "label": "Outfit/Vorschau Prompt Prefix", "default": "full body portrait", "description": "Wird Garderobe-Vorschau-Prompts vorangestellt (z.B. 'full body portrait, RAW photo'). Nur fuer Vorschau, nicht fuer Expression-Auto-Regen."},
+            "outfit_image_prompt_prefix": {"type": "str", "label": "Outfit/Vorschau Prompt Prefix", "default": "full body view, green background", "description": "Wird Garderobe-Vorschau-Prompts vorangestellt (z.B. 'full body portrait, RAW photo'). Nur fuer Vorschau, nicht fuer Expression-Auto-Regen."},
 
             # --- Outfit-Bild Groesse ---
             "outfit_image_width": {
@@ -338,7 +382,7 @@ SECTIONS = {
         "fields": {
             "default_swap_mode": {"type": "select", "label": "Standard Swap-Modus", "default": "comfyui", "choices": ["internal", "comfyui", "multiswap"], "description": "Server-weiter Default wenn Character 'Server-Einstellung' gewaehlt hat (internal=Face Service, comfyui=ReActor, multiswap=Flux.2)"},
             "_grp_face_swap": {"type": "group_header", "label": "Face Swap"},
-            "comfy_workflow_file": {"type": "str", "label": "ComfyUI FaceSwap Workflow", "description": "Workflow-Datei mit ReActor-Kette"},
+            "comfy_workflow_file": {"type": "str", "label": "ComfyUI FaceSwap Workflow", "default": "./workflows/faceswap_reactor_api.json", "description": "Workflow-Datei mit ReActor-Kette"},
             "comfy_backend": {"type": "comfyui_backend_select", "label": "ComfyUI FaceSwap Backend", "description": "Leer = Auto (dynamisches Routing zum besten ComfyUI-Kanal)"},
             "comfy_vram_required": {"type": "int", "label": "VRAM Required (GB)", "default": 8, "min": 0},
             "_grp_multi_swap": {"type": "group_header", "label": "Multi Swap"},
@@ -381,7 +425,7 @@ SECTIONS = {
                 "label": "ComfyUI Animation",
                 "fields": {
                     "enabled": {"type": "bool", "label": "Aktiviert", "default": False},
-                    "workflow_file": {"type": "str", "label": "Workflow Datei"},
+                    "workflow_file": {"type": "str", "label": "Workflow Datei", "default": "./workflows/img2video_workflow_lowram_api.json"},
                     "backend": {"type": "comfyui_backend_select", "label": "ComfyUI Backend"},
                     "unet_high": {"type": "comfyui_model_select", "label": "UNet High Lighting"},
                     "unet_low": {"type": "comfyui_model_select", "label": "UNet Low Lighting"},
@@ -586,8 +630,8 @@ SECTIONS = {
         "label": "Gedanken",
         "icon": "🧠",
         "fields": {
-            "min_idle_minutes": {"type": "int", "label": "Min Idle (min)", "default": 5, "min": 1, "description": "Mindest-Idle-Zeit des Users bevor Gedanken-Ticks starten"},
-            "min_scheduler_gap_minutes": {"type": "int", "label": "Min Scheduler Gap (min)", "default": 5, "min": 1, "description": "Mindestabstand zum naechsten Scheduler-Job"},
+            "min_turn_gap_seconds": {"type": "int", "label": "Min Turn Gap (s)", "default": 30, "min": 0, "max": 600, "description": "Mindest-Pause (Sekunden) zwischen zwei aufeinanderfolgenden Thought-Turns. Verhindert dass der AgentLoop bei wenigen Charakteren zu eng taktet. Gilt nicht fuer in_chat_skip / Fehler (die haben eigene Backoffs)."},
+            "min_per_char_cooldown_minutes": {"type": "int", "label": "Min Per-Char Cooldown (min)", "default": 5, "min": 0, "max": 240, "description": "Mindest-Wartezeit (Minuten) bevor derselbe Charakter wieder einen echten Thought-Turn bekommt. Bumps (externe Trigger wie Avatar-Roomentry) umgehen den Cooldown."},
         },
     },
     "random_events": {
@@ -595,7 +639,7 @@ SECTIONS = {
         "icon": "🎲",
         "fields": {
             "enabled": {"type": "bool", "label": "Aktiviert", "default": True, "description": "Automatische Event-Generierung an besetzten Locations"},
-            "base_probability": {"type": "int", "label": "Basis-Wahrscheinlichkeit %", "default": 5, "min": 0, "max": 50, "description": "Wahrscheinlichkeit pro Stunde pro Location. Pro Location ueberschreibbar."},
+            "base_probability": {"type": "int", "label": "Basis-Wahrscheinlichkeit %", "default": 0, "min": 0, "max": 50, "description": "Wahrscheinlichkeit pro Stunde pro Location. Pro Location ueberschreibbar."},
             "resolution_proactive": {"type": "bool", "label": "Proaktive Event-Aufloesung", "default": True, "description": "Characters an betroffener Location versuchen offene disruption/danger Events automatisch zu loesen (alle 5 Min)."},
             "resolution_cooldown_minutes": {"type": "int", "label": "Resolution Cooldown (min)", "default": 15, "min": 1, "max": 240, "description": "Mindestabstand zwischen zwei Loesungsversuchen am gleichen Event."},
         },
@@ -620,18 +664,18 @@ SECTIONS = {
             "item_image_width": {
                 "type": "int",
                 "label": "Item-Bild Breite (px)",
-                "default": 256,
-                "min": 64,
+                "default": 512,
+                "min": 384,
                 "max": 2048,
-                "description": "Aufloesung fuer generierte Item-Bilder (Icons im Inventar)",
+                "description": "Aufloesung fuer generierte Item-Bilder. Moderne Modelle (SDXL, Flux, Z-Image) brauchen mind. 512 px sonst gibt's Patchwork-Garbage. 512 = guter Default; 768+ nur wenn du mehr Detail brauchst.",
             },
             "item_image_height": {
                 "type": "int",
                 "label": "Item-Bild Hoehe (px)",
-                "default": 256,
-                "min": 64,
+                "default": 512,
+                "min": 384,
                 "max": 2048,
-                "description": "Aufloesung fuer generierte Item-Bilder (Icons im Inventar)",
+                "description": "Aufloesung fuer generierte Item-Bilder. Moderne Modelle brauchen mind. 512 px.",
             },
         },
     },

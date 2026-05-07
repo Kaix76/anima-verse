@@ -41,11 +41,10 @@ class NotifyUserSkill(BaseSkill):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        self.name = os.environ.get("SKILL_NOTIFY_USER_NAME", "SendNotification")
-        self.description = os.environ.get(
-            "SKILL_NOTIFY_USER_DESCRIPTION",
-            "Send a notification message to the user. Use this to proactively inform the user about something important."
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("notify_user")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {}
 
     def execute(self, raw_input: str) -> str:

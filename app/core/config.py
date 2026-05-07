@@ -32,6 +32,78 @@ def _is_sensitive(key: str) -> bool:
     return key in SENSITIVE_FIELDS
 
 
+# Default-Workflows fuer neue Welten. Werte 1:1 aus den produktiv erprobten
+# Hotopia-Workflows. Beim ersten Load einer Welt ohne `comfyui_workflows`
+# werden diese drei Templates eingespielt — der User muss nur noch Backend
+# (skill) und ggf. Modell-Dateien bestaetigen.
+_DEFAULT_COMFYUI_WORKFLOWS = {
+    "Qwen": {
+        "name": "Qwen",
+        "image_model": "qwen",
+        "faceswap_needed": False,
+        "filter": "Qwen*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_qwen_api.json",
+        "vram_required": 22,
+        "prompt_style": "photograph, shot on iPhone 15 Pro, natural window light, skin texture, unedited, detailed anatomy, 8k, high detail, \n",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a natural-language descriptive prompt (not tags). Describe the scene as a flowing sentence with rich detail about the setting, characters, poses, and mood. Avoid comma-separated tag lists.",
+        "loras": [{"file": "", "strength": 1} for _ in range(4)],
+    },
+    "Z-Image": {
+        "name": "Z-Image",
+        "image_model": "z_image",
+        "faceswap_needed": True,
+        "filter": "Z-Image*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_z-image_api.json",
+        "vram_required": 14,
+        "prompt_style": "RAW photo, amateur photograph, 35mm, natural light, skin texture, visible pores, detailed anatomy, 8k, high detail, \n",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a tag-based prompt with comma-separated keywords. Use quality tags like \"masterpiece, best quality\". Describe pose, lighting, and setting as short tags.",
+        "loras": [{"file": "", "strength": 1} for _ in range(4)],
+    },
+    "Flux": {
+        "name": "Flux",
+        "image_model": "flux",
+        "faceswap_needed": True,
+        "filter": "Flux.2-9B*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_flux2_api.json",
+        "vram_required": 15,
+        "prompt_style": "a candid photograph taken with a 35mm lens, natural indoor lighting, skin with visible pores and texture, detailed anatomy, 8k, high detail, ",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a natural-language descriptive prompt for a Flux 2 Klein model. Describe the scene in flowing detail — subject, pose, environment, lighting, mood. Flux understands natural language well, so be descriptive and avoid tag lists.",
+        "loras": [{"file": "", "strength": 1} for _ in range(4)],
+    },
+}
+
+
+def _seed_default_workflows(config: dict, config_path: Path) -> bool:
+    """Seedet bei einer neuen Welt die drei Default-Workflows (Qwen/Z-Image/Flux).
+
+    Idempotent: nur wenn `image_generation.comfyui_workflows` gar nicht existiert.
+    Wenn der User die Workflows absichtlich auf {} geleert hat, bleibt es leer.
+    Returns True wenn etwas geschrieben wurde.
+    """
+    ig = config.setdefault("image_generation", {})
+    if "comfyui_workflows" in ig:
+        return False
+    import copy
+    ig["comfyui_workflows"] = copy.deepcopy(_DEFAULT_COMFYUI_WORKFLOWS)
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        logger.info("Default ComfyUI workflows (Qwen/Z-Image/Flux) seeded -> %s", config_path)
+        return True
+    except OSError as e:
+        logger.error("Failed to seed default workflows to %s: %s", config_path, e)
+        return False
+
+
 def load(config_path: Optional[Path] = None) -> dict:
     """Load configuration from JSON file, then overlay secrets.json on top.
 
@@ -56,6 +128,10 @@ def load(config_path: Optional[Path] = None) -> dict:
         except (json.JSONDecodeError, IOError) as e:
             logger.error("Failed to load config from %s: %s", path, e)
             _CONFIG = {}
+
+    # Bei einer neuen/leeren Welt: Default-Workflows fuer Qwen/Z-Image/Flux
+    # automatisch eintragen, damit der Admin nicht alles von Hand anlegen muss.
+    _seed_default_workflows(_CONFIG, path)
 
     # Overlay secrets.json (gitignored — holds api keys / passwords)
     if _SECRETS_PATH.exists():
@@ -254,8 +330,7 @@ def _flatten_to_env(config: dict) -> None:
     # Beszel
     beszel = config.get("beszel", {})
     _set(env, "BESZEL_URL", beszel.get("url", ""))
-    _set(env, "BESZEL_EMAIL", beszel.get("email", ""))
-    _set(env, "BESZEL_PASSWORD", beszel.get("password", ""))
+    _set(env, "BESZEL_TOKEN", beszel.get("token", ""))
 
     # Providers (1-indexed)
     for i, prov in enumerate(config.get("providers", []), start=1):
@@ -499,10 +574,13 @@ def _flatten_to_env(config: dict) -> None:
     sr = config.get("social_reactions", {})
     _set(env, "SOCIAL_REACTIONS_ENABLED", sr.get("enabled", True))
 
-    # Thoughts (ehemals Proactive)
+    # Thoughts — AgentLoop pacing.
+    # AgentLoop liest die Werte direkt via config.get() (kein env-Bridge
+    # mehr noetig); Mapping bleibt nur fuer Backward-Compat falls Code
+    # die env-Variable noch erwartet.
     pro = config.get("thoughts", config.get("proactive", {}))
-    _set(env, "THOUGHT_MIN_IDLE_MINUTES", pro.get("min_idle_minutes", 5))
-    _set(env, "THOUGHT_MIN_SCHEDULER_GAP_MINUTES", pro.get("min_scheduler_gap_minutes", 5))
+    _set(env, "THOUGHT_MIN_TURN_GAP_SECONDS", pro.get("min_turn_gap_seconds", 30))
+    _set(env, "THOUGHT_MIN_PER_CHAR_COOLDOWN_MINUTES", pro.get("min_per_char_cooldown_minutes", 5))
 
     # Random Events
     re_cfg = config.get("random_events", {})

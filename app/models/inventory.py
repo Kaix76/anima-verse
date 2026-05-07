@@ -27,8 +27,8 @@ from app.core.paths import get_storage_dir
 
 VALID_ITEM_CATEGORIES = (
     "tool", "key", "consumable", "evidence", "gift", "quest", "decoration",
-    "outfit_piece")
-VALID_RARITIES = ("generic", "common", "rare", "unique")
+    "outfit_piece", "spell")
+VALID_RARITIES = ("common", "rare", "unique")
 VALID_OBTAIN_METHODS = ("found", "given", "crafted", "purchased", "quest_reward", "manual")
 
 # Body-Slots fuer Outfit-Pieces. Reihenfolge ist die Prompt-Assembly-Reihenfolge.
@@ -451,6 +451,12 @@ def update_item(item_id: str,
         "rarity", "stackable", "max_stack", "properties",
         "transferable", "consumable", "reveals_secret",
         "prompt_fragment", "outfit_piece", "effects",
+        # Magic / spell metadata (siehe spell_engine.build_spell_catalog)
+        "incantation", "spell_mode", "clone_item_id",
+        "success_chance", "copy_on_give",
+        "success_text", "fail_text", "cast_activity",
+        # Tracker: while carried, the carrier sees the target's location in the prompt.
+        "tracks_character",
     }
 
     def _apply_updates(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -868,36 +874,49 @@ def get_character_inventory(character_name: str,
 
     # Enrichment: Item-Details hinzufuegen
     enriched = []
+    phantom_ids: List[str] = []
     for entry in inventory:
         iid = entry.get("item_id", "")
         if not include_equipped and iid in equipped_set:
             continue
         item = get_item(iid)
+        if not item:
+            # Phantom: Item-Definition geloescht aber Inventar-Eintrag noch da.
+            # Nicht in der UI zeigen + zur Auto-Cleanup-Liste merken.
+            phantom_ids.append(iid)
+            continue
         enriched_entry = {**entry}
-        if item:
-            enriched_entry["item_name"] = item.get("name", "?")
-            enriched_entry["item_description"] = item.get("description", "")
-            enriched_entry["item_category"] = item.get("category", "")
-            enriched_entry["item_image"] = item.get("image")
-            enriched_entry["item_rarity"] = item.get("rarity", "common")
-            enriched_entry["item_consumable"] = bool(item.get("consumable", False))
-            enriched_entry["item_transferable"] = bool(item.get("transferable", True))
-            enriched_entry["item_prompt_fragment"] = item.get("prompt_fragment", "")
-            enriched_entry["item_image_prompt"] = item.get("image_prompt", "")
-            enriched_entry["_shared"] = bool(item.get("_shared", False))
-            if item.get("outfit_piece"):
-                enriched_entry["outfit_piece"] = item["outfit_piece"]
-        else:
-            enriched_entry["item_name"] = "(Unbekannt)"
-            enriched_entry["item_description"] = ""
-            enriched_entry["item_category"] = ""
-            enriched_entry["item_image"] = None
-            enriched_entry["item_rarity"] = "common"
-            enriched_entry["item_consumable"] = False
-            enriched_entry["item_transferable"] = False
-            enriched_entry["item_prompt_fragment"] = ""
+        enriched_entry["item_name"] = item.get("name", "?")
+        enriched_entry["item_description"] = item.get("description", "")
+        enriched_entry["item_category"] = item.get("category", "")
+        enriched_entry["item_image"] = item.get("image")
+        enriched_entry["item_rarity"] = item.get("rarity", "common")
+        enriched_entry["item_consumable"] = bool(item.get("consumable", False))
+        enriched_entry["item_transferable"] = bool(item.get("transferable", True))
+        enriched_entry["item_prompt_fragment"] = item.get("prompt_fragment", "")
+        enriched_entry["item_image_prompt"] = item.get("image_prompt", "")
+        enriched_entry["item_incantation"] = item.get("incantation", "")
+        enriched_entry["_shared"] = bool(item.get("_shared", False))
+        if item.get("outfit_piece"):
+            enriched_entry["outfit_piece"] = item["outfit_piece"]
         enriched_entry["equipped"] = (iid in equipped_set)
         enriched.append(enriched_entry)
+
+    # Phantom-Eintraege wegraeumen — passieren z.B. wenn Items in Game Admin
+    # geloescht werden ohne die Inventare zu cleanen. Best-effort, Fehler
+    # ignoriert: ein Lese-Endpoint soll nie an einer Mutation scheitern.
+    if phantom_ids:
+        try:
+            with transaction() as conn:
+                for iid in phantom_ids:
+                    conn.execute(
+                        "DELETE FROM inventory_items WHERE character_name=? AND item_id=?",
+                        (character_name, iid))
+                logger.info("Phantom-Inventareintraege fuer %s entfernt: %s",
+                            character_name, phantom_ids)
+        except Exception as e:
+            logger.debug("Phantom-Cleanup fehlgeschlagen fuer %s: %s",
+                         character_name, e)
 
     return {
         "inventory": enriched,
@@ -910,8 +929,20 @@ def add_to_inventory(character_name: str,
     item_id: str,
     quantity: int = 1,
     obtained_from: str = "",
-    obtained_method: str = "manual") -> bool:
-    """Fuegt ein Item zum Character-Inventar hinzu."""
+    obtained_method: str = "manual",
+    locked: Optional[bool] = None) -> bool:
+    """Fuegt ein Item zum Character-Inventar hinzu.
+
+    locked: wenn True, das Item kann nicht entfernt/abgegeben werden ohne
+        admin force-removal. Default None heisst: kein Lock.
+
+    Effekte (apply_condition, stat_changes, mood_influence) feuern NICHT
+    beim Hinzufuegen — nur ueber explizites :func:`consume_item`. Damit
+    laesst sich ein Trank im Game Admin oder per Geschenk uebergeben ohne
+    dass die Wirkung sofort eintritt; der Empfaenger entscheidet selbst
+    wann er ihn anwendet (oder das Force-Cast-Pattern in :func:`give_item`
+    konsumiert direkt nach dem Add).
+    """
     item = get_item(item_id)
     if not item:
         return False
@@ -919,11 +950,17 @@ def add_to_inventory(character_name: str,
     if obtained_method not in VALID_OBTAIN_METHODS:
         obtained_method = "manual"
 
+    # Locked-Flag — nur per Call-Override (z.B. give_item mode=force).
+    # Item-seitige Default-Bindung wurde entfernt.
+    if locked is None:
+        locked = False
+
     data = _load_inventory(character_name)
     inventory = data.get("inventory", [])
 
-    # Stackable? Bestehenden Eintrag erhoehen
-    if item.get("stackable"):
+    # Stackable? Bestehenden Eintrag erhoehen — aber nicht wenn locked
+    # gesetzt ist (force-cast braucht eigene Instanz).
+    if item.get("stackable") and not locked:
         for entry in inventory:
             if entry.get("item_id") == item_id:
                 max_stack = item.get("max_stack", 99)
@@ -944,7 +981,7 @@ def add_to_inventory(character_name: str,
             return False
 
     # Neuer Eintrag
-    inventory.append({
+    new_entry: Dict[str, Any] = {
         "item_id": item_id,
         "quantity": max(1, quantity),
         "obtained_at": datetime.now().isoformat(),
@@ -952,10 +989,20 @@ def add_to_inventory(character_name: str,
         "obtained_method": obtained_method,
         "equipped": False,
         "notes": "",
-    })
+    }
+    if locked:
+        new_entry["locked"] = True
+    inventory.append(new_entry)
     data["inventory"] = inventory
     _save_inventory(character_name, data)
-    logger.info("Item %s zum Inventar von %s hinzugefuegt", item_id, character_name)
+    logger.info("Item %s zum Inventar von %s hinzugefuegt%s",
+                item_id, character_name,
+                " (locked)" if locked else "")
+
+    # apply_condition / Effects fliessen NICHT beim Hinzufuegen — nur via
+    # consume_item. Force-Cast in give_item ruft consume_item explizit
+    # auf, gifted/manual Items bleiben passiv im Inventar bis der Owner
+    # sie konsumiert.
 
     # Secret-Reveal-Trigger: Wenn Item ein Geheimnis enthuellt + nicht via "manual" admin
     # (manual=Admin-UI direkt zugewiesen, kein narrativer Pickup)
@@ -965,15 +1012,78 @@ def add_to_inventory(character_name: str,
     return True
 
 
+def give_item(from_character: str,
+              to_character: str,
+              item_id: str,
+              mode: str = "gift",
+              consume_source: bool = False) -> bool:
+    """Transfer-Verb: legt das Item beim Ziel an, optional als Magie-Effekt.
+
+    mode:
+      - ``gift``   — normales Geben. Item geht ins Inventar des Ziels und
+                     bleibt dort liegen — Empfaenger entscheidet ob/wann
+                     er es konsumiert.
+      - ``force``  — fuer Magie/Zauber: Item wird beim Ziel SOFORT
+                     konsumiert. effects (stat changes + apply_condition)
+                     greifen direkt; das Item taucht nur kurz im Inventar
+                     auf und ist dann weg. Kein Lock noetig.
+
+    consume_source: wenn True und ``from_character`` das Item besitzt, wird
+        bei ihm 1 Stueck abgezogen (Schriftrolle/Trank verbraucht sich).
+    """
+    if not item_id or not to_character:
+        return False
+
+    if consume_source and from_character:
+        try:
+            remove_from_inventory(from_character, item_id, quantity=1, force=True)
+        except TypeError:
+            # Fallback falls force-Param noch nicht da ist
+            remove_from_inventory(from_character, item_id, quantity=1)
+
+    is_force = mode == "force"
+    ok = add_to_inventory(
+        character_name=to_character,
+        item_id=item_id,
+        quantity=1,
+        obtained_from=from_character or "",
+        obtained_method="given",
+    )
+    if not ok:
+        return False
+
+    if is_force:
+        # Sofort beim Empfaenger konsumieren — Effects + Condition feuern,
+        # Item verschwindet aus dem Inventar. Damit ist die Magie-Wirkung
+        # direkt aktiv und es bleibt kein "geisterndes" Item liegen.
+        try:
+            consume_item(to_character, item_id)
+        except Exception as e:
+            logger.error("Force-Cast consume failed for %s/%s: %s",
+                         to_character, item_id, e)
+            return False
+    return True
+
+
 def remove_from_inventory(character_name: str,
     item_id: str,
-    quantity: int = 1) -> bool:
-    """Entfernt ein Item aus dem Character-Inventar."""
+    quantity: int = 1,
+    force: bool = False) -> bool:
+    """Entfernt ein Item aus dem Character-Inventar.
+
+    force: wenn True, wird auch ein ``locked`` markiertes Item entfernt
+    (z.B. fuer Cleanup-Job nach TTL-Ablauf, oder Story-Engine-Override).
+    Standard False: locked Items koennen vom Owner nicht abgelegt werden.
+    """
     data = _load_inventory(character_name)
     inventory = data.get("inventory", [])
 
     for entry in inventory:
         if entry.get("item_id") == item_id:
+            if entry.get("locked") and not force:
+                logger.info("Item %s ist locked auf %s — Entfernen abgelehnt",
+                            item_id, character_name)
+                return False
             entry["quantity"] = entry.get("quantity", 1) - quantity
             if entry["quantity"] <= 0:
                 inventory.remove(entry)
@@ -982,6 +1092,8 @@ def remove_from_inventory(character_name: str,
             logger.info("Item %s aus Inventar von %s entfernt", item_id, character_name)
             return True
     return False
+
+
 
 
 def update_inventory_entry(character_name: str,
@@ -1110,21 +1222,19 @@ def _trigger_secret_reveal(item: Dict[str, Any], knower: str) -> None:
         logger.warning("Secret-Reveal-Trigger fehlgeschlagen: %s", e)
 
 
-def consume_item(character_name: str, item_id: str) -> Dict[str, Any]:
-    """Verbraucht ein Item (qty -1, Eintrag entfernt wenn 0) und wendet
-    optionale Effects an (gleiches Format wie Activity-Effects).
+def apply_item_effects(character_name: str, item_id: str) -> Dict[str, Any]:
+    """Wendet die effects + apply_condition eines Items auf einen Character
+    an, OHNE das Inventar zu beruehren.
+
+    Wird von consume_item aufgerufen NACH dem qty-Decrement, und vom
+    Self-Cast-Pfad in spell_engine.execute_cast statt der give_item-Dance
+    (der durch UNIQUE(character_name, item_id) korrumpiert).
 
     Returns: {"success": bool, "changes": dict, "condition_applied": str|None}
     """
     item = get_item(item_id)
     if not item:
         return {"success": False, "changes": {}, "condition_applied": None}
-    success = remove_from_inventory(character_name, item_id, quantity=1)
-    if not success:
-        return {"success": False, "changes": {}, "condition_applied": None}
-
-    logger.info("%s hat Item '%s' verbraucht", character_name, item.get("name", item_id))
-
     changes: Dict[str, Any] = {}
     condition_applied: Optional[str] = None
     effects = item.get("effects") or {}
@@ -1162,6 +1272,23 @@ def consume_item(character_name: str, item_id: str) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning("Condition-Apply fuer Item %s fehlgeschlagen: %s", item_id, e)
     return {"success": True, "changes": changes, "condition_applied": condition_applied}
+
+
+def consume_item(character_name: str, item_id: str) -> Dict[str, Any]:
+    """Verbraucht ein Item (qty -1, Eintrag entfernt wenn 0) und wendet
+    optionale Effects an (gleiches Format wie Activity-Effects).
+
+    Returns: {"success": bool, "changes": dict, "condition_applied": str|None}
+    """
+    item = get_item(item_id)
+    if not item:
+        return {"success": False, "changes": {}, "condition_applied": None}
+    success = remove_from_inventory(character_name, item_id, quantity=1)
+    if not success:
+        return {"success": False, "changes": {}, "condition_applied": None}
+
+    logger.info("%s hat Item '%s' verbraucht", character_name, item.get("name", item_id))
+    return apply_item_effects(character_name, item_id)
 
 
 def transfer_item(from_character: str,
@@ -1819,6 +1946,25 @@ def apply_outfit_type_compliance(character_name: str,
     """
     if not target_type:
         return {"status": "ok", "swapped": [], "removed": []}
+
+    # Permissive Types (required-Liste leer) erzwingen keine Kleidung —
+    # z.B. ``bed`` und ``bath``: Char darf nackt sein, in Lingerie, im
+    # Bademantel, alles ist OK. Compliance darf hier nicht reingrätschen
+    # und Pieces austauschen oder als "passt nicht"-mismatch markieren.
+    # Ohne diesen Skip wuerde ein Char in Adventure-Klamotten die Lirien
+    # gerade trägt waehrend "sleeping" als komplette Mismatch-Liste
+    # auftauchen, obwohl der bed-Type per Definition keine Vorschriften
+    # macht. Ist der Type aber strict (required > 0): normale Compliance
+    # laeuft wie bisher.
+    try:
+        from app.core.outfit_rules import baseline_required_slots
+        if not baseline_required_slots(target_type):
+            return {"status": "ok",
+                    "swapped": [], "removed": [], "filled": [],
+                    "skipped": "permissive_type"}
+    except Exception:
+        pass
+
     from app.models.character import get_character_profile
     profile = get_character_profile(character_name)
     eq_pieces = dict(profile.get("equipped_pieces") or {})
@@ -1833,6 +1979,11 @@ def apply_outfit_type_compliance(character_name: str,
     inv = _load_inventory(character_name).get("inventory", [])
 
     swapped, removed = [], []
+    # Pieces die nicht passen aber kein Ersatz im Inventar verfuegbar — am
+    # Ende einmal gesammelt geloggt + notified statt pro Piece einen Eintrag
+    # zu fluten (vorher: 4 Pieces = 4 Warnings + 4 Notifications fuer einen
+    # Compliance-Run).
+    mismatched: List[Dict[str, Any]] = []
 
     # Hilfsfunktion: sucht einen strikt/neutral passenden Ersatz, der ALLE
     # angegebenen Slots abdeckt. Multi-Slot-Pieces matchen wenn ihre slots
@@ -1920,9 +2071,16 @@ def apply_outfit_type_compliance(character_name: str,
                 eq_pieces[s] = replacement_id
             swapped.append({"slots": list(piece_slots), "old": iid, "new": replacement_id})
         else:
-            for s in piece_slots:
-                eq_pieces.pop(s, None)
-            removed.append({"slots": list(piece_slots), "old": iid})
+            # Kein Ersatz im Inventar — Piece BLEIBT angezogen statt den
+            # Character nackt zu lassen. Frueher wurde hier .pop() gemacht
+            # was zur Folge hatte, dass eine Char ohne passende Garderobe
+            # an einem strikten Ort komplett ausgekleidet wurde und auch
+            # bleiben musste (compliance feuert nur bei Loc/Activity-Change).
+            # Sammeln und am Ende EINMAL melden statt pro Piece zu spammen.
+            mismatched.append({
+                "name": cur_item.get("name") or iid,
+                "slots": list(piece_slots),
+            })
 
     changed = bool(swapped or removed)
     if changed:
@@ -1931,6 +2089,26 @@ def apply_outfit_type_compliance(character_name: str,
         save_character_profile(character_name, profile)
         logger.info("outfit_type-Compliance [%s] target=%s: %d getauscht, %d entfernt",
                     character_name, target_type, len(swapped), len(removed))
+
+    # Aggregierte Mismatch-Meldung — eine Warning + eine Notification pro
+    # Compliance-Run statt pro Piece. Spart Logs/Notifications wenn ein
+    # Char z.B. mit 4 Adventure-Pieces in einem bed-Location landet.
+    if mismatched:
+        _names = ", ".join(f"'{m['name']}'" for m in mismatched)
+        logger.warning(
+            "outfit_type-Mismatch [%s] target=%s: %d Piece(s) ohne Ersatz im "
+            "Inventar — bleiben angezogen: %s",
+            character_name, target_type, len(mismatched), _names)
+        try:
+            from app.models.notifications import add_notification
+            add_notification(
+                character_name,
+                (f"⚠️ {len(mismatched)} Stueck(e) passen nicht zum "
+                 f"{target_type}-Dresscode: {_names}. Kein passender Ersatz "
+                 "im Inventar — Outfit bleibt unveraendert."),
+                notification_type="outfit_mismatch")
+        except Exception:
+            pass
 
     # Auto-Fill: fehlende required_slots aus Inventar auffuellen
     filled = auto_fill_missing_slots(character_name, target_type)

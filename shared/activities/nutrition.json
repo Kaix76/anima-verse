@@ -1,0 +1,152 @@
+{
+  "group": "Nutrition",
+  "activities": [
+    {
+      "id": "drinking_coffee",
+      "name": "Drinking Coffee",
+      "description": "Have a cup of coffee",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 5,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "coffee",
+      "name": "Coffee",
+      "description": "Have a cup of coffee",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 5,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "drinking_cocktails",
+      "name": "Drinking cocktails",
+      "description": "Enjoy cocktails at the bar",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 20,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 5,
+        "stamina_change": -3,
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "cumulative_effect": {
+        "threshold": 3,
+        "condition_name": "drunk",
+        "mood_influence": "happy",
+        "duration_hours": 2,
+        "effects": {
+          "attention_change": -20,
+          "courage_change": 30
+        }
+      }
+    },
+    {
+      "id": "protein_shake",
+      "name": "Protein shake",
+      "description": "Drink a protein shake",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 8
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "required_roles": [
+        "Customer"
+      ]
+    },
+    {
+      "id": "eating",
+      "name": "Eating",
+      "description": "Have a meal",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 8
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "ordering_drinks",
+      "name": "Ordering drinks",
+      "description": "Order a drink",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 1,
+        "courage_change": 8,
+        "mood_influence": "relaxed"
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "required_roles": [
+        "Customer"
+      ]
+    },
+    {
+      "id": "eating_together",
+      "name": "Eating together",
+      "description": "Share a meal with others",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": 5,
+        "courage_change": 2,
+        "mood_influence": "happy"
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "partner_activity": "eating_together",
+      "requires_partner": true,
+      "fallback_activity": "eating",
+      "invitation_text": "Wollen wir zusammen Essen?"
+    }
+  ]
+}

@@ -171,6 +171,8 @@ async function updateCharacterScene(characterName) {
         sceneImg.src = '';
         const _sc = document.getElementById('character-scene');
         if (_sc) _sc.classList.remove('phone-chat-mode');
+        _clearCustomFrame(_sc);
+        _setSceneOutfitLabel(null);
         _updateOutfitLockButton('agent', null);
         _updateSceneWardrobeButton('agent', null);
         return;
@@ -241,10 +243,15 @@ async function _setEquippedPiecesLabel(elementId, characterName) {
         const inv = invRes.ok ? ((await invRes.json()).inventory || []) : [];
         const pieces = eq.equipped_pieces || {};
         const labels = [];
+        // Multi-Slot-Pieces (z.B. Bikini-Bra in top + underwear_top via
+        // additional_slots) tauchen unter mehreren Slot-Keys mit derselben
+        // item_id auf — pro Item nur EIN Label, beim ersten Slot-Treffer.
+        const seenItemIds = new Set();
         // SLOT_ORDER hat feste Reihenfolge — Label ist immer gleich sortiert
         for (const slot of SLOT_ORDER) {
             const iid = pieces[slot];
-            if (!iid) continue;
+            if (!iid || seenItemIds.has(iid)) continue;
+            seenItemIds.add(iid);
             const it = inv.find(x => x.item_id === iid);
             labels.push(it ? (it.item_name || iid) : iid);
         }
@@ -252,7 +259,7 @@ async function _setEquippedPiecesLabel(elementId, characterName) {
             el.textContent = '';
             el.style.display = 'none';
         } else {
-            el.textContent = `👗 ${labels.join(', ')}`;
+            el.textContent = `🧥 ${labels.join(', ')}`;
             el.style.display = '';
         }
     } catch (e) {
@@ -1769,9 +1776,11 @@ async function _initWardrobeAddExisting() {
     if (!searchEl || !resultsEl || !addBtn) return;
 
     // Alle outfit_piece-Items aus der Bibliothek laden (bei jedem Aufruf
-    // frisch, damit neu angelegte Items sofort auftauchen).
+    // frisch, damit neu angelegte Items sofort auftauchen). Shared-Items
+    // mit aufnehmen — sonst findet die Suche keine welt-uebergreifenden
+    // Outfit-Teile aus der globalen Library.
     try {
-        const r = await fetch(`/inventory/items`);
+        const r = await fetch(`/inventory/items?include_shared=1`);
         if (r.ok) {
             const d = await r.json();
             _wardrobeAllItems = (d.items || []).filter(it => it.category === 'outfit_piece');
@@ -2414,6 +2423,71 @@ async function _populateKnowledgeItemSelect(selectId, currentValue) {
         const selected = it.id === currentValue ? ' selected' : '';
         const cat = it.category || 'item';
         opts.push(`<option value="${escapeHtml(it.id)}"${selected}>${escapeHtml(it.name || it.id)} (${escapeHtml(cat)})</option>`);
+    }
+    sel.innerHTML = opts.join('');
+}
+
+// Conditions-Cache fuer das apply_condition-Dropdown im Item-/Activity-Editor.
+// Quelle: /world/conditions/list (gemergt aus shared baseline + world overlay).
+let _conditionsCache = null;
+async function _populateConditionSelect(sel, currentValue) {
+    if (!sel) return;
+    if (!_conditionsCache) {
+        try {
+            const r = await fetch(`/world/conditions/list`);
+            _conditionsCache = r.ok ? ((await r.json()).conditions || []) : [];
+        } catch (_) { _conditionsCache = []; }
+    }
+    const cur = (currentValue || '').trim().toLowerCase();
+    const opts = ['<option value="">-- keine --</option>'];
+    let found = false;
+    for (const c of _conditionsCache) {
+        const sel2 = c.name === cur ? ' selected' : '';
+        if (c.name === cur) found = true;
+        const icon = c.icon ? `${c.icon} ` : '';
+        const label = c.label ? ` — ${c.label}` : '';
+        opts.push(`<option value="${escapeHtml(c.name)}"${sel2}>${escapeHtml(icon + c.name + label)}</option>`);
+    }
+    // Falls der bisher gespeicherte Wert keinen Filter mehr hat: trotzdem anzeigen
+    if (cur && !found) {
+        opts.push(`<option value="${escapeHtml(cur)}" selected>${escapeHtml(cur)} (nicht in Zustaenden definiert)</option>`);
+    }
+    sel.innerHTML = opts.join('');
+}
+function _invalidateConditionsCache() { _conditionsCache = null; }
+
+// Befuellt das Cast-Activity-Dropdown im Item-Editor mit allen Library-
+// Aktivitaeten. Wert ist die Activity-ID — die Spell-Engine setzt sie nach
+// erfolgreichem Cast beim Avatar (Auto-Ablauf via duration_minutes).
+async function _populateCastActivitySelect(currentValue) {
+    const sel = document.getElementById('item-edit-cast-activity');
+    if (!sel) return;
+    if (!_libActivityGroups) {
+        try { await _loadActivityLibraryList(); } catch (_) { /* ignore */ }
+    }
+    sel.innerHTML = _buildGroupedActivityOptions(currentValue || '');
+}
+
+// _populateCloneItemSelect liest aus dem globalen _itemsCache (siehe weiter
+// unten in "Items (Game Admin)") — wenn der noch leer ist, einmal nachladen.
+async function _populateCloneItemSelect(currentValue, excludeId) {
+    const sel = document.getElementById('item-edit-clone-item');
+    if (!sel) return;
+    if (!Array.isArray(_itemsCache) || _itemsCache.length === 0) {
+        try {
+            const r = await fetch(`/inventory/items`);
+            if (r.ok) _itemsCache = (await r.json()).items || [];
+        } catch (_) { /* leer lassen */ }
+    }
+    const items = (_itemsCache || []).slice().sort((a, b) =>
+        (a.name || '').localeCompare(b.name || ''));
+    const cur = (currentValue || '').trim();
+    const opts = ['<option value="">-- dieses Item selbst (Default) --</option>'];
+    for (const it of items) {
+        if (excludeId && it.id === excludeId) continue;  // self nicht doppelt anbieten
+        const sel2 = it.id === cur ? ' selected' : '';
+        const cat = it.category || 'item';
+        opts.push(`<option value="${escapeHtml(it.id)}"${sel2}>${escapeHtml((it.name || it.id) + ' (' + cat + ')')}</option>`);
     }
     sel.innerHTML = opts.join('');
 }
@@ -3634,6 +3708,89 @@ function getPlayerCharacterName() {
     return document.getElementById('active-character-select')?.value || '';
 }
 
+// === Chat-Gift-Picker — neben Chat-Input ===
+
+async function _openChatGiftPicker() {
+    const box = document.getElementById('chat-gift-picker');
+    const body = document.getElementById('chat-gift-picker-body');
+    if (!box || !body) return;
+    const avatar = getPlayerCharacterName();
+    const partner = (typeof currentCharacterName !== 'undefined' ? currentCharacterName : '') || '';
+    if (!avatar) {
+        showStatusToast('Kein Avatar aktiv — bitte oben einen Character waehlen', 'error');
+        return;
+    }
+    if (!partner || partner === 'KI') {
+        showStatusToast('Kein Chat-Partner aktiv', 'error');
+        return;
+    }
+    body.innerHTML = '<div style="color:var(--text-muted);">Lade Inventar...</div>';
+    box.style.display = 'block';
+    setTimeout(() => document.addEventListener('click', _chatGiftPickerOutsideClick), 0);
+    try {
+        const r = await fetch(`/inventory/characters/${encodeURIComponent(avatar)}?include_equipped=false`);
+        if (!r.ok) {
+            body.innerHTML = '<div style="color:var(--error-color);">Inventar konnte nicht geladen werden.</div>';
+            return;
+        }
+        const data = await r.json();
+        const items = (data.inventory || []).filter(e => e.item_transferable !== false);
+        if (!items.length) {
+            body.innerHTML = `<div style="color:var(--text-muted);">${escapeHtml(avatar)} hat keine uebertragbaren Items.</div>`;
+            return;
+        }
+        body.innerHTML = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">→ ${escapeHtml(partner)}</div>` +
+            items.map(e => {
+                const qty = (e.quantity && e.quantity > 1) ? ` ×${e.quantity}` : '';
+                const cat = e.item_category || '';
+                const rarity = e.item_rarity || '';
+                return `<div onclick="_chatGiftClickItem('${escapeHtml(e.item_id)}','${escapeHtml(e.item_name)}')"
+                    style="display:flex;align-items:center;gap:8px;padding:6px;cursor:pointer;border-radius:4px;border-bottom:1px solid var(--border-light);"
+                    onmouseenter="this.style.background='var(--bg-elev)'" onmouseleave="this.style.background='transparent'">
+                    <span style="font-weight:600;">${escapeHtml(e.item_name)}</span>${qty}
+                    <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">${escapeHtml(rarity)} · ${escapeHtml(cat)}</span>
+                </div>`;
+            }).join('');
+    } catch (e) {
+        body.innerHTML = `<div style="color:var(--error-color);">Fehler: ${escapeHtml(String(e))}</div>`;
+    }
+}
+
+function _closeChatGiftPicker() {
+    const box = document.getElementById('chat-gift-picker');
+    if (box) box.style.display = 'none';
+    document.removeEventListener('click', _chatGiftPickerOutsideClick);
+}
+
+function _chatGiftPickerOutsideClick(e) {
+    if (e.target.closest('#chat-gift-picker') ||
+        e.target.id === 'btn-gift-item') return;
+    _closeChatGiftPicker();
+}
+
+async function _chatGiftClickItem(itemId, itemName) {
+    const avatar = getPlayerCharacterName();
+    const partner = (typeof currentCharacterName !== 'undefined' ? currentCharacterName : '') || '';
+    if (!avatar || !partner) return;
+    try {
+        const r = await fetch(`/inventory/characters/${encodeURIComponent(avatar)}/${encodeURIComponent(itemId)}/give`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({to_character: partner}),
+        });
+        if (!r.ok) {
+            const t = await r.text();
+            showStatusToast('Verschenken fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            return;
+        }
+        const data = await r.json();
+        showStatusToast(`'${data.item_name || itemName}' an ${partner} verschenkt (Beziehungs-Boost +${data.boost || 0})`, 'success');
+    } catch (e) {
+        showStatusToast('Fehler beim Verschenken: ' + e.message, 'error');
+    }
+    _closeChatGiftPicker();
+}
+
 // The character being edited — set explicitly by every modal-open function.
 // Unlike the old _editorTargetCharacter, this is ALWAYS set at open time,
 // never read-then-forget. Every openXxxModal(char) sets it.
@@ -3657,13 +3814,23 @@ function setAgentButtonsVisible(visible) {
         const el = document.getElementById(id);
         if (el) el.style.display = display;
     });
+    // Beim Verstecken (kein Agent): 📷 + 💭-Header-Mood-Line clearen.
+    // Beim Anzeigen NICHT explizit anschalten — die werden vom Profil-Load
+    // bzw. loadHeaderMood gesetzt, je nach Datenverfuegbarkeit.
+    if (!visible) {
+        const genBtn = document.getElementById('btn-generate-profile-image');
+        if (genBtn) genBtn.style.display = 'none';
+        const moodLine = document.getElementById('header-mood-line');
+        if (moodLine) { moodLine.textContent = ''; moodLine.style.display = 'none'; }
+    }
 }
 
 async function updateStoryTabVisibility() {
+    const chatBtn = document.querySelector('.tab-btn[data-tab="chat"]');
+    const relationsBtn = document.querySelector('.tab-btn[data-tab="relations"]');
     const storyBtn = document.querySelector('.tab-btn[data-tab="story"]');
     const storyDevBtn = document.querySelector('.tab-btn[data-tab="storydev"]');
     const worldDevBtn = document.querySelector('.tab-btn[data-tab="worlddev"]');
-    if (!storyBtn || !storyDevBtn) return;
 
     // World Dev tab: always visible when logged in
     if (worldDevBtn) {
@@ -3671,14 +3838,34 @@ async function updateStoryTabVisibility() {
     }
 
     if (!hasValidCharacter()) {
-        storyBtn.style.display = 'none';
-        storyDevBtn.style.display = 'none';
+        // Kein Agent → alle agent-gebundenen Tabs ausblenden (Chat, Relations, Story, StoryDev)
+        if (chatBtn) chatBtn.style.display = 'none';
+        if (relationsBtn) relationsBtn.style.display = 'none';
+        if (storyBtn) storyBtn.style.display = 'none';
+        if (storyDevBtn) storyDevBtn.style.display = 'none';
         const activeTab = document.querySelector('.tab-btn.tab-active');
-        if (activeTab && (activeTab.dataset.tab === 'story' || activeTab.dataset.tab === 'storydev')) {
-            switchTab('chat');
+        if (activeTab && ['chat', 'relations', 'story', 'storydev'].includes(activeTab.dataset.tab)) {
+            // Aktiven Tab abwaehlen — kein Hinweis-Inhalt
+            activeTab.classList.remove('tab-active');
+            document.querySelectorAll('.tab-content').forEach(c => {
+                c.classList.remove('tab-content-active');
+                c.style.display = 'none';
+            });
         }
         return;
     }
+
+    // Agent vorhanden: Chat + Relations IMMER sichtbar
+    if (chatBtn) chatBtn.style.display = '';
+    if (relationsBtn) relationsBtn.style.display = '';
+
+    // Wenn nach Re-Selektion kein Tab aktiv ist (User kam aus Kein-Agent-Zustand)
+    // → Chat aktivieren, sonst bleibt der Content-Bereich leer.
+    if (!document.querySelector('.tab-btn.tab-active')) {
+        switchTab('chat');
+    }
+
+    if (!storyBtn || !storyDevBtn) return;
 
     try {
         const profileResp = await fetch(`/characters/${encodeURIComponent(currentCharacterName)}/profile`);
@@ -3751,6 +3938,10 @@ function setChatBusy(busy) {
             })
             .catch(() => {})
             .finally(() => { _chatPollMuteUntil = 0; });
+        // Sofortiger Live-Tick — Skill-Effekte (Inventar/Conditions/Stats/
+        // Mood/Activity-Aenderungen aus dem Stream) sollen sichtbar werden,
+        // ohne auf den 3s-Tick zu warten.
+        if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
     }
 
     // Safety-Valve: Automatischer Reset nach 3 Minuten falls stuck
@@ -3957,7 +4148,7 @@ async function loadPlayerAvatar() {
     }
     if (!activeChar) {
         img.style.display = 'none';
-        if (barsDiv) barsDiv.style.display = 'none';
+        if (barsDiv) { barsDiv.style.display = 'none'; barsDiv.innerHTML = ''; }
         if (genBtn) genBtn.style.display = 'none';
         return;
     }
@@ -4008,7 +4199,8 @@ async function loadPlayerAvatar() {
         };
     }
 
-    if (barsDiv) barsDiv.style.display = 'none';
+    // Player-Status-Bars (Stamina etc.) wie beim Agenten — kleiner gerendert
+    loadPlayerStatusBars();
 
     // Load player activity display (room, activity, mood)
     try {
@@ -5325,6 +5517,49 @@ async function _readChatStream(streamUrl, botMessageId, botMessage, abortSignal,
                         console.log(`[Chat] Separate Tool-LLM: ${data.model_info.tool_model}`);
                     }
                 }
+                if (data.spell_routing_missing) {
+                    // Sticky Toast: ohne LLM-Routing fuer spell_detect kann
+                    // der Cast nicht laufen. User-Aktion noetig.
+                    showStatusToast(
+                        '⚠️ Spell-Detection nicht aktiv: kein LLM dem Task ' +
+                        '"spell_detect" zugewiesen. Admin → LLM Routing → ' +
+                        'einen Tool-LLM zum Task hinzufuegen.',
+                        'error', 8000);
+                }
+                if (data.spell_event) {
+                    const ev = data.spell_event;
+                    const okIcon = ev.success ? '🪄' : '✨';
+                    const verdict = ev.success ? 'gelungen' : 'fehlgeschlagen';
+                    const roll = (ev.chance && ev.roll)
+                        ? ` <span class="spell-roll">(${ev.roll}/${ev.chance})</span>` : '';
+                    const delivered = (ev.success && ev.delivered_item_name)
+                        ? `<div class="spell-delivered">→ ${escapeHtml(ev.delivered_item_name)} an ${escapeHtml(ev.target)} uebergeben</div>` : '';
+                    const note = document.createElement('div');
+                    note.className = 'spell-event-note ' + (ev.success ? 'spell-success' : 'spell-fail');
+                    note.innerHTML = `
+                        <div class="spell-headline">${okIcon} Zauber <strong>${escapeHtml(ev.spell_name || ev.spell_id)}</strong> auf ${escapeHtml(ev.target)} — ${verdict}${roll}</div>
+                        ${delivered}
+                    `;
+                    if (chatMessages) {
+                        chatMessages.appendChild(note);
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
+                    // Bei chat_substitute: das letzte User-Bubble (= die rohe
+                    // Incantation, die der User gerade getippt hat) auf die
+                    // narrative Beobachtung umschreiben — so passt das
+                    // Bubble-Layout zur gespeicherten Chat-History und der
+                    // User sieht nicht "ich habe X getippt aber NPC reagiert
+                    // auf Y". Die spell_event-Note dient als Quittung.
+                    if (ev.chat_substitute && chatMessages) {
+                        const userBubbles = chatMessages.querySelectorAll('.user-message .message-content, .message.user-message');
+                        const last = userBubbles.length ? userBubbles[userBubbles.length - 1] : null;
+                        if (last) {
+                            try { last.innerHTML = marked.parse(ev.chat_substitute); }
+                            catch (_) { last.textContent = ev.chat_substitute; }
+                        }
+                    }
+                    console.log('[Chat] Spell event:', ev);
+                }
                 if (data.status === 'tool_start') {
                     const statusEl = document.createElement('div');
                     statusEl.className = 'tool-status-indicator';
@@ -6436,13 +6671,13 @@ async function _pollUnreadChats() {
         _updatePhoneBtnBadge();
     } catch (e) { /* ignore */ }
 }
+// Frueher: 10s _pollUnreadChats — jetzt im 3s-Live-Tick mitgepullt.
+// Funktionen bleiben als Aliase, damit andere Aufrufer nicht brechen.
 function _startUnreadPolling() {
-    if (_unreadPollInterval) return;
-    _pollUnreadChats();  // sofort einmal
-    _unreadPollInterval = setInterval(_pollUnreadChats, UNREAD_POLL_INTERVAL_MS);
+    _startLiveTick();
 }
 function _stopUnreadPolling() {
-    if (_unreadPollInterval) { clearInterval(_unreadPollInterval); _unreadPollInterval = null; }
+    _stopLiveTick();
 }
 
 async function _pollChatForUpdates() {
@@ -6695,6 +6930,7 @@ async function createNewCharacter() {
         // Update global state
         currentCharacterName = characterName;
         updateCharacterScene(characterName);
+        updateStoryTabVisibility();
 
         // Refresh header info
         await loadKnownInfo();
@@ -6760,44 +6996,68 @@ function exportCharacter() {
     window.location.href = `/characters/${charName}/export?${params}`;
 }
 
+async function deleteCharacterFromEditor() {
+    const charName = getEditorCharacterName();
+    if (!charName) return;
+    const ok = confirm(`Character "${charName}" wirklich vollstaendig loeschen?\n\nDB-Eintraege, Outfits, Bilder, Memories und das Storage-Verzeichnis werden entfernt. Diese Aktion ist nicht umkehrbar.`);
+    if (!ok) return;
+    try {
+        const resp = await fetch(`/characters/${encodeURIComponent(charName)}`, {method: 'DELETE'});
+        if (!resp.ok) {
+            const txt = await resp.text();
+            showStatusToast(`Loeschen fehlgeschlagen: ${txt}`, 'error');
+            return;
+        }
+        showStatusToast(`Character "${charName}" geloescht.`, 'success');
+        closeCharacterModal();
+        // Trigger UI refresh if the consumer page exposes a hook
+        if (typeof window.refreshCharacterListsAfterDelete === 'function') {
+            try { window.refreshCharacterListsAfterDelete(charName); } catch (_) {}
+        }
+        // Fallback: hard reload (the editor was open from various contexts)
+        setTimeout(() => window.location.reload(), 400);
+    } catch (e) {
+        showStatusToast(`Loeschen fehlgeschlagen: ${e.message}`, 'error');
+    }
+}
+
+function _summarizeImportResult(data) {
+    const fileCount = data.files_imported || 0;
+    const dbStats = data.db_rows_imported || {};
+    const dbTotal = Object.values(dbStats).reduce((a, b) => a + b, 0);
+    const dbTables = Object.keys(dbStats).length;
+    return `Character "${data.character}" imported: ${fileCount} files, `
+        + `${dbTotal} DB rows across ${dbTables} tables.`;
+}
+
+async function _postImport(file, overwrite) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const url = `/characters/import?overwrite=${overwrite ? 'true' : 'false'}`;
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const data = await resp.json().catch(() => ({}));
+    return { resp, data };
+}
+
 async function importCharacter(event) {
     const file = event.target.files[0];
     if (!file) return;
     event.target.value = '';
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     try {
-        const resp = await fetch(`/characters/import?overwrite=false`, {
-            method: 'POST',
-            body: formData
-        });
-        const data = await resp.json();
+        let { resp, data } = await _postImport(file, false);
         if (resp.status === 409) {
-            if (confirm(`${data.detail}\n\nUeberschreiben?`)) {
-                const formData2 = new FormData();
-                formData2.append('file', file);
-                const resp2 = await fetch(`/characters/import?overwrite=true`, {
-                    method: 'POST',
-                    body: formData2
-                });
-                const data2 = await resp2.json();
-                if (resp2.ok) {
-                    alert(`Character "${data2.character}" importiert (${data2.files_imported} Dateien)`);
-                    location.reload();
-                } else {
-                    alert(`Fehler: ${data2.detail}`);
-                }
-            }
-        } else if (resp.ok) {
-            alert(`Character "${data.character}" importiert (${data.files_imported} Dateien)`);
+            if (!confirm(`${data.detail}\n\nOverwrite?`)) return;
+            ({ resp, data } = await _postImport(file, true));
+        }
+        if (resp.ok) {
+            alert(_summarizeImportResult(data));
             location.reload();
         } else {
-            alert(`Fehler: ${data.detail}`);
+            alert(`Error: ${data.detail || resp.statusText}`);
         }
     } catch (e) {
-        alert(`Import fehlgeschlagen: ${e.message}`);
+        alert(`Import failed: ${e.message}`);
     }
 }
 
@@ -7073,7 +7333,18 @@ async function renderCharacterEditor(characterName, forceTemplateName) {
             // Section ueberspringen wenn alle Felder editor_visible=false haben
             const visibleFields = (section.fields || []).filter(f => f.editor_visible !== false);
             if (visibleFields.length === 0) return '';
-            let s = `<div class="modal-section editor-section">`;
+            // Section-Level visible_when (z.B. Beliefs/Lessons/Goals nur
+            // sichtbar wenn retrospect_enabled=true). Reactor unten aktualisiert
+            // beim Toggle live, hier wird der initiale Render-State gesetzt.
+            const secVw = section.visible_when;
+            let secHidden = false;
+            if (secVw && secVw.field) {
+                const dv = (charConfig[secVw.field] ?? '') || (profile[secVw.field] || '');
+                secHidden = !((secVw.values || []).includes(String(dv)));
+            }
+            const secVwAttr = secVw ? ` data-section-visible-when="${escapeHtml(JSON.stringify(secVw))}"` : '';
+            const secStyle = secHidden ? ' style="display:none;"' : '';
+            let s = `<div class="modal-section editor-section"${secVwAttr}${secStyle}>`;
             s += `<h3>${escapeHtml(tLabel(section) || section.id)}</h3>`;
             for (const field of (section.fields || [])) {
                 if (field.editor_visible === false) continue;
@@ -7974,6 +8245,10 @@ function setupVisibleWhen(container, sections, profile, charConfig, dynamicData)
 
     // Find which keys are controlling fields (referenced by visible_when)
     const controllingKeys = new Set();
+    for (const section of sections) {
+        // Section-level visible_when (z.B. retrospect_enabled steuert ganze Beliefs-Section)
+        if (section.visible_when) controllingKeys.add(section.visible_when.field);
+    }
     for (const field of allFields) {
         if (field.visible_when) controllingKeys.add(field.visible_when.field);
         if (field.options) {
@@ -8001,6 +8276,16 @@ function setupVisibleWhen(container, sections, profile, charConfig, dynamicData)
                     const vw = JSON.parse(fieldEl.dataset.visibleWhen);
                     if (vw.field === ctrlKey) {
                         fieldEl.style.display = (vw.values || []).includes(newValue) ? '' : 'none';
+                    }
+                } catch (e) { /* ignore parse errors */ }
+            });
+
+            // Section-level visibility (z.B. ganze Beliefs/Lessons-Section)
+            container.querySelectorAll('.editor-section[data-section-visible-when]').forEach(secEl => {
+                try {
+                    const vw = JSON.parse(secEl.dataset.sectionVisibleWhen);
+                    if (vw.field === ctrlKey) {
+                        secEl.style.display = (vw.values || []).includes(newValue) ? '' : 'none';
                     }
                 } catch (e) { /* ignore parse errors */ }
             });
@@ -8437,90 +8722,193 @@ function setGalleryView(mode) {
     _reloadCurrentGallery();
 }
 
-function _buildGalleryTabs() {
-    const container = document.getElementById('gallery-tabs');
-    if (!container) return;
-    container.innerHTML = '';
+// Reusable: rendert einen Custom-Dropdown mit Avatar+Name pro Eintrag
+// in den uebergebenen Container. options = [{name, avatarUrl}].
+function _renderCharacterSelector(containerEl, options, currentValue, onChange) {
+    if (!containerEl) return;
+    containerEl.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'char-select';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'char-select-trigger';
+    const dropdown = document.createElement('div');
+    dropdown.className = 'char-select-dropdown';
+    dropdown.style.display = 'none';
 
+    const renderTrigger = (val) => {
+        const found = options.find(o => o.name === val) || options[0] || null;
+        trigger.innerHTML = '';
+        if (!found) {
+            const span = document.createElement('span');
+            span.className = 'char-select-trigger-name';
+            span.textContent = '—';
+            trigger.appendChild(span);
+            return;
+        }
+        const img = document.createElement('img');
+        img.src = found.avatarUrl || generateDefaultAvatar(found.name);
+        img.alt = found.name;
+        img.onerror = function() { this.src = generateDefaultAvatar(found.name); };
+        const span = document.createElement('span');
+        span.className = 'char-select-trigger-name';
+        span.textContent = found.name;
+        const arrow = document.createElement('span');
+        arrow.className = 'char-select-trigger-arrow';
+        arrow.textContent = '▾';
+        trigger.appendChild(img);
+        trigger.appendChild(span);
+        trigger.appendChild(arrow);
+    };
+
+    const renderOptions = (val) => {
+        dropdown.innerHTML = '';
+        for (const opt of options) {
+            const row = document.createElement('div');
+            row.className = 'char-select-option' + (opt.name === val ? ' active' : '');
+            const img = document.createElement('img');
+            img.src = opt.avatarUrl || generateDefaultAvatar(opt.name);
+            img.alt = opt.name;
+            img.onerror = function() { this.src = generateDefaultAvatar(opt.name); };
+            const span = document.createElement('span');
+            span.textContent = opt.name;
+            row.appendChild(img);
+            row.appendChild(span);
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                renderTrigger(opt.name);
+                renderOptions(opt.name);
+                dropdown.style.display = 'none';
+                if (typeof onChange === 'function') onChange(opt.name);
+            });
+            dropdown.appendChild(row);
+        }
+    };
+
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = dropdown.style.display === 'none';
+        dropdown.style.display = open ? 'block' : 'none';
+    });
+    const closeOnOutside = (e) => {
+        if (!wrap.contains(e.target)) dropdown.style.display = 'none';
+    };
+    document.addEventListener('click', closeOnOutside);
+
+    renderTrigger(currentValue);
+    renderOptions(currentValue);
+    wrap.appendChild(trigger);
+    wrap.appendChild(dropdown);
+    containerEl.appendChild(wrap);
+}
+
+// Sammelt die Charakter-Optionen fuer Gallery + Diary: Avatar (Player),
+// aktueller Chat-Partner (oder Group-Teilnehmer) + restliche bekannte
+// Characters. Avatar-URL aus den jeweiligen DOM-Quellen (kein Refetch).
+function _buildCharacterSelectorOptions() {
     const _playerName = getPlayerCharacterName();
     const _shown = new Set();
-
+    const out = [];
+    if (_playerName) {
+        const _playerImg = document.getElementById('player-profile-image');
+        out.push({ name: _playerName, avatarUrl: (_playerImg && _playerImg.src) || '' });
+        _shown.add(_playerName);
+    }
     if (chatMode === 'group' && _groupSession) {
-        // Group mode: player + all participants
-        if (_playerName) {
-            container.appendChild(_createCharacterTab(_playerName, ''));
-            _shown.add(_playerName);
-        }
         for (const p of (_groupSession.participants || [])) {
             if (!_shown.has(p.name)) {
-                container.appendChild(_createCharacterTab(p.name, p.avatar_url));
+                out.push({ name: p.name, avatarUrl: p.avatar_url || '' });
                 _shown.add(p.name);
             }
         }
     } else {
-        // Single mode: player + chat partner + other characters
-        if (_playerName) {
-            container.appendChild(_createCharacterTab(_playerName, ''));
-            _shown.add(_playerName);
-        }
         if (currentCharacterName && currentCharacterName !== 'KI' && !_shown.has(currentCharacterName)) {
             const profileImg = document.getElementById('agent-profile-image');
-            container.appendChild(_createCharacterTab(currentCharacterName, (profileImg && profileImg.src) || ''));
+            out.push({ name: currentCharacterName, avatarUrl: (profileImg && profileImg.src) || '' });
             _shown.add(currentCharacterName);
         }
-        if (window.availableOtherCharacters) {
-            for (const name of window.availableOtherCharacters) {
-                if (!_shown.has(name)) {
-                    container.appendChild(_createCharacterTab(name, ''));
-                    _shown.add(name);
-                }
+    }
+    if (window.availableOtherCharacters) {
+        for (const name of window.availableOtherCharacters) {
+            if (!_shown.has(name)) {
+                out.push({ name, avatarUrl: '' });
+                _shown.add(name);
             }
         }
     }
-
-    // Default to player character tab if current tab doesn't exist
-    if (_galleryActiveTab === null && _playerName) {
-        _galleryActiveTab = _playerName;
-    }
-    if (_galleryActiveTab !== null) {
-        const hasTab = container.querySelector(`[data-tab="${_galleryActiveTab}"]`);
-        if (!hasTab) _galleryActiveTab = _playerName || null;
-    }
-    _updateGalleryTabActive();
+    return out;
 }
 
-function _createCharacterTab(name, avatarUrl) {
-    const tab = document.createElement('button');
-    tab.className = 'gallery-tab' + (_galleryActiveTab === name ? ' active' : '');
-    tab.dataset.tab = name;
+function _createGalleryCharButton(name, avatarUrl, isActive) {
+    const btn = document.createElement('button');
+    btn.className = 'gallery-char-btn' + (isActive ? ' active' : '');
     const img = document.createElement('img');
     img.src = avatarUrl || generateDefaultAvatar(name);
     img.alt = name;
     img.onerror = function() { this.src = generateDefaultAvatar(name); };
     const span = document.createElement('span');
     span.textContent = name;
-    tab.appendChild(img);
-    tab.appendChild(span);
-    tab.addEventListener('click', () => _switchGalleryTab(name));
-    return tab;
+    btn.appendChild(img);
+    btn.appendChild(span);
+    btn.addEventListener('click', () => _switchGalleryTab(name));
+    return btn;
+}
+
+function _buildGalleryTabs() {
+    const container = document.getElementById('gallery-tabs');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const allOptions = _buildCharacterSelectorOptions();
+    const _playerName = getPlayerCharacterName();
+    const avatarOpt = allOptions.find(o => o.name === _playerName) || null;
+    const _agentName = (currentCharacterName && currentCharacterName !== 'KI')
+        ? currentCharacterName : '';
+    const agentOpt = (_agentName && _agentName !== _playerName)
+        ? (allOptions.find(o => o.name === _agentName) || null)
+        : null;
+
+    // Default: Avatar; falls Active-Tab nicht (mehr) verfuegbar -> auf Avatar zurueck
+    if (_galleryActiveTab === null && avatarOpt) {
+        _galleryActiveTab = avatarOpt.name;
+    }
+    if (_galleryActiveTab !== null && !allOptions.find(o => o.name === _galleryActiveTab)) {
+        _galleryActiveTab = (avatarOpt && avatarOpt.name)
+            || (allOptions[0] && allOptions[0].name) || null;
+    }
+
+    // Reihenfolge: Avatar-Button, Agent-Button, Dropdown mit Rest
+    if (avatarOpt) {
+        container.appendChild(_createGalleryCharButton(
+            avatarOpt.name, avatarOpt.avatarUrl,
+            _galleryActiveTab === avatarOpt.name));
+    }
+    if (agentOpt) {
+        container.appendChild(_createGalleryCharButton(
+            agentOpt.name, agentOpt.avatarUrl,
+            _galleryActiveTab === agentOpt.name));
+    }
+
+    const fixedNames = new Set([avatarOpt && avatarOpt.name, agentOpt && agentOpt.name]
+        .filter(Boolean));
+    const remaining = allOptions.filter(o => !fixedNames.has(o.name));
+    if (remaining.length) {
+        const ddWrap = document.createElement('div');
+        ddWrap.style.display = 'inline-block';
+        // Dropdown zeigt aktuell-aktiven Eintrag wenn er in der Restliste ist,
+        // sonst ersten Eintrag (kein Active-Highlight am Trigger).
+        const inDropdown = remaining.find(o => o.name === _galleryActiveTab);
+        const triggerValue = inDropdown ? _galleryActiveTab : remaining[0].name;
+        _renderCharacterSelector(ddWrap, remaining, triggerValue,
+            (name) => _switchGalleryTab(name));
+        container.appendChild(ddWrap);
+    }
 }
 
 function _switchGalleryTab(tabName) {
     _galleryActiveTab = tabName;
-    _updateGalleryTabActive();
+    _buildGalleryTabs();      // Active-State auf Buttons aktualisieren
     _reloadCurrentGallery();
-}
-
-function _updateGalleryTabActive() {
-    const container = document.getElementById('gallery-tabs');
-    if (!container) return;
-    // If no tab selected, default to player character
-    if (_galleryActiveTab === null) {
-        _galleryActiveTab = getPlayerCharacterName() || null;
-    }
-    container.querySelectorAll('.gallery-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === _galleryActiveTab);
-    });
 }
 
 function _reloadCurrentGallery() {
@@ -9390,12 +9778,21 @@ function switchTab(tabName) {
         worldDevLoadContextOptions();
     }
 
+    // Im World-Dev-Modus alle Schwebe-Buttons (Phone, Weltkarte, Tagebuch,
+    // Galerie, Events, Notifications, Story-Arc, Instagram) + die Avatar-
+    // Scene (mit Garderobe/Inventar/Outfit-Lock-Buttons) ausblenden.
+    // Die Agent-Scene wird via charScene.style.display unten gesteuert.
+    const _floatBtnIds = [
+        'btn-instagram', 'btn-gallery', 'btn-storyarc', 'btn-events',
+        'btn-notifications', 'btn-phone-chat', 'btn-worldmap', 'btn-diary',
+        'character-sidebar', 'player-scene',
+    ];
     if (_isHideCharTab) {
         if (charFloat) charFloat.style.display = 'none';
         if (charScene) charScene.style.display = 'none';
         document.body.dataset.worlddev = '1';
         document.body.style.backgroundImage = '';
-        ['btn-instagram', 'btn-gallery', 'btn-storyarc', 'btn-events', 'btn-notifications', 'character-sidebar'].forEach(id => {
+        _floatBtnIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -9403,7 +9800,7 @@ function switchTab(tabName) {
         if (charFloat) charFloat.style.display = '';
         if (charScene) charScene.style.display = '';
         delete document.body.dataset.worlddev;
-        ['btn-instagram', 'btn-gallery', 'btn-storyarc', 'btn-events', 'btn-notifications', 'character-sidebar'].forEach(id => {
+        _floatBtnIds.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = '';
         });
@@ -10506,13 +10903,23 @@ async function loadDailySchedule() {
     if (!character || character === 'KI') return;
 
     try {
-        const resp = await fetch(`/scheduler/daily-schedule?character=${encodeURIComponent(character)}`);
-        if (!resp.ok) throw new Error('Laden fehlgeschlagen');
-        const data = await resp.json();
-        const schedule = data.schedule || { enabled: false, slots: [] };
+        const [schedResp, configResp] = await Promise.all([
+            fetch(`/scheduler/daily-schedule?character=${encodeURIComponent(character)}`),
+            fetch(`/characters/${encodeURIComponent(character)}/config`),
+        ]);
+        if (!schedResp.ok) throw new Error('Laden fehlgeschlagen');
+        const schedData = await schedResp.json();
+        const schedule = schedData.schedule || { enabled: false, slots: [] };
+
+        let roles = [];
+        if (configResp.ok) {
+            const cfgData = await configResp.json();
+            const rawRoles = (cfgData.config || {}).roles || '';
+            roles = String(rawRoles).split(',').map(r => r.trim()).filter(Boolean);
+        }
 
         document.getElementById('tagesablauf-enabled').checked = schedule.enabled !== false;
-        await renderDailyScheduleGrid(schedule.slots || []);
+        await renderDailyScheduleGrid(schedule.slots || [], roles);
     } catch (e) {
         console.error('[Tagesablauf] Fehler:', e);
         document.getElementById('tagesablauf-grid').innerHTML =
@@ -10521,97 +10928,80 @@ async function loadDailySchedule() {
 }
 
 // --- Tagesablauf: Drag-to-Paint Grid ---
-const _taDrag = { active: false, loc: '', act: '', startH: -1, curH: -1 };
+// Pro Stunde EIN Eintrag: entweder sleep ODER (Ort + optional Rolle).
+// Locations werden per Name dedupliziert (gleicher Name -> erste ID gewinnt).
+// Rollen sind unter jeder Location verschachtelt — eine Zelle setzt
+// Ort + Rolle gleichzeitig. Leere Stunden = KI waehlt selbst.
+const _taDrag = { active: false, key: '', startH: -1, curH: -1 };
 
-async function renderDailyScheduleGrid(slots) {
+// Map: existierende Location-IDs -> kanonische ID (erste mit gleichem Namen).
+let _taIdToCanonical = {};
+
+async function renderDailyScheduleGrid(slots, roles) {
     const grid = document.getElementById('tagesablauf-grid');
     if (!grid) return;
 
-    // Slot-Map: hour -> {location, activity}
-    const slotMap = {};
-    for (const s of slots) slotMap[s.hour] = { location: s.location, activity: s.activity };
-
-    // Locations laden — kein allowed_locations-Filter mehr, alle Orte verfuegbar
     let locations = _cachedWorldLocations || await _fetchWorldLocations();
+    // Dedup per Name: erster Treffer ist kanonisch.
+    const byName = new Map();
+    _taIdToCanonical = {};
+    for (const loc of locations || []) {
+        const name = (loc.name || loc.id || '').trim();
+        if (!name) continue;
+        const id = loc.id || name;
+        if (!byName.has(name)) byName.set(name, { id, name });
+        _taIdToCanonical[id] = byName.get(name).id;
+    }
+    const uniqueLocs = Array.from(byName.values());
 
-    // Stunden-Header
+    // Slot-Map: Stunde -> {location:canonicalId, role, sleep}
+    const slotMap = {};
+    for (const s of slots || []) {
+        const sleep = !!s.sleep;
+        const rawLoc = (s.location || '').trim();
+        const canonical = sleep ? '' : (_taIdToCanonical[rawLoc] || rawLoc);
+        slotMap[s.hour] = {
+            location: canonical,
+            role: (s.role || '').trim(),
+            sleep,
+        };
+    }
+
     let html = '<table class="tagesablauf-table"><thead><tr><th class="tagesablauf-corner"></th>';
     for (let h = 0; h < 24; h++) html += `<th>${String(h).padStart(2, '0')}</th>`;
     html += '</tr></thead><tbody>';
 
-    // --- Schlafen-Sektion ---
-    {
-        const sleepLocId = '__sleep__';
-        const hasSleepSlots = Object.values(slotMap).some(s => s.activity === '__sleep__');
+    // --- Sleep ---
+    html += `<tr class="tagesablauf-loc-header tagesablauf-sleep-header"><td colspan="25">Schlafen <span class="tagesablauf-section-hint">(Hint — eigentlich entscheidet die Energie)</span></td></tr>`;
+    html += _taBuildRow('sleep||', 'Schlafen', slotMap, '', false);
 
-        html += `<tr class="tagesablauf-loc-header tagesablauf-sleep-header" data-ta-loc="${escapeHtml(sleepLocId)}">
-            <td colspan="25">Schlafen</td></tr>`;
-
-        html += _taBuildRow(sleepLocId, '__sleep__', 'Schlafen (alle Aktivitaeten pausiert)', slotMap, false);
-    }
-
-    // --- Ortsunabhaengig-Sektion (Location-unabhaengige Aktionen) ---
-    {
-        const specialLocId = '__llm_choice__';
-        const hasSpecialSlots = Object.values(slotMap).some(s => s.location === specialLocId);
-        const specialExpanded = hasSpecialSlots;
-
-        html += `<tr class="tagesablauf-loc-header" data-ta-loc="${escapeHtml(specialLocId)}" onclick="toggleTagesablaufLocation(this)" style="cursor:pointer">
-            <td colspan="25"><span class="tagesablauf-toggle">${specialExpanded ? '▼' : '▶'}</span> Ortsunabhaengig</td></tr>`;
-
-        // "Zufall" Zeile: LLM waehlt Location
-        html += _taBuildRow(specialLocId, '__random__', 'Zufall (KI waehlt Ort)', slotMap, !specialExpanded);
-    }
-
-    // Pro Location: aufklappbarer Header + Activity-Zeilen
-    // Activities liegen in location.rooms[].activities[] — alle sammeln und deduplizieren
-    for (const loc of locations) {
-        const locId = loc.id || loc.name;
-        const locName = loc.name;
-
-        // Activities aus allen Rooms sammeln
-        const actSet = new Set();
-        const rooms = loc.rooms || [];
-        for (const room of rooms) {
-            const roomActs = room.activities || [];
-            for (const a of roomActs) {
-                const name = typeof a === 'string' ? a : (a.name || '');
-                if (name) actSet.add(name);
+    // --- Orte (jede Location mit verschachtelten Rollen) ---
+    if (uniqueLocs.length === 0) {
+        html += `<tr class="tagesablauf-loc-header"><td colspan="25">Orte</td></tr>`;
+        html += `<tr><td colspan="25" class="scheduler-empty">Keine Orte in der Welt definiert.</td></tr>`;
+    } else {
+        for (const loc of uniqueLocs) {
+            const expanded = Object.values(slotMap).some(s => !s.sleep && s.location === loc.id);
+            html += `<tr class="tagesablauf-loc-header" data-ta-loc="${escapeHtml(loc.id)}" onclick="toggleTagesablaufLocation(this)" style="cursor:pointer">
+                <td colspan="25"><span class="tagesablauf-toggle">${expanded ? '▼' : '▶'}</span> ${escapeHtml(loc.name)}</td></tr>`;
+            // Ort ohne Rolle
+            html += _taBuildRow(`lr|${loc.id}|`, '(ohne Rolle)', slotMap, loc.id, !expanded);
+            // Rolle pro Ort — Auswahl setzt Ort UND Rolle.
+            for (const role of roles || []) {
+                html += _taBuildRow(`lr|${loc.id}|${role}`, role, slotMap, loc.id, !expanded);
             }
         }
-        // Fallback: direkte activities (falls vorhanden)
-        const directActs = loc.activities || [];
-        for (const a of directActs) {
-            const name = typeof a === 'string' ? a : (a.name || '');
-            if (name) actSet.add(name);
-        }
-        const acts = [...actSet];
-
-        // Pruefen ob diese Location belegte Slots hat
-        const hasFilledSlots = Object.values(slotMap).some(s => s.location === locId);
-        const expanded = hasFilledSlots;
-
-        // Location-Header (aufklappbar)
-        html += `<tr class="tagesablauf-loc-header" data-ta-loc="${escapeHtml(locId)}" onclick="toggleTagesablaufLocation(this)" style="cursor:pointer">
-            <td colspan="25"><span class="tagesablauf-toggle">${expanded ? '▼' : '▶'}</span> ${escapeHtml(locName)}</td></tr>`;
-
-        // "Zufaellig" Zeile
-        html += _taBuildRow(locId, '__random__', 'Zufaellig', slotMap, !expanded);
-
-        // Activity-Zeilen
-        for (const act of acts) {
-            html += _taBuildRow(locId, act, act, slotMap, !expanded);
+        if (!roles || roles.length === 0) {
+            html += `<tr><td colspan="25" class="scheduler-empty" style="padding:6px 8px;">Keine Rollen im Charakter-Profil — pro Ort gibt es nur die Zeile "(ohne Rolle)".</td></tr>`;
         }
     }
 
     html += '</tbody></table>';
     grid.innerHTML = html;
 
-    // Drag-Events registrieren
     grid.addEventListener('mousedown', _taOnMouseDown);
     grid.addEventListener('mouseover', _taOnMouseOver);
     document.addEventListener('mouseup', _taOnMouseUp);
-    // Touch-Support
     grid.addEventListener('touchstart', _taOnTouchStart, { passive: false });
     grid.addEventListener('touchmove', _taOnTouchMove, { passive: false });
     document.addEventListener('touchend', _taOnMouseUp);
@@ -10621,23 +11011,36 @@ function toggleTagesablaufLocation(headerRow) {
     const locId = headerRow.dataset.taLoc;
     const grid = headerRow.closest('table');
     if (!grid) return;
-
     const rows = grid.querySelectorAll(`tr[data-ta-loc-row="${CSS.escape(locId)}"]`);
     const isHidden = rows.length > 0 && rows[0].style.display === 'none';
-
     rows.forEach(r => r.style.display = isHidden ? '' : 'none');
-
     const toggle = headerRow.querySelector('.tagesablauf-toggle');
     if (toggle) toggle.textContent = isHidden ? '▼' : '▶';
 }
 
-function _taBuildRow(locId, actValue, actLabel, slotMap, hidden) {
-    let row = `<tr data-ta-loc-row="${escapeHtml(locId)}"${hidden ? ' style="display:none"' : ''}>`;
-    row += `<td class="tagesablauf-row-label">${escapeHtml(actLabel)}</td>`;
+function _taParseKey(key) {
+    // Format: "sleep||" oder "lr|<locId>|<role>"
+    const parts = key.split('|');
+    return { kind: parts[0], loc: parts[1] || '', role: parts[2] || '' };
+}
+
+function _taSlotMatchesKey(slot, key) {
+    if (!slot) return false;
+    const k = _taParseKey(key);
+    if (k.kind === 'sleep') return !!slot.sleep;
+    if (slot.sleep) return false;
+    return slot.location === k.loc && (slot.role || '') === k.role;
+}
+
+function _taBuildRow(key, label, slotMap, locGroup, hidden) {
+    const isSleep = key.startsWith('sleep');
+    const groupAttr = locGroup ? ` data-ta-loc-row="${escapeHtml(locGroup)}"` : '';
+    let row = `<tr${groupAttr}${hidden ? ' style="display:none"' : ''}>`;
+    row += `<td class="tagesablauf-row-label">${escapeHtml(label)}</td>`;
     for (let h = 0; h < 24; h++) {
-        const s = slotMap[h];
-        const filled = s && s.location === locId && s.activity === actValue;
-        row += `<td class="tagesablauf-cell${filled ? ' tagesablauf-filled' : ''}" data-loc="${escapeHtml(locId)}" data-act="${escapeHtml(actValue)}" data-hour="${h}"></td>`;
+        const filled = _taSlotMatchesKey(slotMap[h], key);
+        const sleepCls = isSleep && filled ? ' tagesablauf-sleep' : '';
+        row += `<td class="tagesablauf-cell${filled ? ' tagesablauf-filled' + sleepCls : ''}" data-key="${escapeHtml(key)}" data-hour="${h}"></td>`;
     }
     return row + '</tr>';
 }
@@ -10647,8 +11050,7 @@ function _taOnMouseDown(e) {
     if (!cell) return;
     e.preventDefault();
     _taDrag.active = true;
-    _taDrag.loc = cell.dataset.loc;
-    _taDrag.act = cell.dataset.act;
+    _taDrag.key = cell.dataset.key;
     _taDrag.startH = parseInt(cell.dataset.hour);
     _taDrag.curH = _taDrag.startH;
     _taUpdatePreview();
@@ -10657,8 +11059,7 @@ function _taOnMouseDown(e) {
 function _taOnMouseOver(e) {
     if (!_taDrag.active) return;
     const cell = e.target.closest('.tagesablauf-cell');
-    if (!cell) return;
-    if (cell.dataset.loc !== _taDrag.loc || cell.dataset.act !== _taDrag.act) return;
+    if (!cell || cell.dataset.key !== _taDrag.key) return;
     _taDrag.curH = parseInt(cell.dataset.hour);
     _taUpdatePreview();
 }
@@ -10669,8 +11070,7 @@ function _taOnTouchStart(e) {
     if (!cell || !cell.classList.contains('tagesablauf-cell')) return;
     e.preventDefault();
     _taDrag.active = true;
-    _taDrag.loc = cell.dataset.loc;
-    _taDrag.act = cell.dataset.act;
+    _taDrag.key = cell.dataset.key;
     _taDrag.startH = parseInt(cell.dataset.hour);
     _taDrag.curH = _taDrag.startH;
     _taUpdatePreview();
@@ -10681,8 +11081,7 @@ function _taOnTouchMove(e) {
     e.preventDefault();
     const touch = e.touches[0];
     const cell = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (!cell || !cell.classList.contains('tagesablauf-cell')) return;
-    if (cell.dataset.loc !== _taDrag.loc || cell.dataset.act !== _taDrag.act) return;
+    if (!cell || !cell.classList.contains('tagesablauf-cell') || cell.dataset.key !== _taDrag.key) return;
     _taDrag.curH = parseInt(cell.dataset.hour);
     _taUpdatePreview();
 }
@@ -10696,24 +11095,29 @@ function _taOnMouseUp() {
 
     const minH = Math.min(_taDrag.startH, _taDrag.curH);
     const maxH = Math.max(_taDrag.startH, _taDrag.curH);
+    const key = _taDrag.key;
+    const isSleep = key.startsWith('sleep');
 
-    // Toggle: Einzelklick auf bereits gefuellte Zelle in gleicher Zeile -> entfernen
+    // Toggle: Einzelklick auf bereits gefuellte Zelle -> entfernen.
     if (minH === maxH) {
-        const cell = grid.querySelector(`.tagesablauf-cell[data-loc="${CSS.escape(_taDrag.loc)}"][data-act="${CSS.escape(_taDrag.act)}"][data-hour="${minH}"]`);
+        const cell = grid.querySelector(`.tagesablauf-cell[data-key="${CSS.escape(key)}"][data-hour="${minH}"]`);
         if (cell && cell.classList.contains('tagesablauf-filled')) {
-            cell.classList.remove('tagesablauf-filled');
+            cell.classList.remove('tagesablauf-filled', 'tagesablauf-sleep');
             _taClearPreview(grid);
             return;
         }
     }
 
-    // Stunden im Bereich: alte Belegung entfernen, neue setzen
     for (let h = minH; h <= maxH; h++) {
+        // Pro Stunde nur ein Eintrag — alle anderen Zellen leeren.
         grid.querySelectorAll(`.tagesablauf-cell[data-hour="${h}"]`).forEach(c => {
-            c.classList.remove('tagesablauf-filled');
+            c.classList.remove('tagesablauf-filled', 'tagesablauf-sleep');
         });
-        const target = grid.querySelector(`.tagesablauf-cell[data-loc="${CSS.escape(_taDrag.loc)}"][data-act="${CSS.escape(_taDrag.act)}"][data-hour="${h}"]`);
-        if (target) target.classList.add('tagesablauf-filled');
+        const target = grid.querySelector(`.tagesablauf-cell[data-key="${CSS.escape(key)}"][data-hour="${h}"]`);
+        if (target) {
+            target.classList.add('tagesablauf-filled');
+            if (isSleep) target.classList.add('tagesablauf-sleep');
+        }
     }
 
     _taClearPreview(grid);
@@ -10726,7 +11130,7 @@ function _taUpdatePreview() {
     const minH = Math.min(_taDrag.startH, _taDrag.curH);
     const maxH = Math.max(_taDrag.startH, _taDrag.curH);
     for (let h = minH; h <= maxH; h++) {
-        const cell = grid.querySelector(`.tagesablauf-cell[data-loc="${CSS.escape(_taDrag.loc)}"][data-act="${CSS.escape(_taDrag.act)}"][data-hour="${h}"]`);
+        const cell = grid.querySelector(`.tagesablauf-cell[data-key="${CSS.escape(_taDrag.key)}"][data-hour="${h}"]`);
         if (cell && !cell.classList.contains('tagesablauf-filled')) cell.classList.add('tagesablauf-preview');
     }
 }
@@ -10740,13 +11144,16 @@ async function saveDailySchedule() {
     if (!grid) return;
 
     const enabled = document.getElementById('tagesablauf-enabled').checked;
+    // Pro Stunde max. eine gefuellte Zelle (per Drag-Logik garantiert).
     const slots = [];
     grid.querySelectorAll('.tagesablauf-cell.tagesablauf-filled').forEach(cell => {
-        slots.push({
-            hour: parseInt(cell.dataset.hour),
-            location: cell.dataset.loc,
-            activity: cell.dataset.act
-        });
+        const h = parseInt(cell.dataset.hour);
+        const k = _taParseKey(cell.dataset.key);
+        if (k.kind === 'sleep') {
+            slots.push({ hour: h, location: '', role: '', sleep: true });
+        } else {
+            slots.push({ hour: h, location: k.loc, role: k.role, sleep: false });
+        }
     });
 
     try {
@@ -10754,16 +11161,17 @@ async function saveDailySchedule() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                
                 character: getEditorCharacterName(),
                 enabled: enabled,
-                slots: slots
+                slots: slots,
             })
         });
         if (!resp.ok) throw new Error('Speichern fehlgeschlagen');
         const data = await resp.json();
-        showStatusToast(`Tagesablauf gespeichert (${data.jobs_created} Jobs)`, 'success');
-        await loadSchedulerJobs();
+        const jobs = data.jobs_created;
+        showStatusToast(jobs !== undefined
+            ? `Tagesablauf gespeichert (${jobs} Jobs)`
+            : 'Tagesablauf gespeichert', 'success');
     } catch (e) {
         console.error('[Tagesablauf] Speichern Fehler:', e);
         showStatusToast('Fehler: ' + e.message, 'error');
@@ -11718,9 +12126,13 @@ function editLocationById(locId) {
     const contentEl = document.getElementById('location-form-content');
     contentEl.innerHTML = `
         <input type="text" id="location-name" class="agent-status-input" placeholder="Name des Ortes" value="${escapeHtml(loc.name)}">
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted);margin:6px 0;cursor:pointer;" title="Durchgangsorte (z.B. Wege, Bruecken) verbinden Felder, sind aber kein Ziel — der LLM bekommt sie nie als Reiseziel angezeigt. Brauchen keine Raeume.">
+            <input type="checkbox" id="location-passable" ${loc.passable ? 'checked' : ''} onchange="_toggleLocationPassableUI()">
+            Durchgangsort (kein Ziel, ohne Raeume)
+        </label>
         <textarea id="location-description" class="agent-status-input" rows="6" placeholder="Beschreibung des Ortes (fuer Roleplay)" style="resize: vertical;">${escapeHtml(loc.description || '')}</textarea>
-        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;display:block;">Outfit-Typ (Dress-Code) — wird fuer Auto-Swap bei Location-Wechsel genutzt</label>
-        <div class="outfit-type-picker">
+        <label class="loc-non-passable-only" style="font-size:11px;color:var(--text-muted);margin-top:6px;display:block;">Outfit-Typ (Dress-Code) — wird fuer Auto-Swap bei Location-Wechsel genutzt</label>
+        <div class="loc-non-passable-only outfit-type-picker">
             <select id="location-outfit-type-select" class="agent-status-input"></select>
             <input type="text" id="location-outfit-type-new" class="agent-status-input" placeholder="Neuer Typ..." style="display:none;">
         </div>
@@ -11734,12 +12146,18 @@ function editLocationById(locId) {
             <textarea id="location-image-prompt-day" class="agent-status-input" rows="3" placeholder="Prompt fuer Hintergrundbild bei Tag (6-18 Uhr)" style="resize:vertical;margin-bottom:6px;">${escapeHtml(loc.image_prompt_day || '')}</textarea>
             <textarea id="location-image-prompt-night" class="agent-status-input" rows="3" placeholder="Prompt fuer Hintergrundbild bei Nacht (18-6 Uhr)" style="resize:vertical;margin-bottom:6px;">${escapeHtml(loc.image_prompt_night || '')}</textarea>
             <textarea id="location-image-prompt-map" class="agent-status-input" rows="2" placeholder="Prompt fuer Kartenbild (kleines Icon statt Haussymbol)" style="resize:vertical;">${escapeHtml(loc.image_prompt_map || '')}</textarea>
+            <div class="form-row-inline" style="gap:8px;align-items:center;margin-top:6px;">
+                <label style="font-size:11px;color:var(--text-muted);white-space:nowrap;" title="Hoehere Werte ueberdecken Icons mit niedrigerem Z. Default 0 = isometrische Reihenfolge.">Z-Order auf Karte:</label>
+                <input type="number" id="location-map-z-offset" class="agent-status-input" min="-10" max="10" step="1" value="${parseInt(loc.map_z_offset) || 0}" style="width:70px;">
+                <span style="font-size:10px;color:var(--text-muted);">+ = Vordergrund, − = Hintergrund</span>
+            </div>
             ${loc.prompt_changed ? '<div class="prompt-changed-hint">Prompt geaendert — noch kein Bild generiert <button class="prompt-changed-dismiss" onclick="clearPromptChanged(\'' + escapeHtml(locId) + '\')">Markierung entfernen</button></div>' : ''}
         </div>
     `;
     _setupSingleOutfitTypePicker('location-outfit-type-select', 'location-outfit-type-new',
                                   'location-outfit-type', loc.outfit_type || '');
     _populateKnowledgeItemSelect('location-knowledge-item', loc.knowledge_item_id || '');
+    _toggleLocationPassableUI();
 
     // Danger-Level + Zufaellige Events in Spalte 3 (location-extras-panel)
     const extrasEl = document.getElementById('location-extras-panel');
@@ -12161,8 +12579,16 @@ function _renderLocationTree() {
         listEl.innerHTML = '<p class="scheduler-empty">Keine Orte vorhanden</p>';
         return;
     }
+    // Klone-Counter pro Template (template_location_id zaehlen)
+    const cloneCount = {};
+    for (const l of locations) {
+        const t = (l.template_location_id || '').trim();
+        if (t) cloneCount[t] = (cloneCount[t] || 0) + 1;
+    }
     let html = '<div class="world-tree">';
     for (const loc of locations) {
+        // Klone werden im Tree NICHT angezeigt — nur Templates / normale Orte
+        if ((loc.template_location_id || '').trim()) continue;
         const locId = loc.id || loc.name;
         const rooms = loc.rooms || [];
         const hasRooms = rooms.length > 0;
@@ -12177,10 +12603,15 @@ function _renderLocationTree() {
             html += `<span class="world-tree-toggle empty"></span>`;
         }
         const locPromptChanged = loc.prompt_changed || (rooms || []).some(r => r.prompt_changed);
-        html += `<span class="world-tree-label" onclick="editLocationById('${escapeHtml(locId)}')">${escapeHtml(loc.name)}${locPromptChanged ? ' <span class="prompt-changed-dot" title="Prompt geaendert — kein Bild generiert"></span>' : ''}</span>`;
+        const cloneBadge = (loc.passable && cloneCount[locId])
+            ? ` <span class="world-tree-clone-count" title="${cloneCount[locId]}× auf der Karte platziert">${cloneCount[locId]}×</span>`
+            : '';
+        html += `<span class="world-tree-label" onclick="editLocationById('${escapeHtml(locId)}')">${escapeHtml(loc.name)}${cloneBadge}${locPromptChanged ? ' <span class="prompt-changed-dot" title="Prompt geaendert — kein Bild generiert"></span>' : ''}</span>`;
         html += `<span class="world-tree-actions">`;
         html += `<button class="world-tree-btn" onclick="event.stopPropagation(); editLocationById('${escapeHtml(locId)}')" title="Bearbeiten">&#9998;</button>`;
-        html += `<button class="world-tree-btn" onclick="event.stopPropagation(); addRoomToLocation('${escapeHtml(locId)}')" title="Neuer Raum">&#8862;</button>`;
+        if (!loc.passable) {
+            html += `<button class="world-tree-btn" onclick="event.stopPropagation(); addRoomToLocation('${escapeHtml(locId)}')" title="Neuer Raum">&#8862;</button>`;
+        }
         html += `<button class="world-tree-btn" onclick="event.stopPropagation(); deleteLocation('${escapeHtml(locId)}')" title="Loeschen">&#128465;</button>`;
         html += `</span>`;
         html += `</div>`;
@@ -12247,14 +12678,26 @@ async function clearPromptChanged(locationId, roomId) {
     }
 }
 
+function _toggleLocationPassableUI() {
+    const cb = document.getElementById('location-passable');
+    if (!cb) return;
+    const passable = cb.checked;
+    document.querySelectorAll('.loc-non-passable-only').forEach(el => {
+        el.style.display = passable ? 'none' : '';
+    });
+}
+
 async function saveLocation() {
     const name = document.getElementById('location-name').value.trim();
     const description = document.getElementById('location-description').value.trim();
     const imagePromptDay = (document.getElementById('location-image-prompt-day') || {}).value || '';
     const imagePromptNight = (document.getElementById('location-image-prompt-night') || {}).value || '';
     const imagePromptMap = (document.getElementById('location-image-prompt-map') || {}).value || '';
+    const mapZOffsetEl = document.getElementById('location-map-z-offset');
+    const mapZOffset = mapZOffsetEl ? (parseInt(mapZOffsetEl.value) || 0) : 0;
     const outfitType = ((document.getElementById('location-outfit-type') || {}).value || '').trim();
     const knowledgeItemId = (document.getElementById('location-knowledge-item')?.value || '').trim();
+    const passable = !!(document.getElementById('location-passable')?.checked);
 
     if (!name) {
         showStatusToast('Name fehlt', 'error');
@@ -12291,19 +12734,19 @@ async function saveLocation() {
             image_prompt_map: imagePromptMap,
         };
         if (editingLocationId) {
-            // Bestehende Raeume beibehalten
+            // Bestehende Raeume beibehalten — bei passable=true werden sie geleert.
             const loc = (_cachedWorldLocations || []).find(l => l.id === editingLocationId);
-            const rooms = loc ? (loc.rooms || []) : [];
+            const rooms = passable ? [] : (loc ? (loc.rooms || []) : []);
             response = await fetch(`/world/locations/${encodeURIComponent(editingLocationId)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, description, rooms, danger_level: dangerLevel, outfit_type: outfitType, knowledge_item_id: knowledgeItemId, ...imageFields, ...(event_settings ? {event_settings} : {}) })
+                body: JSON.stringify({ name, description, rooms, danger_level: dangerLevel, outfit_type: outfitType, knowledge_item_id: knowledgeItemId, passable, map_z_offset: mapZOffset, ...imageFields, ...(event_settings ? {event_settings} : {}) })
             });
         } else {
             response = await fetch('/world/locations', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, description, rooms: [], danger_level: dangerLevel, outfit_type: outfitType, ...imageFields, ...(event_settings ? {event_settings} : {}) })
+                body: JSON.stringify({ name, description, rooms: [], danger_level: dangerLevel, outfit_type: outfitType, passable, map_z_offset: mapZOffset, ...imageFields, ...(event_settings ? {event_settings} : {}) })
             });
         }
 
@@ -12614,22 +13057,11 @@ async function refreshAfterAvatarMove() {
         loadRoomItemsPanel(locId, roomId);
     }
 
-    // 5. Aktiver Chat-Partner: Header + Scene neu laden (Avatar-Bewegung kann
-    // Sicht/Activity-Pfad beeinflussen, z.B. is-anwesend-Hinweis im Prompt).
-    // Auch das Chat-Medium neu auflösen — wenn Avatar zum Partner gerueckt
-    // ist, wird messaging → in_person (oder umgekehrt).
-    if (typeof currentCharacterName !== 'undefined' && currentCharacterName
-            && currentCharacterName !== 'KI') {
-        if (typeof _loadCharacterHeaderState === 'function') {
-            _loadCharacterHeaderState(currentCharacterName);
-        }
-        if (typeof _recomputeChatMedium === 'function') {
-            await _recomputeChatMedium();
-        }
-        if (typeof updateCharacterScene === 'function') {
-            updateCharacterScene(currentCharacterName);
-        }
-    }
+    // 5. Sofortiger Live-Tick — server-seitiger State (Sidebar, Medium,
+    // Agent-Header, Conditions, Status-Bars) wird fuer den neuen Avatar-Ort
+    // neu berechnet und an die UI verteilt. Loest auch den Phone/Expression-
+    // Switch (Medium-Hint aus Snapshot) wenn Agent nicht mehr same-room ist.
+    if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
 }
 
 async function updateLocationBackground(locationId, roomId) {
@@ -14855,14 +15287,39 @@ async function _loadEditorActivities(charName) {
         const extraIds = extraData.extra_activities || [];
         const templateExtras = extraData.template_extras || [];
 
+        // Coverage-Diagnose: welche Template-Activities sind in der Library?
+        let coverage = { missing: [], present: [] };
+        try {
+            const covResp = await fetch(`/templates/coverage/${encodeURIComponent(cName)}`);
+            if (covResp.ok) coverage = await covResp.json();
+        } catch (_) {}
+        const missingSet = new Set(coverage.missing || []);
+
         let html = '';
         const _actCatLabels = {normal:'Normal',secret:'Geheim',dangerous:'Gefaehrlich',social:'Sozial',creative:'Kreativ',investigation:'Ermittlung',training:'Training',rest:'Erholung'};
         const _actVisLabels = {visible:'Sichtbar',hidden:'Versteckt',disguised:'Getarnt'};
 
         // Template-Basis zuerst (read-only, mit Hinweis)
         if (templateExtras.length) {
-            html += `<div style="font-size:10px;color:var(--text-muted);padding:2px 8px 4px;">Vom Template geerbt (automatisch verfuegbar):</div>`;
+            const missingCount = missingSet.size;
+            const seedBtn = missingCount > 0
+                ? `<button class="save-btn" style="font-size:10px;padding:2px 8px;margin-left:6px;" onclick="_seedTemplateActivities('${escapeHtml(cName)}')">${missingCount} fehlende anlegen</button>`
+                : '';
+            const headColor = missingCount > 0 ? 'var(--error-color, #c44)' : 'var(--text-muted)';
+            html += `<div style="font-size:10px;color:${headColor};padding:2px 8px 4px;display:flex;align-items:center;">
+                Vom Template geerbt (automatisch verfuegbar):${seedBtn}
+            </div>`;
             for (const actId of templateExtras) {
+                const isMissing = missingSet.has(actId);
+                if (isMissing) {
+                    html += `<div class="world-item" style="background:rgba(200,50,50,0.08);padding:4px 8px;border-left:2px solid var(--error-color, #c44);">
+                        <div class="world-item-info" style="gap:1px;">
+                            <strong style="font-size:12px;">⚠ ${escapeHtml(actId)}</strong>
+                            <span class="world-item-desc" style="font-size:11px;color:var(--error-color, #c44);">Fehlt in der Library — Char hat diese Activity nicht. Klick "fehlende anlegen" oder lege sie manuell unter Game Admin → Aktivitaeten an (id muss exakt "${escapeHtml(actId)}" sein).</span>
+                        </div>
+                    </div>`;
+                    continue;
+                }
                 try {
                     const libResp = await fetch(`/activities/library/${encodeURIComponent(actId)}`);
                     const a = libResp.ok ? (await libResp.json()).activity : null;
@@ -14914,6 +15371,29 @@ async function _loadEditorActivities(charName) {
         listEl.innerHTML = html || '<p class="scheduler-empty">Keine Aktivitaeten zugewiesen</p>';
     } catch (error) {
         console.error('[EditorAct] Fehler:', error);
+    }
+}
+
+// Legt fuer alle fehlenden Template-extra_activities Stubs in der Welt-
+// Library an. Anschliessend Editor-Aktivitaetenliste neu laden, damit die
+// neuen Eintraege auftauchen.
+async function _seedTemplateActivities(cName) {
+    if (!cName) return;
+    if (!confirm("Skelett-Eintraege fuer alle fehlenden Template-Activities anlegen?\n\nDie Stubs haben keinen Effekt-/Condition-Inhalt — du musst sie unter Game Admin → Aktivitaeten editieren.")) return;
+    try {
+        const r = await fetch(`/templates/coverage/${encodeURIComponent(cName)}/seed`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+        });
+        if (!r.ok) {
+            const t = await r.text();
+            showStatusToast('Seeding fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            return;
+        }
+        const data = await r.json();
+        showStatusToast(`${data.count} Stub(s) angelegt: ${(data.created||[]).join(', ')}`, 'success');
+        await _loadEditorActivities(cName);
+    } catch (e) {
+        showStatusToast('Fehler beim Seeding: ' + e.message, 'error');
     }
 }
 
@@ -15489,7 +15969,6 @@ async function _removeExtraActivity(activityId) {
 let _libEditingId = null;
 let _libActivityGroups = null; // cached for follow-up dropdowns
 let _actFollowUps = [];  // [{activity_id, probability}, ...]
-let _cumFollowUps = [];  // [{activity_id, probability}, ...]
 
 function _buildGroupedActivityOptions(selectedId) {
     let html = '<option value="">-- Keine --</option>';
@@ -15505,53 +15984,43 @@ function _buildGroupedActivityOptions(selectedId) {
     return html;
 }
 
-function _renderFollowUps(type) {
-    const list = type === 'cum' ? _cumFollowUps : _actFollowUps;
-    const container = document.getElementById(type === 'cum' ? 'lib-act-cum-followups' : 'lib-act-followups');
+function _renderFollowUps(_type) {
+    const container = document.getElementById('lib-act-followups');
     if (!container) return;
-    if (list.length === 0) { container.innerHTML = ''; return; }
-    container.innerHTML = list.map((fu, i) => `
+    if (_actFollowUps.length === 0) { container.innerHTML = ''; return; }
+    container.innerHTML = _actFollowUps.map((fu, i) => `
         <div class="form-row-inline" style="margin-bottom:3px;">
-            <select class="agent-status-input" style="flex:1;" onchange="_updateFollowUp('${type}',${i},'id',this.value)">
+            <select class="agent-status-input" style="flex:1;" onchange="_updateFollowUp(${i},'id',this.value)">
                 ${_buildGroupedActivityOptions(fu.activity_id || '')}
             </select>
-            <input type="number" class="agent-status-input" value="${fu.probability || ''}" min="0" max="100" placeholder="%" style="width:55px;" onchange="_updateFollowUp('${type}',${i},'prob',this.value)">
-            <button class="job-delete-btn" onclick="_removeFollowUp('${type}',${i})" title="Entfernen">\u2715</button>
+            <input type="number" class="agent-status-input" value="${fu.probability || ''}" min="0" max="100" placeholder="%" style="width:55px;" onchange="_updateFollowUp(${i},'prob',this.value)">
+            <button class="job-delete-btn" onclick="_removeFollowUp(${i})" title="Entfernen">\u2715</button>
         </div>
     `).join('');
 }
 
-function _updateFollowUp(type, idx, field, value) {
-    const list = type === 'cum' ? _cumFollowUps : _actFollowUps;
-    if (!list[idx]) return;
-    if (field === 'id') list[idx].activity_id = value;
-    else list[idx].probability = parseInt(value) || 0;
+function _updateFollowUp(idx, field, value) {
+    if (!_actFollowUps[idx]) return;
+    if (field === 'id') _actFollowUps[idx].activity_id = value;
+    else _actFollowUps[idx].probability = parseInt(value) || 0;
 }
 
-function _removeFollowUp(type, idx) {
-    const list = type === 'cum' ? _cumFollowUps : _actFollowUps;
-    list.splice(idx, 1);
-    _renderFollowUps(type);
+function _removeFollowUp(idx) {
+    _actFollowUps.splice(idx, 1);
+    _renderFollowUps();
 }
 
-function _addFollowUpRow(type) {
-    const list = type === 'cum' ? _cumFollowUps : _actFollowUps;
-    list.push({ activity_id: '', probability: 50 });
-    _renderFollowUps(type);
+function _addFollowUpRow() {
+    _actFollowUps.push({ activity_id: '', probability: 50 });
+    _renderFollowUps();
 }
 
-function _loadFollowUps(activity, cumulative_effect) {
+function _loadFollowUps(activity) {
     _actFollowUps = (activity.follow_up_activities || []).map(fu => ({
         activity_id: fu.activity_id || fu.activity || '',
         probability: fu.probability != null ? fu.probability : 50,
     }));
-    const cum = cumulative_effect || {};
-    _cumFollowUps = (cum.follow_up_activities || []).map(fu => ({
-        activity_id: fu.activity_id || fu.activity || '',
-        probability: fu.probability != null ? fu.probability : 50,
-    }));
-    _renderFollowUps('act');
-    _renderFollowUps('cum');
+    _renderFollowUps();
 }
 
 function openGameAdminModal(tab) {
@@ -15608,7 +16077,7 @@ function switchGameAdminTab(tabName) {
         if (!_libActivityGroups) _loadActivityLibraryList();
         if (!_cachedWorldLocations) loadLocations().then(() => _loadRulesList()); else _loadRulesList();
     }
-    if (tabName === 'modifiers') { _loadModifiersList(); }
+    if (tabName === 'prompt_filters') { _loadPromptFiltersList(); }
 }
 
 // Legacy alias
@@ -15718,25 +16187,29 @@ function _hideAllEditForms() {
     if (ph) ph.style.display = 'block';
 }
 
-function newLibraryActivity() {
+async function newLibraryActivity() {
     _libEditingId = null;
     _actFollowUps = [];
-    _cumFollowUps = [];
     _showActivityColumns();
     document.getElementById('activity-library-form-title').textContent = 'Neue Aktivitaet';
-    ['lib-act-id','lib-act-name','lib-act-name-de','lib-act-description','lib-act-description-de','lib-act-condition','lib-act-cum-name','lib-act-cum-mood'].forEach(id => {
+    ['lib-act-id','lib-act-name','lib-act-description','lib-act-condition','lib-act-cum-mood'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
+    await _populateConditionSelect(document.getElementById('lib-act-cum-name'), '');
     document.getElementById('lib-act-category').value = 'normal';
     document.getElementById('lib-act-visibility').value = 'visible';
     document.getElementById('lib-act-effects').value = '';
     document.getElementById('lib-act-cooldown').value = '0';
     document.getElementById('lib-act-duration').value = '0';
+    const etDef = document.getElementById('lib-act-effect-type');
+    if (etDef) etDef.value = 'ongoing';
+    const apDef = document.getElementById('lib-act-auto-pick');
+    if (apDef) apDef.value = 'true';
     document.getElementById('lib-act-cum-threshold').value = '';
     document.getElementById('lib-act-cum-duration').value = '';
     document.getElementById('lib-act-cum-effects').value = '';
     document.getElementById('lib-act-target').value = 'world';
-    document.getElementById('lib-act-group').value = '';
+    _populateLibActGroupSelect('');
     _setLibActOutfitType('');
     _populateOutfitTypeDatalist();
     const paEl = document.getElementById('lib-act-partner-activity');
@@ -15749,8 +16222,7 @@ function newLibraryActivity() {
     if (invEl) invEl.value = '';
     const fbRow = document.getElementById('lib-act-fallback-row');
     if (fbRow) fbRow.style.display = 'none';
-    _renderFollowUps('act');
-    _renderFollowUps('cum');
+    _renderFollowUps();
     document.getElementById('lib-act-id').focus();
 }
 
@@ -15775,6 +16247,55 @@ async function _populateOutfitTypeDatalist() {
             _populateOutfitTypeDatalist();  // remaining neu filtern
         };
     } catch(e) {}
+}
+
+function _populateLibActGroupSelect(currentGroup) {
+    // Befuellt das Group-Dropdown mit allen bekannten Gruppen + "+ new group".
+    // Wenn currentGroup gesetzt ist und nicht in der Liste vorkommt, wird sie
+    // als ausgewaehlte Option ergaenzt (z.B. wenn ein Activity seine Gruppe
+    // verloren hat).
+    const sel = document.getElementById('lib-act-group-select');
+    const inp = document.getElementById('lib-act-group');
+    if (!sel || !inp) return;
+    const groups = Object.keys(_libActivityGroups || {})
+        .filter(g => g && g !== 'Sonstige')
+        .sort((a, b) => a.localeCompare(b));
+    if (currentGroup && !groups.includes(currentGroup)) groups.unshift(currentGroup);
+    let html = '<option value="">-- group --</option>';
+    for (const g of groups) {
+        html += `<option value="${escapeHtml(g)}"${g === currentGroup ? ' selected' : ''}>${escapeHtml(g)}</option>`;
+    }
+    html += '<option value="__new__">+ new group</option>';
+    sel.innerHTML = html;
+    sel.value = currentGroup && groups.includes(currentGroup) ? currentGroup : '';
+    inp.value = '';
+    inp.style.display = 'none';
+}
+
+function _onLibActGroupSelectChange() {
+    const sel = document.getElementById('lib-act-group-select');
+    const inp = document.getElementById('lib-act-group');
+    if (!sel || !inp) return;
+    if (sel.value === '__new__') {
+        inp.style.display = '';
+        inp.value = '';
+        inp.focus();
+    } else {
+        inp.style.display = 'none';
+        inp.value = '';
+    }
+}
+
+function _readLibActGroup() {
+    // Liefert den aktuell gewaehlten Gruppennamen — entweder aus dem Select
+    // oder, falls "+ new group", aus dem Text-Input.
+    const sel = document.getElementById('lib-act-group-select');
+    const inp = document.getElementById('lib-act-group');
+    if (!sel) return '';
+    if (sel.value === '__new__') {
+        return (inp?.value || '').trim();
+    }
+    return sel.value || '';
 }
 
 function _readLibActOutfitType() {
@@ -15815,20 +16336,20 @@ async function editLibraryActivity(actId) {
         document.getElementById('activity-library-form-title').textContent = 'Aktivitaet bearbeiten';
         document.getElementById('lib-act-id').value = act.id || '';
         document.getElementById('lib-act-name').value = act.name || '';
-        document.getElementById('lib-act-name-de').value = act.name_de || '';
         document.getElementById('lib-act-description').value = act.description || '';
-        document.getElementById('lib-act-description-de').value = act.description_de || '';
         document.getElementById('lib-act-category').value = act.category || 'normal';
         document.getElementById('lib-act-visibility').value = act.visibility || 'visible';
         document.getElementById('lib-act-condition').value = act.condition || '';
         // Partner-Aktivitaet Dropdown
         const paEl = document.getElementById('lib-act-partner-activity');
         if (paEl) paEl.innerHTML = _buildGroupedActivityOptions(act.partner_activity || '');
-        document.getElementById('lib-act-cooldown').value = String(act.cooldown_hours || 0);
+        document.getElementById('lib-act-cooldown').value = String(act.cooldown_minutes || 0);
         document.getElementById('lib-act-duration').value = String(act.duration_minutes || 0);
+        const etEl = document.getElementById('lib-act-effect-type');
+        if (etEl) etEl.value = (act.effect_type === 'once') ? 'once' : 'ongoing';
         _setLibActOutfitType(act.outfit_type || '');
         _populateOutfitTypeDatalist();
-        document.getElementById('lib-act-group').value = act._group || '';
+        _populateLibActGroupSelect(act._group || '');
         document.getElementById('lib-act-target').value = act._origin || 'world';
         // Effects
         const effEl = document.getElementById('lib-act-effects');
@@ -15838,6 +16359,9 @@ async function editLibraryActivity(actId) {
         // Interruptible
         const intEl = document.getElementById('lib-act-interruptible');
         if (intEl) intEl.checked = act.interruptible !== false;
+        // Auto-Pick (Selectable vs Follow-up only)
+        const apEl = document.getElementById('lib-act-auto-pick');
+        if (apEl) apEl.value = (act.auto_pick === false) ? 'false' : 'true';
         // Required Roles
         const rrEl = document.getElementById('lib-act-required-roles');
         if (rrEl) rrEl.value = (act.required_roles || []).join(', ');
@@ -15853,7 +16377,7 @@ async function editLibraryActivity(actId) {
         // Cumulative
         const cum = act.cumulative_effect || {};
         document.getElementById('lib-act-cum-threshold').value = cum.threshold ? String(cum.threshold) : '';
-        document.getElementById('lib-act-cum-name').value = cum.condition_name || '';
+        await _populateConditionSelect(document.getElementById('lib-act-cum-name'), cum.condition_name || '');
         // prompt_modifier entfernt — wird ueber Zustaende (status_modifiers) konfiguriert
         document.getElementById('lib-act-cum-mood').value = cum.mood_influence || '';
         document.getElementById('lib-act-cum-duration').value = cum.duration_hours ? String(cum.duration_hours) : '';
@@ -15863,7 +16387,7 @@ async function editLibraryActivity(actId) {
             cumEffEl.value = Object.entries(cum.effects).filter(([,v]) => v !== 0 && v !== null).map(([k,v]) => `${k}: ${v}`).join('\n');
         } else if (cumEffEl) { cumEffEl.value = ''; }
         // Follow-up activities
-        _loadFollowUps(act, cum);
+        _loadFollowUps(act);
     } catch (e) {
         console.error('[LibModal] Edit Fehler:', e);
     }
@@ -15899,31 +16423,30 @@ async function saveLibraryActivity() {
     if (cumTh > 0 && cumName) {
         cumulative_effect = { threshold: cumTh, condition_name: cumName, mood_influence: cumMood, duration_hours: cumDur };
         if (Object.keys(cumEffects).length > 0) cumulative_effect.effects = cumEffects;
-        // Kumulative Folge-Aktivitaeten
-        const validCumFu = _cumFollowUps.filter(fu => fu.activity_id);
-        if (validCumFu.length > 0) cumulative_effect.follow_up_activities = validCumFu;
     }
     // Aktivitaets-Folge-Aktivitaeten
     const validActFu = _actFollowUps.filter(fu => fu.activity_id);
     const interruptible = document.getElementById('lib-act-interruptible')?.checked ?? true;
+    const autoPick = (document.getElementById('lib-act-auto-pick')?.value || 'true') === 'true';
 
-    const nameDe = document.getElementById('lib-act-name-de').value.trim();
-    const descDe = document.getElementById('lib-act-description-de').value.trim();
+    const effectType = (document.getElementById('lib-act-effect-type')?.value || 'ongoing');
+    const cooldownMinutes = parseInt(document.getElementById('lib-act-cooldown').value) || 0;
+    const groupValue = _readLibActGroup() || 'custom';
     const activity = {
         id, name,
         description: document.getElementById('lib-act-description').value.trim(),
         category: document.getElementById('lib-act-category').value,
         visibility: document.getElementById('lib-act-visibility').value,
         condition: document.getElementById('lib-act-condition').value.trim(),
-        cooldown_hours: parseInt(document.getElementById('lib-act-cooldown').value) || 0,
+        effect_type: effectType,
+        cooldown_minutes: cooldownMinutes,
         duration_minutes: parseInt(document.getElementById('lib-act-duration').value) || 0,
         outfit_type: _readLibActOutfitType(),
         effects,
         interruptible,
-        _group: document.getElementById('lib-act-group').value.trim() || 'custom',
+        auto_pick: autoPick,
+        _group: groupValue,
     };
-    if (nameDe) activity.name_de = nameDe;
-    if (descDe) activity.description_de = descDe;
     // Required Roles parsen
     const rolesRaw = document.getElementById('lib-act-required-roles')?.value || '';
     const requiredRoles = rolesRaw.split(',').map(s => s.trim()).filter(Boolean);
@@ -15959,7 +16482,9 @@ async function saveLibraryActivity() {
             document.getElementById('activity-library-form-title').textContent = 'Aktivitaet bearbeiten';
             await _loadActivityLibraryList();
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            let msg = 'Fehler beim Speichern';
+            try { const err = await resp.json(); if (err && err.detail) msg = String(err.detail); } catch (_) {}
+            showStatusToast(msg, 'error');
         }
     } catch (e) {
         console.error('[LibModal] Save Fehler:', e);
@@ -15995,15 +16520,19 @@ let _itemsCache = [];
 
 const _ITEM_CAT_LABELS = {
     key: 'Schluessel', tool: 'Werkzeuge', consumable: 'Verbrauchbar',
-    evidence: 'Beweise', gift: 'Geschenke', quest: 'Quest',
+    evidence: 'Beweise', gift: 'Geschenke', spell: 'Zauber', quest: 'Quest',
     decoration: 'Deko', outfit_piece: 'Outfits', other: 'Sonstige',
 };
 const _ITEM_CAT_ICONS = {
     key: '🔑', tool: '🔧', consumable: '🧪', evidence: '🔍',
-    gift: '🎁', quest: '📜', decoration: '🖼️', outfit_piece: '👕',
+    gift: '🎁', spell: '🪄', quest: '📜', decoration: '🖼️', outfit_piece: '👕',
     other: '📦',
 };
-const _RARITY_RANK = { generic: 0, common: 1, rare: 2, unique: 3 };
+const _RARITY_RANK = { common: 0, rare: 1, unique: 2 };
+// Kategorien bei denen Magic/TTL-Felder + Evidence-Felder sichtbar sind.
+// Outfit-Teile, Werkzeuge, Schluessel, Deko etc. brauchen das nicht.
+const _ITEM_CATS_WITH_MAGIC = new Set(['spell', 'consumable', 'gift']);
+const _ITEM_CATS_WITH_EVIDENCE = new Set(['gift', 'quest', 'evidence']);
 
 async function _loadItemsList() {
     const listEl = document.getElementById('items-list');
@@ -16054,9 +16583,7 @@ function _renderItemsList() {
         const isShared = scope === 'shared';
         const sharedBadge = isShared ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:#2b5a8e;color:#fff;margin-left:4px;">shared</span>' : '';
         const rarity = item.rarity || 'common';
-        const rarityBadge = rarity !== 'generic'
-            ? `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-alt);border:1px solid var(--border);color:var(--text-muted);margin-left:4px;">${escapeHtml(rarity)}</span>`
-            : '';
+        const rarityBadge = `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--bg-alt);border:1px solid var(--border);color:var(--text-muted);margin-left:4px;">${escapeHtml(rarity)}</span>`;
         const moveBtn = isShared
             ? `<button class="save-btn items-list-move-world" data-item="${escapeHtml(item.id)}" title="In die Welt verschieben">← Welt</button>`
             : `<button class="save-btn items-list-move-shared" data-item="${escapeHtml(item.id)}" title="In die Shared Library verschieben">→ Shared</button>`;
@@ -16272,13 +16799,15 @@ function _setItemImagePreview(url) {
     }
 }
 
-function _newItem() {
+async function _newItem() {
     _editingItemId = null;
     document.getElementById('item-edit-form').style.display = 'flex';
     document.getElementById('item-placeholder').style.display = 'none';
     document.getElementById('item-edit-id').value = '';
     ['item-edit-name','item-edit-description',
-     'item-edit-image-prompt','item-edit-prompt-fragment'].forEach(id => {
+     'item-edit-image-prompt','item-edit-prompt-fragment',
+     'item-edit-incantation','item-edit-success-text','item-edit-fail-text',
+     'item-edit-success-chance'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
     _renderItemOutfitTypeTags([]);
@@ -16288,18 +16817,22 @@ function _newItem() {
     document.getElementById('item-edit-stackable').checked = false;
     document.getElementById('item-edit-transferable').checked = true;
     document.getElementById('item-edit-consumable').checked = false;
+    document.getElementById('item-edit-spell-mode').value = 'force';
+    document.getElementById('item-edit-copy-on-give').checked = false;
+    await _populateCloneItemSelect('');
     _renderItemEditSlots(['outer']);
     _renderItemEditCovers([], [], ['outer']);
     const effEl = document.getElementById('item-edit-effects');
     if (effEl) effEl.value = '';
     const acEl = document.getElementById('item-edit-apply-condition');
-    if (acEl) acEl.value = '';
+    if (acEl) await _populateConditionSelect(acEl, '');
     const cdEl = document.getElementById('item-edit-condition-duration');
     if (cdEl) cdEl.value = '';
     _toggleOutfitPieceSection();
     _showItemImagePanel(false);
     _populateRevealsOwnerSelect();
     document.getElementById('item-edit-reveals-secret').innerHTML = '<option value="">-- Geheimnis --</option>';
+    _populateTracksCharacterSelect('');
     // Kein Item -> Owner-Panel ausblenden
     const ownPanel = document.getElementById('item-owners-panel');
     if (ownPanel) ownPanel.style.display = 'none';
@@ -16309,11 +16842,21 @@ function _toggleOutfitPieceSection() {
     const cat = (document.getElementById('item-edit-category')?.value || '').trim();
     const sec = document.getElementById('item-edit-outfit-piece-section');
     if (sec) sec.style.display = cat === 'outfit_piece' ? 'block' : 'none';
-    // Evidence-Sektion nur sinnvoll bei Kategorien, in denen ein Item Geheimnisse enthuellen kann.
-    // Outfit-Teile und Consumables sind kein "Beweismittel" — Sektion ausblenden.
+    // Evidence-Sektion: nur Kategorien wo ein Item ein Geheimnis enthuellen kann
+    // (Beweis/Geschenk/Quest). Outfit, Tool, Spell, Consumable haben das nicht.
     const evSec = document.getElementById('item-edit-evidence-section');
-    if (evSec) evSec.style.display = (cat === 'outfit_piece' || cat === 'consumable') ? 'none' : 'block';
-    // Consumable-Effekt-Sektion nur bei consumable-Kategorie ODER wenn Checkbox manuell gesetzt.
+    if (evSec) evSec.style.display = _ITEM_CATS_WITH_EVIDENCE.has(cat) ? 'block' : 'none';
+    // Magic/Spell-Sektion: nur Spell/Consumable/Gift. Andere Kategorien
+    // brauchen die Spell-Felder nicht.
+    const magicSec = document.getElementById('item-edit-magic-section');
+    if (magicSec) magicSec.style.display = _ITEM_CATS_WITH_MAGIC.has(cat) ? 'block' : 'none';
+    // Prompt-Fragment (Character-Bild) bei Spell ausblenden — Spells haengen
+    // visuell nicht am Avatar, das Feld waere irrefuehrend.
+    const fragWrap = document.getElementById('item-edit-prompt-fragment-wrap');
+    if (fragWrap) fragWrap.style.display = cat === 'spell' ? 'none' : '';
+    // Consumable-Effekt-Sektion: bei Spell + Consumable + Gift (alle die
+    // Effects/apply_condition tragen koennen). Manuell setzbare Checkbox
+    // bleibt als zusaetzlicher Override.
     _toggleConsumableEffectSection();
 }
 
@@ -16321,7 +16864,9 @@ function _toggleConsumableEffectSection() {
     const cat = (document.getElementById('item-edit-category')?.value || '').trim();
     const isConsumable = !!document.getElementById('item-edit-consumable')?.checked;
     const sec = document.getElementById('item-edit-consumable-section');
-    if (sec) sec.style.display = (cat === 'consumable' || isConsumable) ? 'block' : 'none';
+    // Sektion fuer alle Kategorien sichtbar machen die Effects tragen koennen
+    // (gleicher Set wie Magic). Plus manueller Consumable-Toggle als Override.
+    if (sec) sec.style.display = (_ITEM_CATS_WITH_MAGIC.has(cat) || isConsumable) ? 'block' : 'none';
 }
 
 function _renderItemEditCovers(covered, partiallyCovers, slots) {
@@ -16480,6 +17025,19 @@ async function _populateRevealsOwnerSelect(selectedOwner = '') {
     } catch (e) { console.warn('[Reveals] owner load failed', e); }
 }
 
+async function _populateTracksCharacterSelect(selectedTarget = '') {
+    const sel = document.getElementById('item-edit-tracks-character');
+    if (!sel) return;
+    try {
+        const resp = await fetch(`/characters/list`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const chars = (data.characters || []).map(c => typeof c === 'string' ? c : c.name).filter(Boolean);
+        sel.innerHTML = '<option value="">-- none --</option>' +
+            chars.map(c => `<option value="${escapeHtml(c)}"${c === selectedTarget ? ' selected' : ''}>${escapeHtml(c)}</option>`).join('');
+    } catch (e) { console.warn('[Tracker] character load failed', e); }
+}
+
 async function _populateRevealsSecretSelect(owner, selectedSecretId = '') {
     const sel = document.getElementById('item-edit-reveals-secret');
     if (!sel) return;
@@ -16530,10 +17088,25 @@ async function _editItem(itemId) {
         const effEl = document.getElementById('item-edit-effects');
         if (effEl) effEl.value = effLines.join('\n');
         const acEl = document.getElementById('item-edit-apply-condition');
-        if (acEl) acEl.value = effObj.apply_condition || '';
+        if (acEl) {
+            await _populateConditionSelect(acEl, effObj.apply_condition || '');
+        }
+        // Magic / Spell-Felder
+        document.getElementById('item-edit-incantation').value = item.incantation || '';
+        document.getElementById('item-edit-spell-mode').value = item.spell_mode || 'force';
+        await _populateCloneItemSelect(item.clone_item_id || '', item.id);
+        await _populateCastActivitySelect(item.cast_activity || '');
+        document.getElementById('item-edit-success-chance').value =
+            (item.success_chance !== undefined && item.success_chance !== null && item.success_chance !== '')
+                ? String(item.success_chance) : '';
+        document.getElementById('item-edit-copy-on-give').checked = !!item.copy_on_give;
+        document.getElementById('item-edit-success-text').value = item.success_text || '';
+        document.getElementById('item-edit-fail-text').value = item.fail_text || '';
         const cdEl = document.getElementById('item-edit-condition-duration');
         if (cdEl) cdEl.value = effObj.condition_duration_hours || '';
         _toggleOutfitPieceSection();
+        // Tracker: tracks_character restaurieren
+        await _populateTracksCharacterSelect(item.tracks_character || '');
         // Evidence: reveals_secret restaurieren
         const _rs = item.reveals_secret || {};
         await _populateRevealsOwnerSelect(_rs.owner || '');
@@ -16563,6 +17136,10 @@ function _setGameAdminItemFormReadOnly(readOnly) {
         'item-edit-image-prompt', 'item-edit-prompt-fragment',
         'item-edit-slots-add', 'item-edit-outfit-types-add',
         'item-edit-effects', 'item-edit-apply-condition', 'item-edit-condition-duration',
+        'item-edit-incantation', 'item-edit-spell-mode', 'item-edit-clone-item',
+        'item-edit-success-chance', 'item-edit-copy-on-give',
+        'item-edit-success-text', 'item-edit-fail-text',
+        'item-edit-tracks-character',
     ];
     for (const id of ids) {
         const el = document.getElementById(id);
@@ -16612,6 +17189,9 @@ async function _saveItem() {
     const _rOwner = (document.getElementById('item-edit-reveals-owner')?.value || '').trim();
     const _rSecret = (document.getElementById('item-edit-reveals-secret')?.value || '').trim();
     item.reveals_secret = (evVisible && _rOwner && _rSecret) ? {owner: _rOwner, secret_id: _rSecret} : null;
+    // Tracker: only persist when a target is chosen.
+    const _trackTarget = (document.getElementById('item-edit-tracks-character')?.value || '').trim();
+    item.tracks_character = _trackTarget || null;
     // Consumable-Effects nur wenn Sektion sichtbar parsen — so verschwinden alte Effects
     // automatisch wenn Item nicht mehr consumable ist.
     const consVisible = document.getElementById('item-edit-consumable-section')?.style.display !== 'none';
@@ -16633,6 +17213,28 @@ async function _saveItem() {
     } else {
         item.effects = null;
     }
+    // Magic / Spell-Felder — leer = nicht persistieren (null), sonst Wert
+    const _incant = (document.getElementById('item-edit-incantation')?.value || '').trim();
+    item.incantation = _incant || null;
+    if (_incant) {
+        item.spell_mode = (document.getElementById('item-edit-spell-mode')?.value || 'force');
+        item.clone_item_id = (document.getElementById('item-edit-clone-item')?.value || '').trim() || null;
+        const _sc = parseInt(document.getElementById('item-edit-success-chance')?.value || '0', 10);
+        item.success_chance = (_sc > 0 && _sc <= 100) ? _sc : 100;
+        item.copy_on_give = !!document.getElementById('item-edit-copy-on-give')?.checked;
+        item.success_text = (document.getElementById('item-edit-success-text')?.value || '').trim();
+        item.fail_text = (document.getElementById('item-edit-fail-text')?.value || '').trim();
+        item.cast_activity = (document.getElementById('item-edit-cast-activity')?.value || '').trim() || null;
+    } else {
+        // Felder leeren wenn keine Incantation gesetzt
+        item.spell_mode = null;
+        item.clone_item_id = null;
+        item.success_chance = null;
+        item.copy_on_give = null;
+        item.success_text = null;
+        item.fail_text = null;
+        item.cast_activity = null;
+    }
     if (!item.name) { showStatusToast('Name fehlt', 'error'); return; }
     try {
         const url = _editingItemId ? `/inventory/items/${_editingItemId}` : '/inventory/items';
@@ -16644,7 +17246,7 @@ async function _saveItem() {
             _editingItemId = data.item?.id || _editingItemId;
             showStatusToast('Item gespeichert', 'success');
             _showItemImagePanel(true);
-            await _loadItemsList();
+            await _loadItemsList();  // refresht _itemsCache automatisch
         } else showStatusToast('Fehler', 'error');
     } catch (e) { showStatusToast('Fehler', 'error'); }
 }
@@ -16725,26 +17327,43 @@ async function _loadRulesList() {
         if (!rules.length) { listEl.innerHTML = '<p class="scheduler-empty">Keine Regeln</p>'; return; }
         const blocks = rules.filter(r => r.type === 'block');
         const forces = rules.filter(r => r.type === 'force');
+        const discovers = rules.filter(r => r.type === 'discover');
         let html = '';
-        const _renderRuleItem = (r) => `<div class="world-item" style="padding:4px 8px;cursor:pointer;" onclick="_editRule('${escapeHtml(r.id)}')">
-            <div class="world-item-info"><strong style="font-size:12px;">${escapeHtml(r.name || '?')}</strong>
-            <span class="world-item-desc" style="font-size:10px;">${escapeHtml(r.condition || '')}</span></div>
-            <button class="job-delete-btn" onclick="event.stopPropagation();_deleteRuleById('${escapeHtml(r.id)}')" title="Loeschen">&times;</button></div>`;
+        const _renderRuleItem = (r) => {
+            // Einheitlich mit Activities: Shared=blau, World/World-Override=gruen.
+            const isShared = (r._origin || '') === 'shared';
+            const bgColor = isShared ? 'rgba(70,130,180,0.08)' : 'rgba(80,160,80,0.08)';
+            const badgeBg = isShared ? 'rgba(70,130,180,0.25)' : 'rgba(80,160,80,0.25)';
+            const originLabel = isShared ? 'Allgemein' : 'Weltspezifisch';
+            const originBadge = `<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:${badgeBg};margin-right:4px;">${originLabel}</span>`;
+            return `<div class="world-item" style="padding:4px 8px;cursor:pointer;background:${bgColor};" onclick="_editRule('${escapeHtml(r.id)}')">
+                <div class="world-item-info"><strong style="font-size:12px;">${originBadge}${escapeHtml(r.name || '?')}</strong>
+                <span class="world-item-desc" style="font-size:10px;">${escapeHtml(r.condition || '')}</span></div>
+                <button class="job-delete-btn" onclick="event.stopPropagation();_deleteRuleById('${escapeHtml(r.id)}')" title="Loeschen">&times;</button></div>`;
+        };
         if (blocks.length) {
             html += '<div style="margin-bottom:8px;"><strong style="font-size:12px;color:var(--text-muted);">Blockaden</strong>';
             for (const r of blocks) html += _renderRuleItem(r);
             html += '</div>';
         }
         if (forces.length) {
-            html += '<div><strong style="font-size:12px;color:var(--text-muted);">Zwaenge</strong>';
+            html += '<div style="margin-bottom:8px;"><strong style="font-size:12px;color:var(--text-muted);">Zwaenge</strong>';
             for (const r of forces) html += _renderRuleItem(r);
             html += '</div>';
         }
+        if (discovers.length) {
+            html += '<div><strong style="font-size:12px;color:var(--text-muted);">Entdeckungen</strong>';
+            for (const r of discovers) html += _renderRuleItem(r);
+            html += '</div>';
+        }
         listEl.innerHTML = html;
-        // Dropdowns befuellen
+        // Dropdowns befuellen — nur Unique-Orte als Regel-Ziel (passable=false).
+        // Templates + Klone sind als Rule-Target irrefuehrend (Regel wuerde
+        // entweder am Template oder an einem zufaelligen Klon haengen).
         const locSel = document.getElementById('rule-target-location');
         if (locSel && _cachedWorldLocations) {
-            locSel.innerHTML = '<option value="">-- Ort waehlen --</option>' + _cachedWorldLocations.map(l => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`).join('');
+            const onlyUnique = _cachedWorldLocations.filter(l => !l.passable);
+            locSel.innerHTML = '<option value="">-- Ort waehlen --</option>' + onlyUnique.map(l => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`).join('');
             locSel.onchange = () => _updateRuleRoomDropdown();
         }
         // Aktivitaets-Dropdown fuer Zwang
@@ -16757,8 +17376,34 @@ async function _loadRulesList() {
 
 let _editingRuleId = null;
 
+let _editingRuleOrigin = '';
+
+function _setRuleOriginBanner(origin) {
+    const banner = document.getElementById('rule-edit-origin-banner');
+    const removeBtn = document.getElementById('rule-edit-remove-override');
+    if (!banner) return;
+    if (!origin) {
+        banner.style.display = 'none';
+        if (removeBtn) removeBtn.style.display = 'none';
+        return;
+    }
+    const isShared = (origin === 'shared');
+    banner.style.display = 'block';
+    banner.style.background = isShared ? 'rgba(70,130,180,0.15)' : 'rgba(80,160,80,0.15)';
+    banner.style.color = isShared ? '#79c0ff' : '#7fbf7f';
+    if (isShared) {
+        banner.textContent = '🌐 Allgemein — Aenderung gilt fuer ALLE Welten.';
+    } else if (origin === 'world override') {
+        banner.textContent = '🌍 Weltspezifisch — ueberschreibt eine gleichnamige Allgemein-Rule. Override entfernen, um zurueck auf die Baseline zu fallen.';
+    } else {
+        banner.textContent = '🌍 Weltspezifisch — nur in dieser Welt aktiv.';
+    }
+    if (removeBtn) removeBtn.style.display = (origin === 'world override') ? '' : 'none';
+}
+
 function _newRule() {
     _editingRuleId = null;
+    _editingRuleOrigin = '';
     document.getElementById('rule-edit-form').style.display = 'flex';
     document.getElementById('rule-placeholder').style.display = 'none';
     document.getElementById('rule-edit-id').value = '';
@@ -16766,6 +17411,11 @@ function _newRule() {
     document.getElementById('rule-edit-type').value = 'block';
     document.getElementById('rule-edit-condition').value = '';
     document.getElementById('rule-edit-message').value = '';
+    const _targetEl = document.getElementById('rule-edit-target');
+    if (_targetEl) _targetEl.value = 'world';
+    _setRuleOriginBanner('');
+    const _probEl = document.getElementById('rule-discover-probability');
+    if (_probEl) _probEl.value = '0.05';
     const _charSel = document.getElementById('rule-edit-character');
     if (_charSel) { _populateRuleCharacterDropdown(''); }
     const _faSelNew = document.getElementById('rule-force-activity');
@@ -16805,6 +17455,7 @@ async function _editRule(ruleId) {
         const data = await resp.json();
         const r = data.rule;
         _editingRuleId = r.id;
+        _editingRuleOrigin = r._origin || 'world';
         document.getElementById('rule-edit-form').style.display = 'flex';
         document.getElementById('rule-placeholder').style.display = 'none';
         document.getElementById('rule-edit-id').value = r.id;
@@ -16812,6 +17463,12 @@ async function _editRule(ruleId) {
         document.getElementById('rule-edit-type').value = r.type || 'block';
         document.getElementById('rule-edit-condition').value = r.condition || '';
         document.getElementById('rule-edit-message').value = r.message || '';
+        const _targetEl = document.getElementById('rule-edit-target');
+        if (_targetEl) {
+            // Bei world-override defaultet auf "world" — speichern updated den Override.
+            _targetEl.value = (_editingRuleOrigin === 'shared') ? 'shared' : 'world';
+        }
+        _setRuleOriginBanner(_editingRuleOrigin);
         await _populateRuleCharacterDropdown(r.character || '');
         if (r.target) {
             document.getElementById('rule-target-scope').value = r.target.scope || 'location';
@@ -16825,6 +17482,8 @@ async function _editRule(ruleId) {
             const faSel = document.getElementById('rule-force-activity');
             if (faSel && _libActivityGroups) faSel.innerHTML = _buildGroupedActivityOptions(r.force_action.set_activity || '');
         }
+        const probEl = document.getElementById('rule-discover-probability');
+        if (probEl) probEl.value = (r.probability != null) ? String(r.probability) : '0.05';
         // Ort-Dropdown: Raum laden wenn Location gesetzt
         if (r.target?.location_id) {
             setTimeout(() => {
@@ -16841,6 +17500,8 @@ function _toggleRuleFields() {
     const type = document.getElementById('rule-edit-type').value;
     document.getElementById('rule-block-fields').style.display = type === 'block' ? '' : 'none';
     document.getElementById('rule-force-fields').style.display = type === 'force' ? '' : 'none';
+    const discEl = document.getElementById('rule-discover-fields');
+    if (discEl) discEl.style.display = type === 'discover' ? '' : 'none';
     _toggleRuleTargetFields();
 }
 
@@ -16883,19 +17544,42 @@ async function _saveRule() {
             rule.target = { scope: roomId ? 'room' : 'location', location_id: locId };
             if (roomId) rule.target.room_id = roomId;
         }
-    } else {
+    } else if (type === 'force') {
         const actSel = document.getElementById('rule-force-activity');
         rule.force_action = {
             go_to: document.getElementById('rule-force-goto').value,
             set_activity: actSel?.value || '',
         };
+    } else if (type === 'discover') {
+        const probRaw = document.getElementById('rule-discover-probability').value;
+        let prob = parseFloat(probRaw);
+        if (!isFinite(prob)) prob = 0;
+        rule.probability = Math.max(0, Math.min(1, prob));
     }
+    const target = (document.getElementById('rule-edit-target')?.value || 'world');
+    // Bestimmen ob das ein "Speicherort-Wechsel" ist — dann POST (Upsert) statt
+    // PUT, weil der Eintrag im neuen Target noch nicht existiert.
+    const _currentLayer = (_editingRuleOrigin === 'shared') ? 'shared' : 'world';
+    const _isMove = !!_editingRuleId && (_currentLayer !== target);
     try {
-        const url = _editingRuleId ? `/rules/${_editingRuleId}` : '/rules';
-        const method = _editingRuleId ? 'PUT' : 'POST';
-        const resp = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({rule}) });
+        let url, method;
+        if (!_editingRuleId || _isMove) {
+            // Neu oder Move → POST (upsert, ID wird mitgesendet wenn vorhanden)
+            url = '/rules';
+            method = 'POST';
+            if (_editingRuleId) rule.id = _editingRuleId;
+        } else {
+            url = `/rules/${_editingRuleId}`;
+            method = 'PUT';
+        }
+        // Bei Move zuerst alten Ort loeschen, damit die Rule nicht parallel
+        // in shared+world existiert (analog Activities-Editor).
+        if (_isMove) {
+            await fetch(`/rules/${_editingRuleId}?target=${_currentLayer}`, { method: 'DELETE' }).catch(() => {});
+        }
+        const resp = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({rule, target}) });
         if (resp.ok) {
-            showStatusToast('Regel gespeichert', 'success');
+            showStatusToast(`Regel gespeichert (${target === 'shared' ? 'Allgemein' : 'Weltspezifisch'})`, 'success');
             await _loadRulesList();
         } else {
             let detail = `HTTP ${resp.status}`;
@@ -16911,16 +17595,39 @@ async function _deleteRule() {
     if (!_editingRuleId) return;
     await _deleteRuleById(_editingRuleId);
     _editingRuleId = null;
+    _editingRuleOrigin = '';
     document.getElementById('rule-edit-form').style.display = 'none';
     document.getElementById('rule-placeholder').style.display = 'block';
 }
 
 async function _deleteRuleById(ruleId) {
-    if (!confirm('Regel loeschen?')) return;
+    if (!confirm('Regel loeschen? (Shared baseline wird bei reinem World-Eintrag nicht angetastet.)')) return;
     try {
         await fetch(`/rules/${ruleId}`, { method: 'DELETE' });
         showStatusToast('Geloescht', 'success');
         await _loadRulesList();
+    } catch (e) { showStatusToast('Fehler', 'error'); }
+}
+
+async function _deleteRuleOverride() {
+    // Nur fuer "world override" — entfernt den Welt-Eintrag, damit die
+    // Shared-Baseline wieder durchgereicht wird.
+    if (!_editingRuleId) return;
+    if (!confirm('World-Override entfernen? Die Shared-Baseline wird wieder aktiv.')) return;
+    try {
+        const resp = await fetch(`/rules/${_editingRuleId}?target=world`, { method: 'DELETE' });
+        if (resp.ok) {
+            showStatusToast('Override entfernt — Shared-Baseline aktiv', 'success');
+            _editingRuleId = null;
+            _editingRuleOrigin = '';
+            document.getElementById('rule-edit-form').style.display = 'none';
+            document.getElementById('rule-placeholder').style.display = 'block';
+            await _loadRulesList();
+        } else {
+            let detail = `HTTP ${resp.status}`;
+            try { const err = await resp.json(); if (err?.detail) detail = err.detail; } catch (_) {}
+            showStatusToast(`Fehler: ${detail}`, 'error');
+        }
     } catch (e) { showStatusToast('Fehler', 'error'); }
 }
 
@@ -16938,83 +17645,262 @@ function _updateRuleRoomDropdown() {
         rooms.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('');
 }
 
-// --- Status Modifiers (Game Admin) ---
+// --- Prompt Filters (state-driven prompt block dropping) ---
 
-async function _loadModifiersList() {
-    const listEl = document.getElementById('modifiers-list');
+let _pfBlockKeys = [];
+let _pfCachedFilters = [];
+
+async function _loadPromptFiltersList() {
+    const listEl = document.getElementById('prompt-filters-list');
     if (!listEl) return;
     try {
-        const resp = await fetch('/rules/modifiers');
-        let modifiers = [];
-        if (resp.ok) { const data = await resp.json(); modifiers = data.modifiers || []; }
-        if (!modifiers.length) { listEl.innerHTML = '<p class="scheduler-empty">Standard-Zustaende aktiv</p>'; return; }
+        const resp = await fetch('/admin/prompt-filters/data');
+        if (!resp.ok) {
+            listEl.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+            return;
+        }
+        const data = await resp.json();
+        _pfBlockKeys = data.block_keys || [];
+        _pfCachedFilters = data.filters || [];
+        if (!_pfCachedFilters.length) {
+            listEl.innerHTML = '<p class="scheduler-empty">Keine Filter</p>';
+            return;
+        }
         let html = '';
-        modifiers.forEach((m, i) => {
-            const icon = m.icon ? `${escapeHtml(m.icon)} ` : '';
-            html += `<div class="world-item" style="padding:4px 8px;cursor:pointer;" onclick="_editModifier(${i})">
-                <div class="world-item-info"><strong style="font-size:12px;">${icon}${escapeHtml(m.label || '?')}</strong>
-                <span class="world-item-desc" style="font-size:10px;">${escapeHtml(m.condition || '')}</span></div></div>`;
+        _pfCachedFilters.forEach((f, i) => {
+            const src = f.source || 'shared';
+            const srcColor = src === 'shared' ? '#79c0ff'
+                           : src === 'world override' ? '#f0b04c'
+                           : '#56d364';
+            const enabledMark = f.enabled === false ? ' (off)' : '';
+            html += `<div class="world-item" style="padding:4px 8px;cursor:pointer;" onclick="_editPromptFilter(${i})">
+                <div class="world-item-info">
+                    <strong style="font-size:12px;font-family:monospace;">${escapeHtml(f.id || '?')}${enabledMark}</strong>
+                    <span class="world-item-desc" style="font-size:10px;">${escapeHtml(f.condition || '')}</span>
+                    <span style="font-size:9px;color:${srcColor};text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(src)}</span>
+                </div>
+            </div>`;
         });
         listEl.innerHTML = html;
-        window._cachedModifiers = modifiers;
-    } catch (e) { console.error('Modifiers load error:', e); }
+    } catch (e) {
+        console.error('Prompt filters load error:', e);
+        listEl.innerHTML = '<p class="scheduler-empty">Fehler</p>';
+    }
 }
 
-function _newModifier() {
-    document.getElementById('modifier-edit-form').style.display = 'flex';
-    document.getElementById('modifier-placeholder').style.display = 'none';
-    document.getElementById('modifier-edit-idx').value = '-1';
-    document.getElementById('modifier-edit-label').value = '';
-    document.getElementById('modifier-edit-icon').value = '';
-    document.getElementById('modifier-edit-condition').value = '';
-    document.getElementById('modifier-edit-prompt').value = '';
-    document.getElementById('modifier-edit-image').value = '';
+function _renderPfBlockChips(selected) {
+    const container = document.getElementById('pf-edit-blocks');
+    if (!container) return;
+    container.innerHTML = '';
+    const sel = new Set(selected || []);
+    _pfBlockKeys.forEach(key => {
+        const chip = document.createElement('span');
+        chip.dataset.block = key;
+        chip.textContent = key;
+        chip.style.cssText = 'font-size:11px;padding:3px 9px;border-radius:12px;cursor:pointer;user-select:none;font-family:monospace;border:1px solid var(--border);';
+        if (sel.has(key)) {
+            chip.classList.add('selected');
+            chip.style.background = '#1a5132';
+            chip.style.borderColor = '#2ea043';
+            chip.style.color = '#56d364';
+        } else {
+            chip.style.background = 'var(--bg-secondary, #21262d)';
+            chip.style.color = 'var(--text-muted)';
+        }
+        chip.onclick = () => {
+            const isSelected = chip.classList.toggle('selected');
+            if (isSelected) {
+                chip.style.background = '#1a5132';
+                chip.style.borderColor = '#2ea043';
+                chip.style.color = '#56d364';
+            } else {
+                chip.style.background = 'var(--bg-secondary, #21262d)';
+                chip.style.borderColor = 'var(--border)';
+                chip.style.color = 'var(--text-muted)';
+            }
+        };
+        container.appendChild(chip);
+    });
 }
 
-function _editModifier(idx) {
-    const m = (window._cachedModifiers || [])[idx];
-    if (!m) return;
-    document.getElementById('modifier-edit-form').style.display = 'flex';
-    document.getElementById('modifier-placeholder').style.display = 'none';
-    document.getElementById('modifier-edit-idx').value = String(idx);
-    document.getElementById('modifier-edit-label').value = m.label || '';
-    document.getElementById('modifier-edit-icon').value = m.icon || '';
-    document.getElementById('modifier-edit-condition').value = m.condition || '';
-    document.getElementById('modifier-edit-prompt').value = m.prompt_modifier || '';
-    document.getElementById('modifier-edit-image').value = m.image_modifier || '';
+// Kleiner Emoji-Picker fuer das pf-edit-icon-Feld. Hand-kuratiert auf
+// Zustaende relevant — kein externer Service noetig, kein iframe, keine
+// Lib. Klick auf ein Emoji befuellt das Input.
+const _PF_ICON_GROUPS = [
+    {label: 'Stimmung',    emojis: ['😊','😄','😃','😁','😆','😍','🥰','😘','😉','😎','🥳','😏','😋','🤗','😶','😐','😑','😒','🙄','😬','😔','😟','😞','😖','😣','😢','😭','😤','😠','😡','🤬','🤯','😱','😨','😰','😥','😓','🤔','🤨','😯','😲','🥺']},
+    {label: 'Effekte',     emojis: ['🍺','🍷','🍸','🥃','🍶','🚬','💨','💉','💊','🌿','🥴','😵','😵‍💫','🤢','🤮','🤧','🤒','🤕','🥵','🥶','😴','💤','🥱','🤤']},
+    {label: 'Magie',       emojis: ['✨','🪄','🔮','🌟','⭐','💫','⚡','🔥','💥','💢','💮','🌀','🪞','📿','🧿','🕯️','🌙','☄️','🪐']},
+    {label: 'Liebe',       emojis: ['❤️','💕','💖','💘','💝','💞','💓','💗','💜','🖤','💔','💋','🌹','🥀']},
+    {label: 'Kampf',       emojis: ['⚔️','🛡️','🗡️','🏹','🔪','💀','☠️','👊','✊','🤜','🦴']},
+    {label: 'Bindung',     emojis: ['⛓️','🔗','🪝','🪤','🔒','🔓','🪢','📎']},
+    {label: 'Aktion',      emojis: ['🏃','🚶','🧘','🤸','🛌','🪑','💪','🏋️','🚿','🛁','🍽️','🛒','💼','💻','📚','✍️','🎤','🎨','🎮']},
+    {label: 'Wetter/Zeit', emojis: ['☀️','🌤️','⛅','☁️','🌧️','⛈️','🌩️','❄️','🌫️','🌅','🌇','🌃','🌌']},
+    {label: 'Sonstige',    emojis: ['👀','👁️','👂','👃','👄','🧠','💭','💬','❓','❗','💯','✅','❌','⚠️','🔔','🤫','🙊']},
+];
+
+function _togglePfIconPicker() {
+    const box = document.getElementById('pf-edit-icon-picker');
+    if (!box) return;
+    if (box.style.display === 'none' || !box.style.display) {
+        _renderPfIconPicker();
+        box.style.display = 'block';
+        // Outside-Click Listener einmalig
+        setTimeout(() => document.addEventListener('click', _pfIconPickerOutsideClick), 0);
+    } else {
+        _closePfIconPicker();
+    }
 }
 
-async function _saveModifier() {
-    const idx = parseInt(document.getElementById('modifier-edit-idx').value);
-    const mod = {
-        label: document.getElementById('modifier-edit-label').value.trim(),
-        icon: document.getElementById('modifier-edit-icon').value.trim(),
-        condition: document.getElementById('modifier-edit-condition').value.trim(),
-        prompt_modifier: document.getElementById('modifier-edit-prompt').value.trim(),
-        image_modifier: document.getElementById('modifier-edit-image').value.trim(),
-    };
-    const modifiers = window._cachedModifiers || [];
-    if (idx >= 0 && idx < modifiers.length) modifiers[idx] = mod;
-    else modifiers.push(mod);
+function _closePfIconPicker() {
+    const box = document.getElementById('pf-edit-icon-picker');
+    if (box) box.style.display = 'none';
+    document.removeEventListener('click', _pfIconPickerOutsideClick);
+}
+
+function _pfIconPickerOutsideClick(e) {
+    if (e.target.closest('#pf-edit-icon-picker') ||
+        e.target.id === 'pf-edit-icon-picker-btn' ||
+        e.target.id === 'pf-edit-icon') return;
+    _closePfIconPicker();
+}
+
+function _renderPfIconPicker() {
+    const box = document.getElementById('pf-edit-icon-picker');
+    if (!box) return;
+    let html = '';
+    for (const g of _PF_ICON_GROUPS) {
+        html += `<div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;margin:4px 2px 2px 2px;">${g.label}</div>`;
+        html += '<div style="display:flex;flex-wrap:wrap;gap:2px;">';
+        for (const em of g.emojis) {
+            html += `<button type="button" onclick="_pickPfIcon('${em}')" title="${em}" style="width:26px;height:26px;border:none;background:transparent;cursor:pointer;font-size:18px;border-radius:4px;padding:0;line-height:1;">${em}</button>`;
+        }
+        html += '</div>';
+    }
+    box.innerHTML = html;
+    // Hover-Style fuer Buttons via inline event
+    box.querySelectorAll('button').forEach(b => {
+        b.addEventListener('mouseenter', () => b.style.background = 'var(--bg-elev)');
+        b.addEventListener('mouseleave', () => b.style.background = 'transparent');
+    });
+}
+
+function _pickPfIcon(emoji) {
+    const inp = document.getElementById('pf-edit-icon');
+    if (inp) {
+        inp.value = emoji;
+        inp.focus();
+    }
+    _closePfIconPicker();
+}
+
+function _newPromptFilter() {
+    document.getElementById('prompt-filter-edit-form').style.display = 'flex';
+    document.getElementById('prompt-filter-placeholder').style.display = 'none';
+    document.getElementById('pf-edit-original-id').value = '';
+    document.getElementById('pf-edit-source').value = 'world';
+    document.getElementById('pf-edit-id').value = '';
+    document.getElementById('pf-edit-id').readOnly = false;
+    document.getElementById('pf-edit-label').value = '';
+    document.getElementById('pf-edit-condition').value = '';
+    document.getElementById('pf-edit-modifier').value = '';
+    document.getElementById('pf-edit-icon').value = '';
+    document.getElementById('pf-edit-image').value = '';
+    document.getElementById('pf-edit-enabled').checked = true;
+    document.getElementById('pf-edit-source-info').textContent = 'Neuer World-Zustand.';
+    document.getElementById('pf-edit-delete-btn').style.display = 'none';
+    _renderPfBlockChips([]);
+}
+
+function _editPromptFilter(idx) {
+    const f = _pfCachedFilters[idx];
+    if (!f) return;
+    document.getElementById('prompt-filter-edit-form').style.display = 'flex';
+    document.getElementById('prompt-filter-placeholder').style.display = 'none';
+    document.getElementById('pf-edit-original-id').value = f.id || '';
+    document.getElementById('pf-edit-source').value = f.source || 'shared';
+    document.getElementById('pf-edit-id').value = f.id || '';
+    document.getElementById('pf-edit-id').readOnly = true;  // Vorhandene id nicht aenderbar
+    document.getElementById('pf-edit-label').value = f.label || '';
+    document.getElementById('pf-edit-condition').value = f.condition || '';
+    document.getElementById('pf-edit-modifier').value = f.prompt_modifier || '';
+    document.getElementById('pf-edit-icon').value = f.icon || '';
+    document.getElementById('pf-edit-image').value = f.image_modifier || '';
+    document.getElementById('pf-edit-enabled').checked = f.enabled !== false;
+    const src = f.source || 'shared';
+    let info;
+    if (src === 'shared') {
+        info = 'Shared baseline. Speichern erstellt einen World-Override.';
+    } else if (src === 'world override') {
+        info = 'World-Override. Delete revert auf Shared baseline.';
+    } else {
+        info = 'World-only Zustand. Delete entfernt komplett.';
+    }
+    document.getElementById('pf-edit-source-info').textContent = info;
+    document.getElementById('pf-edit-delete-btn').style.display = (src === 'shared') ? 'none' : '';
+    _renderPfBlockChips(f.drop_blocks || []);
+}
+
+async function _savePromptFilter() {
+    const idEl = document.getElementById('pf-edit-id');
+    const id = (idEl.value || '').trim();
+    if (!id) { showStatusToast('id fehlt', 'error'); return; }
+    if (!/^[a-z0-9_]+$/i.test(id)) {
+        showStatusToast('id darf nur Buchstaben/Zahlen/_ enthalten', 'error');
+        return;
+    }
+    // condition optional — Filter-id triggert ueber den Profil-Tag,
+    // diese Expression ist nur Zusatz-Trigger (z.B. stamina<10).
+    const condition = document.getElementById('pf-edit-condition').value.trim();
+    const label = document.getElementById('pf-edit-label').value.trim();
+    const prompt_modifier = document.getElementById('pf-edit-modifier').value.trim();
+    const icon = document.getElementById('pf-edit-icon').value.trim();
+    const image_modifier = document.getElementById('pf-edit-image').value.trim();
+    const enabled = document.getElementById('pf-edit-enabled').checked;
+    const drop_blocks = [...document.querySelectorAll('#pf-edit-blocks .selected')]
+        .map(c => c.dataset.block);
     try {
-        const resp = await fetch('/rules/modifiers', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({modifiers}) });
-        if (resp.ok) { showStatusToast('Zustand gespeichert', 'success'); await _loadModifiersList(); }
-        else showStatusToast('Fehler', 'error');
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+        const resp = await fetch('/admin/prompt-filters/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id, condition, label,
+                drop_blocks, prompt_modifier, icon, image_modifier, enabled}),
+        });
+        if (!resp.ok) {
+            const t = await resp.text();
+            showStatusToast('Save fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            return;
+        }
+        showStatusToast('Filter gespeichert', 'success');
+        _invalidateConditionsCache();
+        await _loadPromptFiltersList();
+    } catch (e) {
+        showStatusToast('Fehler beim Speichern', 'error');
+    }
 }
 
-async function _deleteModifier() {
-    const idx = parseInt(document.getElementById('modifier-edit-idx').value);
-    if (idx < 0) return;
-    const modifiers = window._cachedModifiers || [];
-    modifiers.splice(idx, 1);
+async function _deletePromptFilter() {
+    const id = document.getElementById('pf-edit-original-id').value;
+    const src = document.getElementById('pf-edit-source').value;
+    if (!id) return;
+    const msg = src === 'world override'
+        ? `World-Override fuer "${id}" entfernen? Shared baseline bleibt aktiv.`
+        : `Filter "${id}" komplett entfernen?`;
+    if (!confirm(msg)) return;
     try {
-        await fetch('/rules/modifiers', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({modifiers}) });
-        document.getElementById('modifier-edit-form').style.display = 'none';
-        document.getElementById('modifier-placeholder').style.display = 'block';
+        const resp = await fetch('/admin/prompt-filters/' + encodeURIComponent(id), {method: 'DELETE'});
+        if (!resp.ok) {
+            const t = await resp.text();
+            showStatusToast('Delete fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            return;
+        }
+        document.getElementById('prompt-filter-edit-form').style.display = 'none';
+        document.getElementById('prompt-filter-placeholder').style.display = 'block';
         showStatusToast('Geloescht', 'success');
-        await _loadModifiersList();
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+        _invalidateConditionsCache();
+        await _loadPromptFiltersList();
+    } catch (e) {
+        showStatusToast('Fehler beim Loeschen', 'error');
+    }
 }
 
 // --- Activity Overrides (Character + Location) ---
@@ -17088,9 +17974,10 @@ async function _newOverrideForm() {
     document.getElementById('override-condition').value = '';
     document.getElementById('override-visibility').value = '';
     // Cumulative Override leeren
-    ['override-cum-threshold','override-cum-name','override-cum-modifier','override-cum-mood','override-cum-duration'].forEach(id => {
+    ['override-cum-threshold','override-cum-modifier','override-cum-mood','override-cum-duration'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
     });
+    await _populateConditionSelect(document.getElementById('override-cum-name'), '');
 }
 
 async function _editOverride(type, target, actId) {
@@ -17119,7 +18006,7 @@ async function _editOverride(type, target, actId) {
             // Cumulative Override
             const cum = ov.cumulative_effect || {};
             document.getElementById('override-cum-threshold').value = cum.threshold ? String(cum.threshold) : '';
-            document.getElementById('override-cum-name').value = cum.condition_name || '';
+            await _populateConditionSelect(document.getElementById('override-cum-name'), cum.condition_name || '');
             document.getElementById('override-cum-modifier').value = cum.prompt_modifier || '';
             document.getElementById('override-cum-mood').value = cum.mood_influence || '';
             document.getElementById('override-cum-duration').value = cum.duration_hours ? String(cum.duration_hours) : '';
@@ -17155,7 +18042,7 @@ async function _prefillOverrideFromActivity() {
         // Cumulative vorbelegen
         const cum = act.cumulative_effect || {};
         document.getElementById('override-cum-threshold').value = cum.threshold ? String(cum.threshold) : '';
-        document.getElementById('override-cum-name').value = cum.condition_name || '';
+        await _populateConditionSelect(document.getElementById('override-cum-name'), cum.condition_name || '');
         document.getElementById('override-cum-modifier').value = cum.prompt_modifier || '';
         document.getElementById('override-cum-mood').value = cum.mood_influence || '';
         document.getElementById('override-cum-duration').value = cum.duration_hours ? String(cum.duration_hours) : '';
@@ -17331,17 +18218,21 @@ async function _loadEditorInventory(charName) {
             const imgHtml = entry.item_image
                 ? `<img src="/inventory/items/${encodeURIComponent(entry.item_id)}/image" alt="" style="width:40px;height:40px;object-fit:contain;background:rgba(0,0,0,0.15);border-radius:4px;margin-right:8px;flex-shrink:0;">`
                 : `<span style="width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;margin-right:8px;flex-shrink:0;">${icon}</span>`;
+            const incantHtml = entry.item_incantation
+                ? `<span class="world-item-desc" style="color:#d2a8ff;font-style:italic;">✨ &quot;${escapeHtml(entry.item_incantation)}&quot;</span>`
+                : '';
             return `
             <div class="world-item" style="display:flex;align-items:center;" title="Item-Details werden zentral in Game Admin → Items gepflegt">
                 ${imgHtml}
                 <div class="world-item-info" style="flex:1;min-width:0;">
                     <strong>${escapeHtml(entry.item_name)}${qty}${equipped}</strong>
                     ${entry.item_description ? `<span class="world-item-desc">${escapeHtml(entry.item_description)}</span>` : ''}
+                    ${incantHtml}
                     <span class="world-item-activities" style="color:${rarityColor}">${escapeHtml(entry.item_rarity || 'common')} · ${escapeHtml(entry.item_category || '')}</span>
                 </div>
                 <div class="world-item-actions">
-                    ${entry.item_consumable ? `<button class="job-edit-btn" onclick="useEditorInventoryItem('${escapeHtml(entry.item_id)}')" title="Verbrauchen">🥤</button>` : ''}
-                    ${entry.item_transferable ? `<button class="job-edit-btn" onclick="giveEditorInventoryItem('${escapeHtml(entry.item_id)}', '${escapeHtml(entry.item_name)}')" title="Verschenken">🎁</button>` : ''}
+                    ${(entry.item_consumable && entry.item_category !== 'spell') ? `<button class="job-edit-btn" onclick="useEditorInventoryItem('${escapeHtml(entry.item_id)}')" title="Verbrauchen">🥤</button>` : ''}
+                    ${entry.item_incantation ? `<button class="job-edit-btn" onclick="castSpellOnSelf('${escapeHtml(entry.item_id)}', '${escapeHtml(entry.item_name)}')" title="Cast on self (Avatar)">✨</button>` : ''}
                     <button class="job-edit-btn" onclick="toggleEquipInventoryItem('${escapeHtml(entry.item_id)}', ${!entry.equipped})" title="${entry.equipped ? 'Ablegen' : 'Ausruesten'}">
                         ${entry.equipped ? '🔕' : '🔔'}
                     </button>
@@ -17491,6 +18382,36 @@ async function useEditorInventoryItem(itemId) {
         }
     } catch (e) {
         showStatusToast('Fehler beim Verbrauchen', 'error');
+    }
+}
+
+async function castSpellOnSelf(itemId, itemName) {
+    // Wirkt den Spell auf den Character selbst (Avatar = Target).
+    // Geht durch dieselbe spell_engine.execute_cast wie Chat-getriggerter
+    // Cast — Erfolgswurf, copy_on_give-Verbrauch, Effekt-Item ans Ziel,
+    // Cast-Activity beim Caster (= sich selbst).
+    const charName = _getInventoryCharName();
+    if (!charName) return;
+    if (!confirm(`Spell '${itemName}' auf ${charName} wirken?`)) return;
+    try {
+        const resp = await fetch(`/inventory/characters/${encodeURIComponent(charName)}/${encodeURIComponent(itemId)}/cast-self`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            const verdict = data.success ? 'gelungen' : 'fehlgeschlagen';
+            showStatusToast(
+                `${data.spell_name}: ${verdict} (${data.roll}/${data.chance})`,
+                data.success ? 'success' : 'warning');
+            await _loadEditorInventory(charName);
+        } else {
+            const err = await resp.json().catch(() => ({}));
+            showStatusToast(err.detail || 'Cast fehlgeschlagen', 'error');
+        }
+    } catch (e) {
+        showStatusToast('Fehler beim Cast', 'error');
     }
 }
 
@@ -17911,10 +18832,13 @@ async function loadKnowledge() {
         if (dailySummaries.length > 0) {
             summHtml += dailySummaries.map(ds => {
                 const label = ds.date ? new Date(ds.date + 'T00:00').toLocaleDateString('de-DE', {day:'2-digit', month:'short'}) : ds.date;
+                // Each daily summary is now per (date, partner). Show partner
+                // explicitly so the user can tell apart conversations.
+                const partner = ds.partner ? ` \u00B7 with ${escapeHtml(ds.partner)}` : '';
                 return `
                 <div class="knowledge-entry knowledge-summary-entry">
                     <div class="knowledge-entry-header">
-                        <span class="knowledge-type">\uD83D\uDCC5 ${escapeHtml(label)}</span>
+                        <span class="knowledge-type">\uD83D\uDCC5 ${escapeHtml(label)}${partner}</span>
                     </div>
                     <div class="knowledge-content">${escapeHtml(ds.summary)}</div>
                 </div>`;
@@ -18245,57 +19169,103 @@ function _getStatusBarLabel(key) {
     return key.substring(0, 3).toUpperCase();
 }
 
-async function loadStatusEffectsBars() {
-    const container = document.getElementById('status-effects-bars');
-    if (!container || !hasValidCharacter()) return;
+// Reine Render-Funktion ohne Fetch — wird vom Live-Tick genutzt mit
+// pre-fetched Daten aus /state/snapshot.
+function _renderStatusBarsData(containerId, status, barMeta) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    status = status || {};
+    barMeta = barMeta || {};
 
-    const charName = currentCharacterName;
-    container.dataset.forChar = charName;
+    const metaOrder = Object.keys(barMeta);
+    const bars = [];
+    for (const [key, val] of Object.entries(status)) {
+        if (typeof val === 'number') bars.push({ key, value: val });
+    }
+    bars.sort((a, b) => {
+        const ia = metaOrder.indexOf(a.key);
+        const ib = metaOrder.indexOf(b.key);
+        if (ia >= 0 && ib >= 0) return ia - ib;
+        if (ia >= 0) return -1;
+        if (ib >= 0) return 1;
+        return a.key.localeCompare(b.key);
+    });
+
+    if (bars.length === 0) { container.style.display = 'none'; container.innerHTML = ''; return; }
+
+    container.style.display = 'grid';
+    container.innerHTML = bars.map((b, i) => {
+        const meta = barMeta[b.key] || {};
+        const color = meta.color || _getStatusBarColor(b.key, i);
+        const label = meta.label || _getStatusBarLabel(b.key);
+        const pct = Math.max(0, Math.min(100, b.value));
+        const displayName = meta[`name_${uiLang}`] || meta.name_de || meta.name || b.key;
+        return `<div class="status-bar-row" title="${displayName}: ${pct}/100">
+            <span class="status-bar-label">${label}</span>
+            <div class="status-bar-track"><div class="status-bar-fill" style="width:${pct}%;background:${color};"></div></div>
+            <span class="status-bar-value">${pct}</span>
+        </div>`;
+    }).join('');
+}
+
+async function _renderStatusBarsFor(containerId, characterName, expectedFn) {
+    // expectedFn liefert den aktuell erwarteten Charakter-Namen, damit ein
+    // schneller Wechsel waehrend des Fetch nicht das falsche Bild rendert.
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!characterName) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+    container.dataset.forChar = characterName;
 
     try {
-        const resp = await fetch(`/characters/${encodeURIComponent(charName)}/status-effects`);
+        const resp = await fetch(`/characters/${encodeURIComponent(characterName)}/status-effects`);
         if (!resp.ok) { container.style.display = 'none'; return; }
-        if (container.dataset.forChar !== currentCharacterName) return;
+        if (container.dataset.forChar !== (expectedFn ? expectedFn() : characterName)) return;
         const data = await resp.json();
-        const status = data.status_effects || {};
-        const barMeta = data.bar_meta || {};
-
-        // Reihenfolge aus bar_meta (= Template-Reihenfolge), dann Rest alphabetisch
-        const metaOrder = Object.keys(barMeta);
-        const bars = [];
-        for (const [key, val] of Object.entries(status)) {
-            if (typeof val === 'number') {
-                bars.push({ key, value: val });
-            }
-        }
-        bars.sort((a, b) => {
-            const ia = metaOrder.indexOf(a.key);
-            const ib = metaOrder.indexOf(b.key);
-            if (ia >= 0 && ib >= 0) return ia - ib;
-            if (ia >= 0) return -1;
-            if (ib >= 0) return 1;
-            return a.key.localeCompare(b.key);
-        });
-
-        if (bars.length === 0) { container.style.display = 'none'; return; }
-
-        container.style.display = 'grid';
-        container.innerHTML = bars.map((b, i) => {
-            const meta = barMeta[b.key] || {};
-            const color = meta.color || _getStatusBarColor(b.key, i);
-            const label = meta.label || _getStatusBarLabel(b.key);
-            const pct = Math.max(0, Math.min(100, b.value));
-            const displayName = meta[`name_${uiLang}`] || meta.name_de || meta.name || b.key;
-            return `<div class="status-bar-row" title="${displayName}: ${pct}/100">
-                <span class="status-bar-label">${label}</span>
-                <div class="status-bar-track"><div class="status-bar-fill" style="width:${pct}%;background:${color};"></div></div>
-                <span class="status-bar-value">${pct}</span>
-            </div>`;
-        }).join('');
+        _renderStatusBarsData(containerId, data.status_effects, data.bar_meta);
     } catch (e) {
         console.warn('[StatusBars]', e);
         container.style.display = 'none';
     }
+}
+
+async function loadStatusEffectsBars() {
+    const container = document.getElementById('status-effects-bars');
+    if (!container) return;
+    if (!hasValidCharacter()) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+    await _renderStatusBarsFor('status-effects-bars', currentCharacterName,
+                               () => currentCharacterName);
+}
+
+async function loadPlayerStatusBars() {
+    const playerName = typeof getPlayerCharacterName === 'function'
+        ? getPlayerCharacterName() : '';
+    await _renderStatusBarsFor('player-status-bars', playerName,
+                               () => (typeof getPlayerCharacterName === 'function'
+                                      ? getPlayerCharacterName() : ''));
+}
+
+// Reine Render-Funktion fuer den Live-Tick.
+function _renderConditionBadgesData(containerId, conditions) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const conds = conditions || [];
+    if (conds.length === 0) { container.innerHTML = ''; return; }
+    container.innerHTML = conds.map(c => {
+        const icon = c.icon || '⚠';
+        const label = c.label || c.name;
+        const rem = (c.remaining_hours !== null && c.remaining_hours !== undefined)
+            ? ` · noch ${c.remaining_hours}h` : '';
+        const title = `${label}${rem}`;
+        return `<span class="condition-badge" title="${escapeHtml(title)}">${escapeHtml(icon)}</span>`;
+    }).join('');
 }
 
 async function _loadConditionBadgesFor(characterName, containerId) {
@@ -18306,26 +19276,208 @@ async function _loadConditionBadgesFor(characterName, containerId) {
         const resp = await fetch(`/characters/${encodeURIComponent(characterName)}/active-conditions`);
         if (!resp.ok) { container.innerHTML = ''; return; }
         const data = await resp.json();
-        const conds = data.conditions || [];
-        if (conds.length === 0) { container.innerHTML = ''; return; }
-        container.innerHTML = conds.map(c => {
-            const icon = c.icon || '⚠';
-            const label = c.label || c.name;
-            const rem = (c.remaining_hours !== null && c.remaining_hours !== undefined)
-                ? ` · noch ${c.remaining_hours}h` : '';
-            const title = `${label}${rem}`;
-            return `<span class="condition-badge" title="${escapeHtml(title)}">${escapeHtml(icon)}</span>`;
-        }).join('');
+        _renderConditionBadgesData(containerId, data.conditions);
     } catch (e) {
         console.warn('[ConditionBadges]', e);
     }
 }
 
 async function loadConditionBadges() {
-    if (!hasValidCharacter()) return;
-    await _loadConditionBadgesFor(currentCharacterName, 'agent-condition-badges');
+    const agentBadges = document.getElementById('agent-condition-badges');
+    if (!hasValidCharacter()) {
+        if (agentBadges) agentBadges.innerHTML = '';
+    } else {
+        await _loadConditionBadgesFor(currentCharacterName, 'agent-condition-badges');
+    }
     const playerName = typeof getPlayerCharacterName === 'function' ? getPlayerCharacterName() : '';
     if (playerName) await _loadConditionBadgesFor(playerName, 'player-condition-badges');
+}
+
+// ============================================================================
+// LIVE-STATE-TICK (3s)
+// ============================================================================
+// Pollt /state/snapshot, verteilt das Ergebnis an die Render-Funktionen.
+// Ersetzt den 10s-_pollUnreadChats und deckt Mood/Activity/Location/Status/
+// Conditions/Sidebar/Medium ab. Stream-Events bleiben fuer Sub-Sekunden-
+// Latenz waehrend einer aktiven Antwort verantwortlich.
+
+let _liveTickTimer = null;
+let _liveTickETag = '';
+let _liveTickLastAgentExprKey = '';
+let _liveTickLastAvatarExprKey = '';
+const LIVE_TICK_INTERVAL_MS = 3000;
+
+function _renderPlayerHeaderLines(avatarBlock) {
+    if (!avatarBlock) return;
+    const pRoom = document.getElementById('player-room-line');
+    const pAct  = document.getElementById('player-activity-line');
+    const pMood = document.getElementById('player-mood-line');
+    if (pRoom) {
+        const loc = avatarBlock.location_name || '';
+        const room = avatarBlock.room_name || '';
+        const txt = loc ? (room ? `📍 ${loc} — ${room}` : `📍 ${loc}`) : '';
+        pRoom.textContent = txt; pRoom.style.display = txt ? '' : 'none';
+    }
+    if (pAct) {
+        const act = avatarBlock.activity || '';
+        const det = avatarBlock.activity_detail || '';
+        let txt = '';
+        if (act && det && det.toLowerCase() !== act.toLowerCase()) txt = `🎯 ${act} (${det})`;
+        else if (act) txt = `🎯 ${act}`;
+        else if (det) txt = `🎯 ${det}`;
+        pAct.textContent = txt; pAct.style.display = txt ? '' : 'none';
+    }
+    if (pMood) {
+        const mood = avatarBlock.mood || '';
+        const txt = mood ? `💭 ${mood}` : '';
+        pMood.textContent = txt; pMood.style.display = txt ? '' : 'none';
+    }
+}
+
+function _renderAgentHeaderLines(agentBlock) {
+    if (!agentBlock) return;
+    // Header-State (Room + Activity-Lines + Title)
+    _updateHeaderActivity(
+        agentBlock.location_name || '',
+        agentBlock.activity || '',
+        agentBlock.room_id || '',
+        agentBlock.room_name || '',
+        agentBlock.activity_detail || ''
+    );
+    // Mood-Line
+    const moodLine = document.getElementById('header-mood-line');
+    if (moodLine) {
+        const mood = agentBlock.mood || '';
+        const txt = mood ? `💭 ${mood}` : '';
+        moodLine.textContent = txt;
+        moodLine.style.display = txt ? '' : 'none';
+    }
+    // Mood-Overlay im Bild bleibt versteckt — Mood ist im Header.
+}
+
+function _applySnapshot(snap) {
+    if (!snap) return;
+
+    // Unread-Cache aus Snapshot fuettern (frueher von _pollUnreadChats gemacht)
+    if (snap.unread && typeof snap.unread === 'object') {
+        const wasEmpty = !Object.keys(_unreadChats).length;
+        _unreadChats = snap.unread.chats || {};
+        if (wasEmpty && Object.keys(_unreadChats).length) {
+            // Erste Befuellung: aktuellen Stand als gesehen markieren, damit
+            // nicht alle bekannten Chats als "neu" leuchten.
+            for (const name of Object.keys(_unreadChats)) {
+                if (localStorage.getItem(_seenKey(name)) === null) {
+                    const latest = _latestFor(name);
+                    if (latest) localStorage.setItem(_seenKey(name), latest);
+                }
+            }
+        }
+    }
+
+    // Agent
+    if (snap.agent && hasValidCharacter() && snap.agent.name === currentCharacterName) {
+        _renderAgentHeaderLines(snap.agent);
+        _renderStatusBarsData('status-effects-bars', snap.agent.status_effects, snap.agent.bar_meta);
+        _renderConditionBadgesData('agent-condition-badges', snap.agent.conditions);
+    } else if (!hasValidCharacter()) {
+        // Sicherheits-Clear (Tick koennte direkt nach Char-Deselect feuern)
+        const seBars = document.getElementById('status-effects-bars');
+        if (seBars) { seBars.innerHTML = ''; seBars.style.display = 'none'; }
+        const acb = document.getElementById('agent-condition-badges');
+        if (acb) acb.innerHTML = '';
+    }
+
+    // Avatar
+    if (snap.avatar) {
+        _renderPlayerHeaderLines(snap.avatar);
+        _renderStatusBarsData('player-status-bars', snap.avatar.status_effects, snap.avatar.bar_meta);
+        _renderConditionBadgesData('player-condition-badges', snap.avatar.conditions);
+    }
+
+    // Sidebar aus Snapshot rendern — keine extra Fetches.
+    if (typeof loadCharacterSidebar === 'function') {
+        const playerName = (typeof getPlayerCharacterName === 'function')
+            ? getPlayerCharacterName() : '';
+        loadCharacterSidebar({
+            sidebar: snap.sidebar || {},
+            playerName: playerName,
+        });
+    }
+    _updatePhoneBtnBadge();
+
+    // Chat-Medium aus Server-Hint (mirrors FE-Logik exakt)
+    if (snap.medium && snap.medium !== currentChatMedium) {
+        _recomputeChatMedium(snap.medium);
+    }
+
+    // Expression-Refresh nur wenn Mood/Activity sich geaendert haben
+    // (vermeidet unnoetige Bild-Requests).
+    if (snap.agent && hasValidCharacter()) {
+        const k = `${snap.agent.mood}|${snap.agent.activity}|${snap.agent.activity_detail}`;
+        if (k !== _liveTickLastAgentExprKey) {
+            _liveTickLastAgentExprKey = k;
+            if (typeof updateCharacterScene === 'function') {
+                updateCharacterScene(currentCharacterName);
+            }
+        }
+    }
+    if (snap.avatar) {
+        const k = `${snap.avatar.mood}|${snap.avatar.activity}|${snap.avatar.activity_detail}`;
+        if (k !== _liveTickLastAvatarExprKey) {
+            _liveTickLastAvatarExprKey = k;
+            if (typeof updatePlayerExpression === 'function') {
+                const playerName = (typeof getPlayerCharacterName === 'function')
+                    ? getPlayerCharacterName() : '';
+                if (playerName) updatePlayerExpression(playerName);
+            }
+        }
+    }
+}
+
+async function _tickLiveState() {
+    // Pause waehrend aktiver Chat-Antwort — Stream-Events uebernehmen
+    if (typeof isChatBusy !== 'undefined' && isChatBusy) return;
+    // Nur wenn Chat-Tab aktiv (oder kein Tab — z.B. Init) ticken
+    const activeTab = document.querySelector('.tab-btn.tab-active')?.dataset.tab;
+    if (activeTab && activeTab !== 'chat') return;
+
+    const agent = (currentCharacterName && currentCharacterName !== 'KI')
+        ? currentCharacterName : '';
+    const avatar = (typeof getPlayerCharacterName === 'function')
+        ? getPlayerCharacterName() : '';
+    if (!agent && !avatar) return;
+
+    try {
+        const headers = {};
+        if (_liveTickETag) headers['If-None-Match'] = `"${_liveTickETag}"`;
+        const url = `/state/snapshot?agent=${encodeURIComponent(agent)}&avatar=${encodeURIComponent(avatar)}`;
+        const resp = await fetch(url, { headers, cache: 'no-store' });
+        if (resp.status === 304) return;
+        if (!resp.ok) return;
+        const etag = resp.headers.get('ETag') || '';
+        if (etag) _liveTickETag = etag.replace(/^"|"$/g, '');
+        const snap = await resp.json();
+        _applySnapshot(snap);
+    } catch (e) {
+        console.warn('[Tick]', e);
+    }
+}
+
+function _startLiveTick() {
+    if (_liveTickTimer) return;
+    _tickLiveState();  // sofort einmal
+    _liveTickTimer = setInterval(_tickLiveState, LIVE_TICK_INTERVAL_MS);
+}
+
+function _stopLiveTick() {
+    if (_liveTickTimer) { clearInterval(_liveTickTimer); _liveTickTimer = null; }
+    _liveTickETag = '';
+}
+
+// Sofortiger Tick z.B. nach Stream-Ende, Char-Wechsel, Avatar-Move
+function _triggerImmediateTick() {
+    _liveTickETag = '';  // ETag ignorieren — wir wollen den frischen State
+    _tickLiveState();
 }
 
 // === INTERACTIVE STORY SYSTEM ===
@@ -19045,6 +20197,19 @@ function _renderTaskEstimate(t) {
     return `<span class="queue-task-estimate" title="${escapeHtml(title)}">~${est.toFixed(1)}s</span>`;
 }
 
+// Bildet aus dem Channel-Key (z.B. "Evo-X2:gpu0") + den dazugehoerigen
+// gpu_configs einen lesbaren Display-Namen (z.B. "Evo-X2 RTX 3090").
+// Wenn keine Label-Konfiguration vorliegt, bleibt der Channel-Key unveraendert.
+function _formatChannelName(channelKey, gpuConfigs) {
+    if (!channelKey || !channelKey.includes(':gpu')) return channelKey;
+    const label = gpuConfigs && gpuConfigs[0] && gpuConfigs[0].label
+        ? gpuConfigs[0].label
+        : '';
+    if (!label) return channelKey;
+    const providerBase = channelKey.split(':')[0];
+    return `${providerBase} ${label}`;
+}
+
 function renderQueueStatus(data) {
     const container = document.getElementById('queue-content');
     if (!container) return;
@@ -19086,10 +20251,13 @@ function renderQueueStatus(data) {
             if (vram && vram.vram_total_mb) {
                 const loadedNames = (vram.loaded_models || []).map(m => m.size_mb ? `${m.name} (${m.size_mb} MB)` : m.name).join(', ');
                 const gpuList = vram.gpus && vram.gpus.length ? vram.gpus : null;
+                // Channel-Display: "Provider:gpuN" -> "Provider <GPU-Label>" sofern
+                // der GPU-Eintrag ein konfiguriertes Label hat (z.B. "RTX 3090").
+                const _displayName = _formatChannelName(pName, p.gpu_configs);
 
                 html += `<div class="queue-provider-row">
                     <div class="queue-provider-header">
-                        <span class="queue-provider-name"><span class="job-status-dot ${statusDot}"${statusTitle ? ` title="${escapeHtml(statusTitle)}"` : ''}></span>${escapeHtml(pName)}</span>
+                        <span class="queue-provider-name"><span class="job-status-dot ${statusDot}"${statusTitle ? ` title="${escapeHtml(statusTitle)}"` : ''}></span>${escapeHtml(_displayName)}</span>
                     </div>`;
 
                 // Per-GPU bars (each queue only has its own GPU(s))
@@ -19132,9 +20300,10 @@ function renderQueueStatus(data) {
                 html += `${taskInfo}
                 </div>`;
             } else {
+                const _displayName = _formatChannelName(pName, p.gpu_configs);
                 html += `<div class="queue-provider-row">
                     <div class="queue-provider-header">
-                        <span class="queue-provider-name"><span class="job-status-dot ${statusDot}"${statusTitle ? ` title="${escapeHtml(statusTitle)}"` : ''}></span>${escapeHtml(pName)}</span>
+                        <span class="queue-provider-name"><span class="job-status-dot ${statusDot}"${statusTitle ? ` title="${escapeHtml(statusTitle)}"` : ''}></span>${escapeHtml(_displayName)}</span>
                         <span class="queue-provider-vram-text">${escapeHtml(p.type || '')}</span>
                     </div>
                     ${taskInfo}
@@ -20115,62 +21284,66 @@ function renderArcCard(arc) {
 
 // === CHARACTER SIDEBAR ===
 
-async function loadCharacterSidebar() {
+async function loadCharacterSidebar(prefetched) {
+    // prefetched (optional): { sidebar: {location_id, characters, chatbots},
+    //                          playerName: string } — wird vom Live-Tick
+    // mitgegeben; spart 3 separate Fetches pro Tick.
     const container = document.getElementById('character-sidebar-content');
     if (!container) return;
 
-    // 1. Avatar-Position direkt holen (Location + Room) — wir filtern jetzt
-    // pro Raum, nicht mehr pro Location.
     let userLocationId = '';
-    let userRoomId = '';
-    try {
-        const _avatarName = (typeof getPlayerCharacterName === 'function')
-            ? getPlayerCharacterName() : '';
-        if (_avatarName) {
-            const resp = await fetch(`/characters/${encodeURIComponent(_avatarName)}/current-location`);
-            if (resp.ok) {
-                const d = await resp.json();
-                userLocationId = d.current_location_id || '';
-                userRoomId = d.current_room || '';
+    let characters;
+    let chatbots;
+    let _playerChar = '';
+
+    if (prefetched && prefetched.sidebar) {
+        userLocationId = prefetched.sidebar.location_id || '';
+        characters = prefetched.sidebar.characters || [];
+        chatbots = prefetched.sidebar.chatbots || [];
+        _playerChar = prefetched.playerName
+            || document.getElementById('active-character-select')?.value
+            || '';
+    } else {
+        // 1. Avatar-Position holen (kein Snapshot vorhanden — Standalone-Aufruf)
+        let userRoomId = '';
+        try {
+            const _avatarName = (typeof getPlayerCharacterName === 'function')
+                ? getPlayerCharacterName() : '';
+            if (_avatarName) {
+                const resp = await fetch(`/characters/${encodeURIComponent(_avatarName)}/current-location`);
+                if (resp.ok) {
+                    const d = await resp.json();
+                    userLocationId = d.current_location_id || '';
+                    userRoomId = d.current_room || '';
+                }
             }
+        } catch (e) {
+            console.warn('[Sidebar] Avatar-Position laden fehlgeschlagen:', e);
         }
-    } catch (e) {
-        console.warn('[Sidebar] Avatar-Position laden fehlgeschlagen:', e);
-    }
 
-    if (!userLocationId) {
-        container.innerHTML = '<div class="character-sidebar-empty">Kein Ort gewaehlt. Oeffne die Weltkarte.</div>';
-        return;
-    }
-
-    // 2. Characters im gleichen Raum + Chatbots parallel laden
-    try {
-        const _qs = `location=${encodeURIComponent(userLocationId)}` +
-                    (userRoomId ? `&room=${encodeURIComponent(userRoomId)}` : '');
-        const [locResp, botResp] = await Promise.all([
-            fetch(`/characters/at-location?${_qs}`),
-            fetch(`/characters/chatbots`),
-        ]);
-        const locData = locResp.ok ? await locResp.json() : {characters: []};
-        const botData = botResp.ok ? await botResp.json() : {characters: []};
-        const characters = locData.characters || [];
-        const chatbots = botData.characters || [];
-
-        if (characters.length === 0 && chatbots.length === 0) {
-            container.innerHTML = '<div class="character-sidebar-empty">Keine Characters verfuegbar</div>';
+        if (!userLocationId) {
+            container.innerHTML = '<div class="character-sidebar-empty">Kein Ort gewaehlt. Oeffne die Weltkarte.</div>';
             return;
         }
 
-        // 3. Buttons rendern (mit Group-Toggle wenn >= 2 Characters)
-        let html = '';
-        if (characters.length >= 2) {
-            html += `<button class="character-sidebar-btn group-chat-toggle-btn${chatMode === 'group' ? ' active' : ''}" id="btn-group-mode" title="Gruppenchat">`;
-            html += `<span class="group-toggle-icon">${chatMode === 'group' ? '👥' : '👥'}</span>`;
-            html += `<span class="character-sidebar-name">Gruppenchat</span>`;
-            html += `</button>`;
+        try {
+            const _qs = `location=${encodeURIComponent(userLocationId)}` +
+                        (userRoomId ? `&room=${encodeURIComponent(userRoomId)}` : '');
+            const [locResp, botResp] = await Promise.all([
+                fetch(`/characters/at-location?${_qs}`),
+                fetch(`/characters/chatbots`),
+            ]);
+            const locData = locResp.ok ? await locResp.json() : {characters: []};
+            const botData = botResp.ok ? await botResp.json() : {characters: []};
+            characters = locData.characters || [];
+            chatbots = botData.characters || [];
+        } catch (e) {
+            console.error('[Sidebar] Fehler:', e);
+            container.innerHTML = '<div class="character-sidebar-empty">Fehler beim Laden</div>';
+            return;
         }
-        // Get player's active character (from dropdown or backend)
-        let _playerChar = document.getElementById('active-character-select')?.value || '';
+
+        _playerChar = document.getElementById('active-character-select')?.value || '';
         if (!_playerChar) {
             try {
                 const _acResp = await fetch(`/account/characters`);
@@ -20179,6 +21352,28 @@ async function loadCharacterSidebar() {
                     _playerChar = _acData.active_character || '';
                 }
             } catch(e) {}
+        }
+    }
+
+    // Edge-Case: kein Ort gewaehlt (sowohl prefetched als auch Standalone)
+    if (!userLocationId) {
+        container.innerHTML = '<div class="character-sidebar-empty">Kein Ort gewaehlt. Oeffne die Weltkarte.</div>';
+        return;
+    }
+
+    try {
+        if (characters.length === 0 && chatbots.length === 0) {
+            container.innerHTML = '<div class="character-sidebar-empty">Keine Characters verfuegbar</div>';
+            return;
+        }
+
+        // Buttons rendern (mit Group-Toggle wenn >= 2 Characters)
+        let html = '';
+        if (characters.length >= 2) {
+            html += `<button class="character-sidebar-btn group-chat-toggle-btn${chatMode === 'group' ? ' active' : ''}" id="btn-group-mode" title="Gruppenchat">`;
+            html += `<span class="group-toggle-icon">${chatMode === 'group' ? '👥' : '👥'}</span>`;
+            html += `<span class="character-sidebar-name">Gruppenchat</span>`;
+            html += `</button>`;
         }
         // Location-Characters rendern: erst same_room, dann other_room (ausgegraut)
         let _locRendered = 0;
@@ -20279,11 +21474,13 @@ async function loadCharacterSidebar() {
                 _currentCharacterRoom = '';
                 _updateHeaderActivity('', '', '');
                 setAgentButtonsVisible(true);
+                updateStoryTabVisibility();
                 await Promise.all([loadKnownInfo(), _loadCharacterHeaderState(name), loadHeaderMood(), loadStatusEffectsBars(), loadConditionBadges()]);
                 await loadChatHistory();
                 loadInitialPrompt();
                 _markChatSeen(name);
                 loadCharacterSidebar();
+                if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
 
                 // KEIN Avatar-Auto-Move mehr beim Character-Klick (frueher: Avatar
                 // wurde zur Position des Chat-Partners gezogen). Der Avatar bleibt
@@ -20376,10 +21573,14 @@ async function loadWorldPanel() {
             ]);
             let charLocation = '';
             let charActivity = '';
+            let movementTargetId = '';
+            let movementTargetName = '';
             if (locResp2.ok) {
                 const d = await locResp2.json();
                 charLocation = d.current_location_id || d.current_location || '';
                 charActivity = (d.current_activity || '').toString();
+                movementTargetId = d.movement_target_id || '';
+                movementTargetName = d.movement_target_name || '';
             }
             let avatar = '';
             if (imgResp.ok) {
@@ -20389,7 +21590,8 @@ async function loadWorldPanel() {
                     avatar = `/characters/${encodeURIComponent(name)}/images/${encodeURIComponent(profileImg)}`;
                 }
             }
-            return { name, location: charLocation, avatar, activity: charActivity };
+            return { name, location: charLocation, avatar, activity: charActivity,
+                     movementTargetId, movementTargetName };
         }));
 
         renderWorldPanelGrid(locations, charData, userLocation, content);
@@ -20430,10 +21632,21 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
         return;
     }
 
-    // Placed vs unplaced locations
+    // Placed vs unplaced locations.
+    // - Klone (template_location_id gesetzt): immer auf dem Grid, nie im Tray.
+    // - Passable Templates (passable=true, kein template_location_id): immer
+    //   im Tray (als Stempel), nie auf dem Grid platziert.
+    // - Normale Orte: existing behavior (Tray nur wenn unplaced).
     const placedMap = {};
     const unplaced = [];
+    const passableTemplates = [];
     for (const loc of locations) {
+        const isClone = !!(loc.template_location_id || '').trim();
+        const isPassableTemplate = !!loc.passable && !isClone;
+        if (isPassableTemplate) {
+            passableTemplates.push(loc);
+            continue;
+        }
         if (loc.grid_x != null && loc.grid_y != null && loc.grid_x >= 0 && loc.grid_y >= 0) {
             placedMap[`${loc.grid_x},${loc.grid_y}`] = loc;
         } else {
@@ -20458,12 +21671,21 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             const pos = _isoPos(x, y);
             const left = pos.x + offsetX;
             const top = pos.y;
-            const zIdx = (x + y) * (WORLDMAP_GRID_COLS + 1) + y;
+            // Iso-Basis-Z (weiter hinten = niedriger). Per-Location Override
+            // map_z_offset (-10..+10) hebt/senkt das Icon ueber/unter Nachbarn.
+            // Multiplikator 10000 stellt sicher, dass eine Stufe Offset komplett
+            // dominiert (Iso-Range ist ca. 0..1000 bei 30x30 Grid).
+            const baseZ = (x + y) * (WORLDMAP_GRID_COLS + 1) + y;
+            const zOffset = (loc && parseInt(loc.map_z_offset)) || 0;
+            const zIdx = baseZ + zOffset * 10000;
 
-            html += `<div class="worldmap-grid-cell${loc ? ' occupied' : ''}${isActive ? ' worldmap-tile-active' : ''}" `;
+            const passableCls = (loc && loc.passable) ? ' worldmap-tile-passable' : '';
+            const isClone = !!(loc && (loc.template_location_id || '').trim());
+            html += `<div class="worldmap-grid-cell${loc ? ' occupied' : ''}${isActive ? ' worldmap-tile-active' : ''}${passableCls}" `;
             html += `style="left:${left}px;top:${top}px;z-index:${zIdx}" `;
             html += `data-grid-x="${x}" data-grid-y="${y}"`;
             if (loc) html += ` data-location="${escapeHtml(locId)}"`;
+            if (isClone) html += ` data-clone="1"`;
             html += `>`;
 
             if (loc) {
@@ -20479,7 +21701,17 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
                     html += `<div class="worldmap-cell-avatars">`;
                     for (const ch of charsHere) {
                         const src = ch.avatar ? ch.avatar : generateDefaultAvatar(ch.name);
-                        html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)}">`;
+                        const traveling = !!ch.movementTargetId && ch.movementTargetId !== locId;
+                        const titleSuffix = traveling
+                            ? ` — unterwegs nach ${ch.movementTargetName || ch.movementTargetId}`
+                            : '';
+                        const wrapClass = traveling ? 'worldmap-avatar-wrap traveling' : 'worldmap-avatar-wrap';
+                        html += `<span class="${wrapClass}" title="${escapeHtml(ch.name)}${escapeHtml(titleSuffix)}">`;
+                        html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}">`;
+                        if (traveling) {
+                            html += `<span class="worldmap-travel-badge">🚶</span>`;
+                        }
+                        html += `</span>`;
                     }
                     html += `</div>`;
                 }
@@ -20496,7 +21728,7 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
     const sleepingChars = charData.filter(_isSleepingOffmap);
     const homelessChars = charData.filter(c => !_isSleepingOffmap(c) && (!c.location || !locationIds.has(c.location)));
 
-    if (unplaced.length || homelessChars.length || sleepingChars.length) {
+    if (unplaced.length || passableTemplates.length || homelessChars.length || sleepingChars.length) {
         html += '<div class="worldmap-tray">';
         if (unplaced.length) {
             html += '<div class="worldmap-tray-title">Nicht platziert</div>';
@@ -20510,13 +21742,25 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             }
             html += '</div>';
         }
+        if (passableTemplates.length) {
+            html += '<div class="worldmap-tray-title">Durchgangsorte (mehrfach platzierbar)</div>';
+            html += '<div class="worldmap-tray-items">';
+            for (const tmpl of passableTemplates) {
+                const tmplId = tmpl.id;
+                const trayMapUrl = `/world/locations/${encodeURIComponent(tmplId)}/map-icon`;
+                html += `<div class="worldmap-tray-item worldmap-tray-template" draggable="true" data-template-id="${escapeHtml(tmplId)}" title="Auf die Karte ziehen, um eine Kopie zu setzen">`;
+                html += `<span><img class="worldmap-map-icon-tray" src="${trayMapUrl}" alt="" onerror="this.replaceWith(document.createTextNode('🛤️'))"></span><span>${escapeHtml(tmpl.name)}</span><span class="worldmap-tray-stamp-badge">∞</span>`;
+                html += `</div>`;
+            }
+            html += '</div>';
+        }
         if (homelessChars.length) {
             html += `<div class="worldmap-homeless">`;
             html += `<div class="worldmap-homeless-title">Ohne Ort</div>`;
             html += `<div class="worldmap-homeless-list">`;
             for (const ch of homelessChars) {
                 const src = ch.avatar ? ch.avatar : generateDefaultAvatar(ch.name);
-                html += `<button class="worldmap-homeless-btn" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)}">`;
+                html += `<button class="worldmap-homeless-btn" draggable="true" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} (auf Ort ziehen, um ihn zu lernen)">`;
                 html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}">`;
                 html += `<span>${escapeHtml(ch.name)}</span>`;
                 html += `</button>`;
@@ -20529,7 +21773,7 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             html += `<div class="worldmap-homeless-list">`;
             for (const ch of sleepingChars) {
                 const src = ch.avatar ? ch.avatar : generateDefaultAvatar(ch.name);
-                html += `<button class="worldmap-homeless-btn worldmap-sleeping-btn" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} schlaeft">`;
+                html += `<button class="worldmap-homeless-btn worldmap-sleeping-btn" draggable="true" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} schlaeft (auf Ort ziehen, um ihn zu lernen)">`;
                 html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}">`;
                 html += `<span>${escapeHtml(ch.name)}</span>`;
                 html += `<span class="worldmap-sleep-badge">💤</span>`;
@@ -20552,18 +21796,33 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
 }
 
 function _attachWorldmapDragDrop(container) {
-    let draggedLocationId = null;
+    // Payload format: "loc:<id>" fuer Location-Drag, "char:<name>" fuer Character-Drag.
+    let draggedPayload = null;
 
     container.addEventListener('dragstart', (e) => {
         const draggable = e.target.closest('[draggable="true"]');
         if (!draggable) return;
-        draggedLocationId = draggable.dataset.locationId;
-        e.dataTransfer.setData('text/plain', draggedLocationId);
+        const charName = draggable.dataset.character;
+        const tmplId = draggable.dataset.templateId;
+        const locId = draggable.dataset.locationId;
+        if (charName) {
+            draggedPayload = `char:${charName}`;
+        } else if (tmplId) {
+            draggedPayload = `tmpl:${tmplId}`;
+        } else if (locId) {
+            draggedPayload = `loc:${locId}`;
+        } else {
+            return;
+        }
+        e.dataTransfer.setData('text/plain', draggedPayload);
         e.dataTransfer.effectAllowed = 'move';
         setTimeout(() => {
             const parentCell = draggable.closest('.worldmap-grid-cell');
             if (parentCell) parentCell.style.opacity = '0.4';
-            if (draggable.classList.contains('worldmap-tray-item')) draggable.classList.add('dragging');
+            if (draggable.classList.contains('worldmap-tray-item') ||
+                draggable.classList.contains('worldmap-homeless-btn')) {
+                draggable.classList.add('dragging');
+            }
         }, 0);
     });
 
@@ -20571,13 +21830,26 @@ function _attachWorldmapDragDrop(container) {
         container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
         container.querySelectorAll('.worldmap-grid-cell').forEach(el => el.style.opacity = '');
         container.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
-        draggedLocationId = null;
+        draggedPayload = null;
     });
 
     container.addEventListener('dragover', (e) => {
         const cell = e.target.closest('.worldmap-grid-cell');
         if (!cell) return;
-        if (cell.classList.contains('occupied') && cell.dataset.location !== draggedLocationId) return;
+        const isCharDrag = draggedPayload && draggedPayload.startsWith('char:');
+        const isTmplDrag = draggedPayload && draggedPayload.startsWith('tmpl:');
+        if (isCharDrag) {
+            // Character muss auf eine besetzte Zelle (Location) gedroppt werden
+            if (!cell.classList.contains('occupied')) return;
+        } else if (isTmplDrag) {
+            // Template-Klon: nur auf leeres Feld
+            if (cell.classList.contains('occupied')) return;
+        } else {
+            // Location-Drag: nicht auf andere besetzte Zelle, nur auf leere oder eigene
+            const draggedLocId = draggedPayload && draggedPayload.startsWith('loc:')
+                ? draggedPayload.slice(4) : '';
+            if (cell.classList.contains('occupied') && cell.dataset.location !== draggedLocId) return;
+        }
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         cell.classList.add('drag-over');
@@ -20593,23 +21865,117 @@ function _attachWorldmapDragDrop(container) {
         const cell = e.target.closest('.worldmap-grid-cell');
         if (!cell) return;
         cell.classList.remove('drag-over');
-        const locationId = e.dataTransfer.getData('text/plain');
-        if (!locationId) return;
-        if (cell.classList.contains('occupied') && cell.dataset.location !== locationId) return;
-        const gridX = parseInt(cell.dataset.gridX);
-        const gridY = parseInt(cell.dataset.gridY);
-        await _saveWorldmapPosition(locationId, gridX, gridY);
+        const payload = e.dataTransfer.getData('text/plain');
+        if (!payload) return;
+        if (payload.startsWith('char:')) {
+            if (!cell.classList.contains('occupied')) return;
+            const charName = payload.slice(5);
+            const locationId = cell.dataset.location;
+            if (charName && locationId) {
+                await _placeCharacterOnMap(charName, locationId);
+            }
+            return;
+        }
+        if (payload.startsWith('tmpl:')) {
+            if (cell.classList.contains('occupied')) return;
+            const templateId = payload.slice(5);
+            const gridX = parseInt(cell.dataset.gridX);
+            const gridY = parseInt(cell.dataset.gridY);
+            await _cloneTemplateOnMap(templateId, gridX, gridY);
+            return;
+        }
+        if (payload.startsWith('loc:')) {
+            const locationId = payload.slice(4);
+            if (cell.classList.contains('occupied') && cell.dataset.location !== locationId) return;
+            const gridX = parseInt(cell.dataset.gridX);
+            const gridY = parseInt(cell.dataset.gridY);
+            await _saveWorldmapPosition(locationId, gridX, gridY);
+        }
     });
 
-    // Drop on tray to unplace
+    // Drop on tray: Klone werden geloescht, normale Locations unplatziert.
+    // Character- und Template-Drops auf Tray werden ignoriert.
     const tray = container.querySelector('.worldmap-tray');
     if (tray) {
-        tray.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-        tray.addEventListener('drop', async (e) => {
+        tray.addEventListener('dragover', (e) => {
+            if (draggedPayload && (draggedPayload.startsWith('char:') ||
+                                   draggedPayload.startsWith('tmpl:'))) return;
             e.preventDefault();
-            const locationId = e.dataTransfer.getData('text/plain');
-            if (locationId) await _saveWorldmapPosition(locationId, -1, -1);
+            e.dataTransfer.dropEffect = 'move';
         });
+        tray.addEventListener('drop', async (e) => {
+            const payload = e.dataTransfer.getData('text/plain');
+            if (!payload || !payload.startsWith('loc:')) return;
+            e.preventDefault();
+            const locationId = payload.slice(4);
+            if (!locationId) return;
+            // Klon erkennen via data-clone Attribut auf der Source-Zelle
+            const sourceCell = container.querySelector(
+                `.worldmap-grid-cell[data-location="${CSS.escape(locationId)}"]`);
+            const isClone = !!(sourceCell && sourceCell.dataset.clone === '1');
+            if (isClone) {
+                await _deleteCloneInstance(locationId);
+            } else {
+                await _saveWorldmapPosition(locationId, -1, -1);
+            }
+        });
+    }
+}
+
+async function _cloneTemplateOnMap(templateId, gridX, gridY) {
+    try {
+        const resp = await fetch(`/world/locations/${encodeURIComponent(templateId)}/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ grid_x: gridX, grid_y: gridY })
+        });
+        if (!resp.ok) {
+            console.error('[WorldMap] Klon-Erzeugung fehlgeschlagen:', resp.status);
+            showStatusToast?.('Konnte Kopie nicht setzen', 'error');
+        }
+    } catch (e) {
+        console.error('[WorldMap] Klon-Erzeugung Fehler:', e);
+    } finally {
+        _cachedWorldLocations = null;
+        loadWorldPanel();
+        loadLocations?.();
+    }
+}
+
+async function _deleteCloneInstance(locationId) {
+    try {
+        const resp = await fetch(`/world/locations/${encodeURIComponent(locationId)}`, {
+            method: 'DELETE'
+        });
+        if (!resp.ok) {
+            console.error('[WorldMap] Klon-Loeschen fehlgeschlagen:', resp.status);
+            showStatusToast?.('Konnte Kopie nicht loeschen', 'error');
+        }
+    } catch (e) {
+        console.error('[WorldMap] Klon-Loeschen Fehler:', e);
+    } finally {
+        _cachedWorldLocations = null;
+        loadWorldPanel();
+        loadLocations?.();
+    }
+}
+
+async function _placeCharacterOnMap(characterName, locationId) {
+    try {
+        const resp = await fetch(`/characters/${encodeURIComponent(characterName)}/place-on-map`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ location_id: locationId })
+        });
+        if (!resp.ok) {
+            console.error('[WorldMap] Character-Platzierung fehlgeschlagen:', resp.status);
+            showStatusToast?.('Konnte Character nicht platzieren', 'error');
+        }
+    } catch (e) {
+        console.error('[WorldMap] Character-Platzierung Fehler:', e);
+    } finally {
+        // Tray + Avatare neu rendern
+        loadWorldPanel();
     }
 }
 
@@ -20851,6 +22217,9 @@ async function onWorldPanelLocationClick(locationId) {
 
         // Agent-Buttons ausblenden (kein Agent aktiv)
         setAgentButtonsVisible(false);
+        // Status-Bars und Condition-Badges des vorigen Agents leeren
+        loadStatusEffectsBars();
+        loadConditionBadges();
         updateStoryTabVisibility();
 
         showStatusToast(`📍 Du bist jetzt: ${locationIdToName(locationId)}`, 'success');
@@ -20888,6 +22257,7 @@ async function onHomelessCharacterClick(characterName) {
         _currentCharacterRoom = '';
         _updateHeaderActivity('', '', '');
         setAgentButtonsVisible(true);
+        updateStoryTabVisibility();
         await Promise.all([loadKnownInfo(), _loadCharacterHeaderState(characterName)]);
         await loadChatHistory();
         loadInitialPrompt();
@@ -21341,6 +22711,7 @@ async function onNotificationClick(notificationId, characterName) {
                 _closeOverlayPanels();
                 document.getElementById('chat-messages').innerHTML = '';
                 setAgentButtonsVisible(true);
+                updateStoryTabVisibility();
                 await loadKnownInfo();
                 await loadChatHistory(historyLimit);
                 loadCharacterSidebar();
@@ -21518,7 +22889,9 @@ async function worldDevLoadLocations() {
 
 async function worldDevLoadContextOptions() {
 
-    // Load locations for context (checkboxes)
+    // Load locations for context (checkboxes). Nur Unique-Orte (passable=false)
+    // anbieten — Templates und ihre Klone haben hier keinen Sinn als Kontext-
+    // Anker.
     const locContainer = document.getElementById('worlddev-context-locations');
     if (locContainer) {
         locContainer.innerHTML = '';
@@ -21526,7 +22899,8 @@ async function worldDevLoadContextOptions() {
             const res = await fetch(`/world/locations`);
             if (res.ok) {
                 const data = await res.json();
-                for (const loc of (data.locations || [])) {
+                const onlyUnique = (data.locations || []).filter(l => !l.passable);
+                for (const loc of onlyUnique) {
                     const lbl = document.createElement('label');
                     const cb = document.createElement('input');
                     cb.type = 'checkbox';
@@ -22064,6 +23438,167 @@ async function worldDevApplyProfilePatch() {
     } catch (e) {
         console.error('[WorldDev] Apply profile-patch error:', e);
         alert('Fehler beim Profil-Patch: ' + e.message);
+    }
+}
+
+// ── Manual JSON Import Dialog ──────────────────────────────────────────────
+//
+// Catch-all for cases the chat-flow doesn't cover: paste any character /
+// location / outfit / soul / profile-patch JSON and apply it. Backend does
+// type-detect + soul-flatten + template-alias mapping; we just drive the UI.
+
+let _worldDevJsonPreviewTimer = null;
+let _worldDevJsonLastPreview = null;  // last server-validated preview blob
+
+function worldDevOpenJsonImport() {
+    const modal = document.getElementById('worlddev-json-modal');
+    if (!modal) return;
+    // Pre-fill with whatever we last picked up from the chat stream — saves
+    // the user from manually copying out of the markdown render.
+    const ta = document.getElementById('worlddev-json-input');
+    const seed = _worldDevLastCharacterData || _worldDevLastLocationData
+        || _worldDevLastOutfitData || _worldDevLastSoulData
+        || _worldDevLastProfilePatchData;
+    if (ta && seed) ta.value = JSON.stringify(seed, null, 2);
+    document.getElementById('worlddev-json-type').value = '';
+    modal.style.display = 'flex';
+    worldDevJsonPreview();
+    if (ta) ta.focus();
+}
+
+function worldDevCloseJsonImport() {
+    const modal = document.getElementById('worlddev-json-modal');
+    if (modal) modal.style.display = 'none';
+    _worldDevJsonLastPreview = null;
+}
+
+function worldDevJsonInputChanged() {
+    // Debounce — preview hits the server, no need to fire on every keystroke
+    clearTimeout(_worldDevJsonPreviewTimer);
+    _worldDevJsonPreviewTimer = setTimeout(worldDevJsonPreview, 300);
+}
+
+async function worldDevJsonPreview() {
+    const ta = document.getElementById('worlddev-json-input');
+    const status = document.getElementById('worlddev-json-status');
+    const warnEl = document.getElementById('worlddev-json-warnings');
+    const infoEl = document.getElementById('worlddev-json-info');
+    const applyBtn = document.getElementById('worlddev-json-apply-btn');
+    if (!ta || !status) return;
+    const raw = ta.value.trim();
+    warnEl.style.display = 'none';
+    infoEl.style.display = 'none';
+    _worldDevJsonLastPreview = null;
+    applyBtn.disabled = true;
+    if (!raw) {
+        status.textContent = 'Paste JSON below.';
+        status.style.color = '';
+        return;
+    }
+    const typeHint = document.getElementById('worlddev-json-type').value;
+    try {
+        const res = await fetch('/world-dev/preview-json', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ json: raw, type_hint: typeHint }),
+        });
+        const data = await res.json();
+        if (!data.valid) {
+            status.textContent = data.error || 'Invalid JSON.';
+            status.style.color = '#ff8080';
+            return;
+        }
+        _worldDevJsonLastPreview = data;
+        applyBtn.disabled = false;
+        const t = data.detected_type;
+        const info = data.info || {};
+        const name = info.name || '?';
+        let label;
+        if (t === 'character') {
+            const tmpl = info.template || '?';
+            const ofc = info.outfits || 0;
+            const extra = (info.soul_md_files || []).length;
+            label = `Character "${name}" — template ${tmpl}, ${ofc} outfit(s)`
+                + (extra ? `, +${extra} extra soul file(s)` : '');
+        } else if (t === 'location') {
+            label = `Location "${name}" — ${info.rooms || 0} room(s)`;
+        } else if (t === 'outfit') {
+            label = `Outfit "${name}" → ${info.character_name || '?'}`;
+        } else if (t === 'soul') {
+            label = `Soul section "${info.section || '?'}" → ${name}`;
+        } else if (t === 'profile-patch') {
+            const fk = (info.fields || []).join(', ');
+            label = `Profile patch → ${name} (${fk || 'no fields'})`;
+        } else {
+            label = `Detected: ${t}`;
+        }
+        status.textContent = '✓ ' + label + (data.type_hint_used ? ' [override]' : '');
+        status.style.color = '#88dd88';
+        if ((data.warnings || []).length) {
+            warnEl.innerHTML = data.warnings.map(w => '⚠ ' + w).join('<br>');
+            warnEl.style.display = '';
+        }
+    } catch (e) {
+        status.textContent = 'Preview failed: ' + e.message;
+        status.style.color = '#ff8080';
+    }
+}
+
+async function worldDevJsonApply() {
+    const ta = document.getElementById('worlddev-json-input');
+    if (!ta || !_worldDevJsonLastPreview) {
+        alert('No valid JSON to apply.');
+        return;
+    }
+    const raw = ta.value.trim();
+    const typeHint = document.getElementById('worlddev-json-type').value;
+    const applyBtn = document.getElementById('worlddev-json-apply-btn');
+    applyBtn.disabled = true;
+    try {
+        const res = await fetch('/world-dev/apply-json', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ json: raw, type_hint: typeHint }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.detail || 'Apply failed');
+        }
+        const t = data.type;
+        const name = data.name || '?';
+        let summary;
+        if (t === 'character') {
+            const ofc = (data.outfits || []).length;
+            summary = `Character **"${name}"** applied (${ofc} outfit(s)).`;
+        } else if (t === 'location') {
+            summary = `Location **"${name}"** applied.`;
+        } else if (t === 'outfit') {
+            summary = `Outfit **"${name}"** → ${data.character} (${data.pieces_created} new, ${data.pieces_reused} reused).`;
+        } else if (t === 'soul') {
+            summary = `Soul section **"${data.section}"** → ${name} (${data.size} chars).`;
+        } else if (t === 'profile-patch') {
+            summary = `Profile patch → ${name}: ${(data.applied_fields || []).join(', ')}.`;
+        } else {
+            summary = `${t} applied.`;
+        }
+        if ((data.warnings || []).length) {
+            summary += '\n\nWarnings:\n' + data.warnings.map(w => '- ' + w).join('\n');
+        }
+        worldDevCloseJsonImport();
+        _worldDevAppendMessage('assistant', summary);
+        // Refresh dropdowns so the new entry shows up
+        if (t === 'location' && typeof worldDevLoadLocations === 'function') {
+            worldDevLoadLocations();
+        }
+        if (t === 'character' && typeof worldDevLoadCharacters === 'function') {
+            worldDevLoadCharacters();
+        }
+    } catch (e) {
+        console.error('[WorldDev] JSON apply error:', e);
+        alert('Apply failed: ' + e.message);
+        applyBtn.disabled = false;
     }
 }
 
@@ -22826,6 +24361,27 @@ const _diaryTypeLabels = {
     instagram_comment: 'Kommentar',
 };
 
+// Diary haelt eine eigene Character-Auswahl (unabhaengig vom Chat-Partner),
+// damit man im Tagebuch bloettern kann ohne den globalen Chat zu wechseln.
+let _diarySelectedCharacter = null;
+
+function _buildDiaryCharacterSelector() {
+    const container = document.getElementById('diary-character');
+    if (!container) return;
+    const options = _buildCharacterSelectorOptions();
+    if (!_diarySelectedCharacter || !options.find(o => o.name === _diarySelectedCharacter)) {
+        // Default: aktueller Chat-Partner, sonst erster Eintrag
+        const fallback = (currentCharacterName && currentCharacterName !== 'KI')
+            ? currentCharacterName
+            : (options[0] && options[0].name) || null;
+        _diarySelectedCharacter = fallback;
+    }
+    _renderCharacterSelector(container, options, _diarySelectedCharacter, (name) => {
+        _diarySelectedCharacter = name;
+        _loadDiaryDates().then(() => loadDiary());
+    });
+}
+
 function toggleDiaryPanel() {
     const panel = document.getElementById('diary-panel');
     if (!panel) return;
@@ -22833,6 +24389,7 @@ function toggleDiaryPanel() {
     panel.style.display = _diaryPanelOpen ? 'flex' : 'none';
     if (_diaryPanelOpen) {
         _restorePanelWidth('diary-panel');
+        _buildDiaryCharacterSelector();
         _loadDiaryDates().then(() => loadDiary());
     }
 }
@@ -22884,7 +24441,9 @@ async function _loadDiaryDates() {
 }
 
 function _getCurrentAgent() {
-    // Prefer canonical global; avoid currentAgent (undefined legacy).
+    // Diary nutzt seine eigene Character-Auswahl, damit man im Tagebuch
+    // bloettern kann ohne den globalen Chat-Partner zu wechseln.
+    if (_diarySelectedCharacter) return _diarySelectedCharacter;
     if (typeof currentCharacterName !== 'undefined' && currentCharacterName
         && currentCharacterName !== 'KI' && currentCharacterName !== '—') {
         return currentCharacterName;

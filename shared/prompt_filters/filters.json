@@ -2,25 +2,29 @@
   "_meta": {
     "purpose": "Shared prompt-filter baseline. Loaded by app/core/prompt_filters.py and merged with the per-world `prompt_filters` table (world overrides shared by id).",
     "schema": {
-      "id": "stable identifier; world entries with the same id replace the shared one",
-      "condition": "expression evaluated by app.core.activity_engine.evaluate_condition (e.g. 'stamina<10', 'has_condition:drunk', 'has_item:foo', 'mood=happy')",
+      "id": "stable identifier; world entries with the same id replace the shared one. Doubles as the canonical condition-name: when set as a tag in profile.active_conditions (e.g. via apply_condition), the filter triggers implicitly — no need for a redundant 'condition: condition:<id>' entry.",
+      "condition": "OPTIONAL extra trigger expression evaluated by app.core.activity_engine.evaluate_condition (e.g. 'stamina<10', 'has_item:foo', 'mood:happy'). Filter triggers when (id-tag is in profile) OR (condition expression evaluates true). Combine via AND/OR/NOT.",
       "label": "human-readable description for admin UI",
       "drop_blocks": "list of *_block keys to clear from the thought context (block disappears from the prompt)",
       "prompt_modifier": "text appended to the effects/state section so the LLM sees the active state",
+      "icon": "single-emoji badge shown in the character header when the filter matches an active condition",
+      "image_modifier": "visual hints appended to the image generation prompt (e.g. 'flushed cheeks, glassy eyes')",
       "enabled": "if false, the filter is loaded but not applied"
     }
   },
   "filters": [
     {
-      "id": "drunk_memory_fog",
-      "condition": "has_condition:drunk",
+      "id": "drunk",
+      "condition": "",
       "label": "Drunk — clouded memory",
       "drop_blocks": ["recent_chat_block", "inbox_block"],
       "prompt_modifier": "You are drunk. Recent conversations feel fuzzy and you can't remember details clearly.",
+      "icon": "🍺",
+      "image_modifier": "flushed cheeks, glassy eyes, slightly unfocused gaze",
       "enabled": true
     },
     {
-      "id": "exhausted_only_sleep",
+      "id": "exhausted",
       "condition": "stamina<10",
       "label": "Exhausted — only home and sleep matter",
       "drop_blocks": [
@@ -42,6 +46,8 @@
         "outfit_avatar_block"
       ],
       "prompt_modifier": "You are exhausted. All you can think about is getting home and sleeping.",
+      "icon": "😴",
+      "image_modifier": "tired eyes, drooping shoulders, weary expression",
       "enabled": true
     }
   ]

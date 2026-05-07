@@ -22,7 +22,7 @@
   },
   "63": {
     "inputs": {
-      "value": ""
+      "value": "blurry, low resolution, bad anatomy, deformed, distorted, ugly,"
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -65,7 +65,7 @@
       },
       "➕ Add Lora": "",
       "model": [
-        "305",
+        "309",
         0
       ],
       "clip": [
@@ -343,6 +343,32 @@
     "class_type": "UNETLoader",
     "_meta": {
       "title": "input_safetensors"
+    }
+  },
+  "308": {
+    "inputs": {
+      "gguf_name": ""
+    },
+    "class_type": "LoaderGGUF",
+    "_meta": {
+      "title": "input_gguf"
+    }
+  },
+  "309": {
+    "inputs": {
+      "boolean": false,
+      "on_true": [
+        "308",
+        0
+      ],
+      "on_false": [
+        "305",
+        0
+      ]
+    },
+    "class_type": "Switch any [Crystools]",
+    "_meta": {
+      "title": "safetensors_gguf"
     }
   },
   "276:119": {

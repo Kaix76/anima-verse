@@ -544,12 +544,17 @@ def _format_memory_timestamp(iso_ts: str) -> str:
 
 
 def build_memory_prompt_section(character_name: str,
-    user_name: str = "",
+    partner_name: str = "",
     current_message: str = "") -> str:
     """Baut den Memory-Abschnitt fuer den System-Prompt.
 
     Gruppiert nach Typ: episodic, semantic, commitment, relationships.
     Kontextbasiert abgerufen statt statisch Top-N.
+
+    `partner_name` ist der aktuelle Konversationspartner (Charaktername).
+    Wenn gesetzt, fuegt der Header einen Disambiguierungs-Hinweis ein,
+    damit das LLM bei TalkTo nicht den falschen Adressaten als "User"
+    interpretiert.
     """
     memories = retrieve_relevant_memories(character_name,
         current_message=current_message)
@@ -595,8 +600,11 @@ def build_memory_prompt_section(character_name: str,
 
     parts = []
     header = "\nYour memories"
-    if user_name:
-        header += f" (the user is {user_name} — other names are other characters, not the user)"
+    if partner_name:
+        header += (
+            f" (you are currently talking with {partner_name} — other names "
+            f"are other characters you have met)"
+        )
     header += (
         ". Only state what you actually know, never invent details.\n"
         "Entries marked [AKTUELL] or [KÜRZLICH] are very recent — "

@@ -63,12 +63,23 @@ def get_user_characters_dir() -> Path:
     return characters_dir
 
 
-def get_character_dir(character_name: str) -> Path:
-    """Gibt das Verzeichnis fuer einen spezifischen Character eines Users zurueck"""
+def get_character_dir(character_name: str, *, create: bool = False) -> Path:
+    """Gibt das Verzeichnis fuer einen spezifischen Character zurueck.
+
+    create: wenn True, wird das Verzeichnis bei Bedarf angelegt. Default
+    False — Lese-Pfade (FE-Polls fuer current-location, Bilder, Soul-MDs)
+    sollen kein Verzeichnis erzeugen wenn der Character nicht existiert.
+    Sonst rutscht z.B. ein verwaister localStorage-Char (alte Welt) als
+    leeres Verzeichnis in jede neue Welt rein.
+
+    Aufrufer die wirklich anlegen wollen (Character-Erstellung,
+    save_character_*-Pfade) muessen create=True explizit setzen.
+    """
     if not character_name or character_name == "KI":
         raise ValueError(f"Ungueltiger Character-Name: '{character_name}'")
     character_dir = get_user_characters_dir() / character_name
-    character_dir.mkdir(parents=True, exist_ok=True)
+    if create:
+        character_dir.mkdir(parents=True, exist_ok=True)
     return character_dir
 
 
@@ -185,7 +196,8 @@ _STATE_COLS = ("current_location", "current_room", "current_activity",
 _STATE_META_KEYS = ("equipped_pieces", "equipped_items", "equipped_pieces_meta",
                     "active_conditions", "status_effects", "activity_cooldowns",
                     "runtime_outfit_skip",
-                    "current_activity_detail")
+                    "current_activity_detail",
+                    "movement_target")
 
 # Per-Character User-Config (nicht Stamm) — wandern in config_json, nicht profile_json.
 # Beim Laden aus config_json in Profile injiziert (fuer Abwaerts-Kompatibilitaet der
@@ -244,7 +256,7 @@ def get_character_profile(character_name: str) -> Dict[str, Any]:
     try:
         conn = get_connection()
         row = conn.execute(
-            "SELECT profile_json, config_json FROM characters WHERE name=?",
+            "SELECT profile_json, config_json, template FROM characters WHERE name=?",
             (character_name,),
         ).fetchone()
         if row:
@@ -260,6 +272,14 @@ def get_character_profile(character_name: str) -> Dict[str, Any]:
                         profile[k] = cfg[k]
             except Exception:
                 pass
+            # Template-Name aus eigener Spalte ins Profile injizieren —
+            # is_feature_enabled() liest profile["template"], um die
+            # Feature-Defaults zu finden. Ohne diese Zeile fielen alle
+            # Characters auf "human-default" zurueck und sahen damit
+            # einen Default-Set mit allen Features = False.
+            tmpl_name = (row[2] or "").strip()
+            if tmpl_name and "template" not in profile:
+                profile["template"] = tmpl_name
             _inject_soul_md_values(character_name, profile)
             return profile
     except Exception as e:
@@ -393,7 +413,7 @@ def save_character_profile(character_name: str, profile: Dict[str, Any]):
                        character_name)
         return
 
-    character_dir = get_character_dir(character_name)
+    character_dir = get_character_dir(character_name, create=True)
     profile_path = character_dir / "character_profile.json"
 
     profile["character_name"] = character_name
@@ -535,6 +555,56 @@ def save_character_profile(character_name: str, profile: Dict[str, Any]):
         logger.debug("ensure/populate soul files failed for %s: %s", character_name, _se)
 
 
+def delete_character(character_name: str) -> bool:
+    """Entfernt einen Character vollstaendig: DB-Zeilen + Storage-Verzeichnis.
+
+    Sweept alle Tabellen mit einer character_name-Spalte sowie die
+    Sonderfaelle (relationships.from_char/to_char, llm_call_stats.agent_name,
+    chat_messages.partner). Loescht anschliessend characters/<name>/.
+    """
+    if not character_name or character_name.lower() in _RESERVED_NAMES:
+        return False
+
+    # 1) DB sweep
+    try:
+        with transaction() as conn:
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()]
+            for tbl in tables:
+                cols = {c[1] for c in conn.execute(f"PRAGMA table_info({tbl})").fetchall()}
+                if "character_name" in cols:
+                    conn.execute(f"DELETE FROM {tbl} WHERE character_name=?", (character_name,))
+            # Sonderspalten — Tabellen, deren Schluessel anders heisst:
+            # characters.name, relationships.from_char/to_char,
+            # llm_call_stats.agent_name, chat_messages.partner.
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='characters'").fetchone():
+                conn.execute("DELETE FROM characters WHERE name=?", (character_name,))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='relationships'").fetchone():
+                conn.execute("DELETE FROM relationships WHERE from_char=? OR to_char=?",
+                             (character_name, character_name))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='llm_call_stats'").fetchone():
+                conn.execute("DELETE FROM llm_call_stats WHERE agent_name=?", (character_name,))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='chat_messages'").fetchone():
+                conn.execute("DELETE FROM chat_messages WHERE partner=?", (character_name,))
+    except Exception as e:
+        logger.error("delete_character DB-Fehler fuer %s: %s", character_name, e)
+        return False
+
+    # 2) Storage-Verzeichnis entfernen
+    try:
+        char_dir = get_user_characters_dir() / character_name
+        if char_dir.exists():
+            import shutil
+            shutil.rmtree(char_dir)
+    except Exception as e:
+        logger.warning("delete_character: Verzeichnis fuer %s nicht entfernbar: %s",
+                       character_name, e)
+
+    logger.info("Character '%s' geloescht (DB + Storage)", character_name)
+    return True
+
+
 def get_character_personality(character_name: str) -> str:
     """Gibt die Persoenlichkeit eines Characters zurueck"""
     if not character_name:
@@ -555,7 +625,7 @@ def _get_character_config_path(character_name: str) -> Path:
 
     Migration: Benennt alte agent_config.json / llm_config.json automatisch um.
     """
-    character_dir = get_character_dir(character_name)
+    character_dir = get_character_dir(character_name, create=True)
     new_path = character_dir / "character_config.json"
     # Migration from agent_config.json
     old_agent_path = character_dir / "agent_config.json"
@@ -703,6 +773,43 @@ def get_character_current_location(character_name: str = "") -> str:
     return profile.get("current_location", "")
 
 
+def get_known_locations(character_name: str) -> Optional[List[str]]:
+    """Liefert die known_locations-Liste eines Characters (oder None wenn nicht gesetzt).
+
+    None = Feld existiert nicht → Legacy/unrestricted.
+    Liste (auch leer) = strict membership in location_visible_to_character.
+    """
+    if not character_name:
+        return None
+    cfg = get_character_config(character_name) or {}
+    if "known_locations" not in cfg:
+        return None
+    val = cfg.get("known_locations")
+    if isinstance(val, list):
+        return [str(v) for v in val if v]
+    return None
+
+
+def add_known_location(character_name: str, location_id: str) -> List[str]:
+    """Fuegt eine Location-ID zur known_locations-Liste hinzu (idempotent).
+
+    Erstellt das Feld falls noch nicht vorhanden (aktiviert damit strict mode
+    fuer diesen Character). Gibt die aktualisierte Liste zurueck.
+    """
+    if not character_name or not location_id:
+        return []
+    cfg = get_character_config(character_name) or {}
+    existing = cfg.get("known_locations")
+    if not isinstance(existing, list):
+        existing = []
+    known = [str(v) for v in existing if v]
+    if location_id not in known:
+        known.append(location_id)
+    cfg["known_locations"] = known
+    save_character_config(character_name, cfg)
+    return known
+
+
 def _schedule_background_variant(character_name: str) -> None:
     """Triggert Expression-Variant fuer aktuelle Mood/Activity/Equipped im
     Hintergrund — damit beim naechsten Character-Wechsel bereits ein
@@ -729,18 +836,68 @@ def _schedule_background_variant(character_name: str) -> None:
                      character_name, _e)
 
 
+def get_movement_target(character_name: str) -> str:
+    """Liefert die aktuell anvisierte Reise-Ziel-Location-ID (oder '')."""
+    if not character_name:
+        return ""
+    profile = get_character_profile(character_name) or {}
+    return (profile.get("movement_target") or "").strip()
+
+
+def set_movement_target(character_name: str, location_id: str) -> None:
+    """Setzt das Reise-Ziel. Wird vom Agent-Loop pro Tick um einen Schritt
+    abgearbeitet. Lege es nur, wenn ein Pfad ueber bekannte Locations
+    existiert — Validierung im Aufrufer.
+    """
+    if not character_name:
+        return
+    profile = get_character_profile(character_name)
+    profile["movement_target"] = (location_id or "").strip()
+    save_character_profile(character_name, profile)
+
+
+def clear_movement_target(character_name: str) -> None:
+    """Loescht das Reise-Ziel — z.B. nach Ankunft, Teleport-Override oder
+    wenn der Pfad ploetzlich nicht mehr begehbar ist."""
+    set_movement_target(character_name, "")
+
+
 def save_character_current_location(character_name: str = "", location: str = "",
-                                    _skip_compliance: bool = False):
+                                    _skip_compliance: bool = False,
+                                    _preserve_movement_target: bool = False):
     """Speichert den aktuellen Aufenthaltsort.
 
     _skip_compliance: wenn True, ueberspringt Outfit-Type-Compliance
     (z.B. fuer den Avatar, der manuelle Outfit-Wahl behaelt).
+    _preserve_movement_target: True nur bei programmiertem Walk-Step im
+    Agent-Loop. Default False = Manueller Teleport (Drag&Drop, Admin,
+    Scheduler-Force, Rule-Force) loescht das Ziel automatisch — der
+    User/das System hat die Reise gerade ueberschrieben. Bei True und
+    ``location == movement_target`` wird das Ziel ebenfalls geloescht
+    (Ankunft).
     """
     from datetime import datetime
     profile = get_character_profile(character_name)
     old_location = profile.get("current_location", "")
+    target = (profile.get("movement_target") or "").strip()
+    location_changed = bool(location) and location != old_location
+    if location_changed and target:
+        # Bei manuellem Teleport (kein _preserve_movement_target) bricht
+        # die Reise ab — Aufrufer hat das Ziel ueberschrieben.
+        # Bei programmiertem Walk-Step wird das Ziel nur bei Ankunft
+        # geloescht.
+        if not _preserve_movement_target:
+            profile["movement_target"] = ""
+        elif location == target:
+            profile["movement_target"] = ""
     profile["current_location"] = location
     profile["location_changed_at"] = datetime.now().isoformat()
+    # current_room beim Location-Wechsel leeren — sonst zeigt ein Char an
+    # Location A weiter auf einen Raum von Location B (stale Reference).
+    # Caller (SetLocation-Skill, Scheduler etc.) kann nach diesem Aufruf
+    # einen passenden Raum am neuen Ort explizit setzen.
+    if location and location != old_location and profile.get("current_room"):
+        profile["current_room"] = ""
     # runtime_outfit_skip zuruecksetzen bei echtem Location-Wechsel: die
     # absichtlich-leeren Slots aus dem Chat ("zieht sich aus") galten fuer
     # die alte Location. Am neuen Ort greift wieder die normale outfit-Regel.
@@ -750,6 +907,16 @@ def save_character_current_location(character_name: str = "", location: str = ""
     # Location-History aufzeichnen (nur bei echtem Wechsel)
     if location and location != old_location:
         _record_state_change(character_name, "location", location)
+        # Auto-Discovery: Wer einen Ort tatsaechlich betritt kennt ihn ab
+        # jetzt — sonst kann er nicht zurueck (visibility-restricted Travel
+        # wuerde den eigenen Standort als unbekannt sehen). Sicher idempotent.
+        try:
+            cfg = get_character_config(character_name) or {}
+            kl = cfg.get("known_locations")
+            if isinstance(kl, list) and location not in kl:
+                add_known_location(character_name, location)
+        except Exception:
+            pass
     # Outfit-Type-Compliance: tausche nicht-passende equipped Pieces gegen
     # Inventar-Pieces mit passendem Typ. Nur wenn nicht _skip_compliance
     # und tatsaechlich Location gewechselt wurde.
@@ -762,6 +929,7 @@ def save_character_current_location(character_name: str = "", location: str = ""
         try:
             from app.models.world import get_location_by_id
             from app.models.inventory import apply_outfit_type_compliance
+            from app.core.outfit_rules import default_outfit_type
             loc_data = get_location_by_id(location)
             target_type = ""
             if loc_data:
@@ -773,6 +941,9 @@ def save_character_current_location(character_name: str = "", location: str = ""
                             break
                 if not target_type:
                     target_type = (loc_data.get("outfit_type") or "").strip()
+            # Fallback auf den als default markierten outfit_type aus den Regeln
+            if not target_type:
+                target_type = default_outfit_type()
             if target_type:
                 apply_outfit_type_compliance(character_name, target_type)
         except Exception as _e:
@@ -898,6 +1069,24 @@ def save_character_current_activity(character_name: str, activity: str, detail: 
 
     profile = get_character_profile(character_name)
     old_activity = profile.get("current_activity", "")
+    old_detail = profile.get("current_activity_detail", "")
+
+    # Duplicate-Skip: gleiche Activity (case-insensitive) UND gleiche detail
+    # innerhalb der letzten 30s → no-op. Verhindert dass Tool-LLM-Doppelaufrufe
+    # oder AgentLoop-Auto-Sleep wiederholt dieselbe Activity setzen + on_start
+    # nochmal feuern. Reclassify ist bewusst ausgenommen (das ist genau dafuer
+    # da, den Namen zu normalisieren).
+    if activity and not _is_reclassify and old_activity:
+        if (activity.strip().lower() == old_activity.strip().lower()
+                and (detail or "").strip() == (old_detail or "").strip()):
+            try:
+                started_iso = (profile.get("activity_started_at") or "").strip()
+                if started_iso:
+                    started = datetime.fromisoformat(started_iso)
+                    if (datetime.now() - started).total_seconds() < 30:
+                        return  # idempotent — nichts zu tun
+            except (ValueError, TypeError):
+                pass
 
     # Zeitproportionale Effekte fuer die alte Aktivitaet abrechnen
     if activity and old_activity and activity != old_activity and not _is_reclassify:
@@ -931,6 +1120,30 @@ def save_character_current_activity(character_name: str, activity: str, detail: 
         profile["current_activity_detail"] = detail
     elif activity != old_activity:
         profile.pop("current_activity_detail", None)
+
+    # Activity-Lifetime: bei einem ECHTEN Activity-Wechsel (nicht
+    # Reclassify) den Start-Timestamp + duration_minutes aus der Library
+    # ins Profil schreiben. Der World-Admin-Tick (periodic_jobs) prueft
+    # zyklisch ob die Activity ihre Dauer ueberschritten hat und setzt
+    # sie dann auf "" zurueck (loest on_complete-Trigger aus). Ersetzt
+    # die alten APScheduler-One-Time-``activity_done_*``-Jobs.
+    if activity and activity != old_activity and not _is_reclassify:
+        profile["activity_started_at"] = datetime.now().isoformat()
+        try:
+            from app.core.activity_engine import _find_activity_definition
+            _act_def = _find_activity_definition(character_name, activity) or {}
+            _dur = int(_act_def.get("duration_minutes") or 0)
+            if _dur > 0:
+                profile["activity_duration_minutes"] = _dur
+            else:
+                profile.pop("activity_duration_minutes", None)
+        except Exception:
+            profile.pop("activity_duration_minutes", None)
+    elif not activity and old_activity:
+        # Activity geleert (Aufwach-/Reset-Pfad) — Lifetime-Felder weg.
+        profile.pop("activity_started_at", None)
+        profile.pop("activity_duration_minutes", None)
+
     current_location = profile.get("current_location", "")
     # Partner-Feld pflegen:
     # - explizit gesetzt -> speichern.
@@ -971,6 +1184,29 @@ def save_character_current_activity(character_name: str, activity: str, detail: 
         except Exception:
             pass
     save_character_profile(character_name, profile)
+
+    # on_start Trigger fuer die NEUE Activity feuern — egal welcher Pfad
+    # save_character_current_activity aufruft (set_activity_skill,
+    # avatar_activity_detect, thoughts, scheduler-extras). Frueher hat
+    # nur set_activity_skill den Trigger gerufen, was reine
+    # Keyword-Detection-Aenderungen (z.B. Avatar tippt "ich gehe schlafen")
+    # ohne Wirkung liess. Reclassify nicht doppelt feuern.
+    if activity and activity != old_activity and not _is_reclassify:
+        try:
+            from app.core.activity_engine import _find_activity_definition, execute_trigger
+            _new_def = _find_activity_definition(character_name, activity)
+            if _new_def:
+                _triggers = _new_def.get("triggers", {}) or {}
+                _on_start = _triggers.get("on_start")
+                if _on_start:
+                    execute_trigger(character_name, _on_start,
+                                    context={"activity": activity,
+                                             "previous_activity": old_activity})
+        except Exception as _trig_err:
+            from app.core.log import get_logger
+            get_logger("character_model").debug(
+                "on_start-Trigger fuer %s/%s fehlgeschlagen: %s",
+                character_name, activity, _trig_err)
 
     # Effects-Tracking aktualisieren
     if activity:
@@ -1145,6 +1381,20 @@ def save_character_current_room(character_name: str, room_id: str):
     profile["current_room"] = room_id
     save_character_profile(character_name, profile)
 
+    # state_history-Event bei echtem Raumwechsel — sonst sind Raum-Aenderungen
+    # in der Diary/Activity-Auswertung unsichtbar (frueher nur location getrackt).
+    if room_id and room_id != old_room:
+        room_name = room_id
+        try:
+            row = get_connection().execute(
+                "SELECT name FROM rooms WHERE id=?", (room_id,)).fetchone()
+            if row and row[0]:
+                room_name = row[0]
+        except Exception:
+            pass
+        _record_state_change(character_name, "room", room_id,
+                              metadata={"name": room_name, "old": old_room})
+
     # Outfit-Type-Compliance nur bei echtem Raumwechsel + Avatar ausnehmen
     if not room_id or room_id == old_room:
         return
@@ -1286,6 +1536,7 @@ def _migrate_outfits(outfits: list) -> list:
 _SOUL_FILE_FEATURES = {
     "personality.md":    None,                  # immer
     "tasks.md":          None,                  # immer
+    "presence.md":       None,                  # immer — Aussenwirkung
     "roleplay_rules.md": "roleplay_rules_enabled",
     "beliefs.md":        "beliefs_enabled",
     "lessons.md":        "lessons_enabled",
@@ -1874,6 +2125,74 @@ def _collect_covered_slots(equipped_pieces: Dict[str, str]) -> set:
     return covered
 
 
+def build_unworn_slot_fragments(character_name: str,
+                                 profile: Optional[Dict[str, Any]] = None) -> str:
+    """Sammelt prompt-Fragmente fuer alle leeren UND nicht-verdeckten Slots.
+
+    Iteriert ``VALID_PIECE_SLOTS`` und nimmt fuer jeden Slot, der
+      a) NICHT in ``equipped_pieces`` belegt ist, UND
+      b) NICHT durch ein anderes Piece via ``covers`` verdeckt ist,
+    den Eintrag aus ``profile.slot_overrides[slot].prompt`` (Game Admin →
+    Character → Bild-Darstellung). Fallback fuer Underwear-Slots:
+    ``no_outfit_prompt_top`` / ``no_outfit_prompt_bottom``.
+
+    Token-Platzhalter werden via ``resolve_profile_tokens`` ausgewertet
+    (gleiche Logik wie der Variant-Bild-Aufbau in expression_regen).
+    Returns: kommaseparierte Fragment-Liste oder leerer String.
+    """
+    from app.models.inventory import VALID_PIECE_SLOTS
+    from app.models.character_template import get_template, resolve_profile_tokens
+    if profile is None:
+        profile = get_character_profile(character_name)
+    pieces = profile.get("equipped_pieces") or {}
+    covered = _collect_covered_slots(pieces)
+    slot_overrides = profile.get("slot_overrides") or {}
+    if not isinstance(slot_overrides, dict):
+        slot_overrides = {}
+
+    # Template fuer Token-Resolution laden — identisch zur expression_regen.
+    try:
+        tmpl = get_template(profile.get("template", "human-default"))
+    except Exception:
+        tmpl = None
+
+    def _resolve(raw: str) -> str:
+        s = (raw or "").strip()
+        if not s or "{" not in s:
+            return s
+        try:
+            return resolve_profile_tokens(s, profile, template=tmpl,
+                                           target_key="character_appearance")
+        except Exception:
+            return s
+
+    parts: List[str] = []
+    for slot in VALID_PIECE_SLOTS:
+        if pieces.get(slot):
+            continue
+        if slot in covered:
+            continue
+        ov = slot_overrides.get(slot) or {}
+        ov_prompt = ""
+        if isinstance(ov, dict):
+            ov_prompt = (ov.get("prompt") or "").strip()
+        if ov_prompt:
+            resolved = _resolve(ov_prompt)
+            if resolved:
+                parts.append(resolved)
+            continue
+        # Legacy-Fallback fuer Underwear-Slots
+        if slot == "underwear_top":
+            fb = _resolve((profile.get("no_outfit_prompt_top") or "").strip())
+            if fb:
+                parts.append(fb)
+        elif slot == "underwear_bottom":
+            fb = _resolve((profile.get("no_outfit_prompt_bottom") or "").strip())
+            if fb:
+                parts.append(fb)
+    return ", ".join(parts)
+
+
 def build_equipped_outfit_prompt(character_name: str,
                                  profile: Optional[Dict[str, Any]] = None) -> str:
     """Baut den Outfit-Prompt aus equipped_pieces + equipped_items zusammen.
@@ -1892,9 +2211,25 @@ def build_equipped_outfit_prompt(character_name: str,
     from app.models.inventory import VALID_PIECE_SLOTS, get_item
 
     def _slot_color(slot_name: str) -> str:
+        # Direkt gesetzte Color am gegebenen Slot
         entry = pieces_meta.get(slot_name) or {}
         if isinstance(entry, dict):
-            return (entry.get("color") or "").strip()
+            c = (entry.get("color") or "").strip()
+            if c:
+                return c
+        # Multi-Slot-Pieces: dasselbe Item ist in mehreren Slots eingehaengt
+        # (z.B. Bikini-Bra in top + underwear_top). Color wird typischerweise
+        # nur am Primary-Slot vom User gesetzt — beim Mirror-Slot fehlt sie.
+        # Daher Fallback: alle anderen Slots mit derselben item_id pruefen.
+        iid = pieces.get(slot_name)
+        if iid:
+            for other_slot, other_iid in pieces.items():
+                if other_iid == iid and other_slot != slot_name:
+                    _other = pieces_meta.get(other_slot) or {}
+                    if isinstance(_other, dict):
+                        c = (_other.get("color") or "").strip()
+                        if c:
+                            return c
         return ""
 
     covered_slots = _collect_covered_slots(pieces)
@@ -2584,8 +2919,48 @@ def save_character_scheduler_logs(character_name: str, logs: List[Dict[str, Any]
         get_logger("character").error("save_character_scheduler_logs DB-Fehler fuer %s: %s", character_name, e)
 
 
+def _normalize_schedule_slots(raw_slots: Any) -> List[Dict[str, Any]]:
+    """Bringt Slots auf das aktuelle Schema {hour, location, role, sleep}.
+
+    Translates Legacy-Slots ohne Datenmigration: das alte ``activity``-Feld
+    wird verworfen; die Sentinels ``__sleep__`` (in ``activity`` oder
+    ``location``) werden zu ``sleep: True``; Stunden mit der alten
+    ``__llm_choice__``-Location fallen weg, weil leere Stunden im neuen
+    Schema implizit "KI waehlt" bedeuten.
+    """
+    out: List[Dict[str, Any]] = []
+    if not isinstance(raw_slots, list):
+        return out
+    for s in raw_slots:
+        if not isinstance(s, dict):
+            continue
+        try:
+            hour = int(s.get("hour"))
+        except (TypeError, ValueError):
+            continue
+        if hour < 0 or hour > 23:
+            continue
+        # Sleep-Erkennung: explizites Flag oder Legacy-Sentinel.
+        legacy_loc = (s.get("location") or "").strip()
+        legacy_act = (s.get("activity") or "").strip()
+        is_sleep = bool(s.get("sleep")) or legacy_loc == "__sleep__" or legacy_act == "__sleep__"
+        if is_sleep:
+            out.append({"hour": hour, "sleep": True, "location": "", "role": ""})
+            continue
+        # Legacy "Ortsunabhaengig" -> verwerfen (leer = KI waehlt im neuen Schema).
+        if legacy_loc == "__llm_choice__":
+            continue
+        location = legacy_loc
+        role = (s.get("role") or "").strip()
+        if not location and not role:
+            continue
+        out.append({"hour": hour, "location": location, "role": role, "sleep": False})
+    return out
+
+
 def get_character_daily_schedule(character_name: str) -> Dict[str, Any]:
     """Laedt den Tagesablauf fuer einen Character aus der DB."""
+    schedule: Dict[str, Any] = {"enabled": False, "slots": []}
     try:
         from app.core.db import get_connection as _get_conn
         conn = _get_conn()
@@ -2599,26 +2974,24 @@ def get_character_daily_schedule(character_name: str) -> Dict[str, Any]:
                 meta = json.loads(row[2] or "{}")
             except Exception:
                 pass
-            schedule = meta if "slots" in meta else {
-                "enabled": bool(row[0]),
-                "character": character_name,
-            }
+            schedule = meta if isinstance(meta, dict) and "slots" in meta else {"character": character_name}
+            schedule["enabled"] = bool(row[0])
             try:
-                schedule["enabled"] = bool(row[0])
                 schedule["slots"] = json.loads(row[1] or "[]")
             except Exception:
-                pass
-            return schedule
+                schedule["slots"] = []
     except Exception as e:
         get_logger("character").warning("get_character_daily_schedule DB-Fehler fuer %s: %s", character_name, e)
-    # Fallback: JSON-Datei
-    path = get_character_scheduler_dir(character_name) / "daily_schedule.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"enabled": False, "slots": []}
+        # Fallback: JSON-Datei (Altdaten von vor der DB-Migration).
+        path = get_character_scheduler_dir(character_name) / "daily_schedule.json"
+        if path.exists():
+            try:
+                schedule = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    schedule["slots"] = _normalize_schedule_slots(schedule.get("slots"))
+    schedule.setdefault("enabled", False)
+    return schedule
 
 
 def save_character_daily_schedule(character_name: str, schedule: Dict[str, Any]):
@@ -2645,26 +3018,93 @@ def save_character_daily_schedule(character_name: str, schedule: Dict[str, Any])
         get_logger("character").error("save_character_daily_schedule DB-Fehler fuer %s: %s", character_name, e)
 
 
+OFFMAP_SLEEP_SENTINEL = "__offmap__"
+
+
+def enter_offmap_sleep(character_name: str) -> bool:
+    """Character verschwindet von der Karte (offmap-Schlafstaette).
+
+    Speichert die aktuelle Location/Raum als ``_offmap_return_location`` /
+    ``_offmap_return_room`` im Profil, damit beim Aufwachen via
+    :func:`wake_from_offmap` der vorherige Standort wiederhergestellt wird.
+    Setzt aktuelle Location/Raum auf "" — der Character ist auf der Karte
+    nicht mehr sichtbar (landet im "Ohne Ort"-Tray) und Pathfinder hat
+    nichts mehr zu routen.
+
+    Returns True wenn etwas geaendert wurde.
+    """
+    profile = get_character_profile(character_name) or {}
+    current_loc = (profile.get("current_location") or "").strip()
+    current_room = (profile.get("current_room") or "").strip()
+    if not current_loc and not current_room:
+        # Schon offmap (oder noch nie zugewiesen) — nichts zu speichern.
+        return False
+    profile["_offmap_return_location"] = current_loc
+    profile["_offmap_return_room"] = current_room
+    profile["current_location"] = ""
+    profile["current_room"] = ""
+    save_character_profile(character_name, profile)
+    get_logger("character").info(
+        "Offmap-Sleep: %s -> verschwindet von der Karte (return: %s/%s)",
+        character_name, current_loc or "-", current_room or "-")
+    return True
+
+
+def wake_from_offmap(character_name: str) -> bool:
+    """Stellt den vor-Offmap-Standort wieder her.
+
+    Nur aktiv wenn der Character aktuell offmap ist (current_location leer)
+    UND ``_offmap_return_location`` im Profil gesetzt ist. Idempotent —
+    spaetere Aufrufe ohne Return-Marker sind no-ops.
+
+    Returns True wenn der Character zurueckgeholt wurde.
+    """
+    profile = get_character_profile(character_name) or {}
+    if (profile.get("current_location") or "").strip():
+        # Steht schon irgendwo — nichts zu tun.
+        return False
+    return_loc = (profile.get("_offmap_return_location") or "").strip()
+    if not return_loc:
+        return False
+    return_room = (profile.get("_offmap_return_room") or "").strip()
+    profile["current_location"] = return_loc
+    if return_room:
+        profile["current_room"] = return_room
+    profile.pop("_offmap_return_location", None)
+    profile.pop("_offmap_return_room", None)
+    save_character_profile(character_name, profile)
+    get_logger("character").info(
+        "Offmap-Wake: %s -> zurueck nach %s/%s",
+        character_name, return_loc, return_room or "-")
+    return True
+
+
 def is_character_sleeping(character_name: str) -> bool:
-    """Prueft ob der Character laut Tagesablauf gerade schlaeft (__sleep__ Slot).
+    """Prueft ob der Character laut Tagesablauf gerade schlaeft (__sleep__ Slot)
+    ODER die laufende Activity Sleeping ist.
 
     Beruecksichtigt letzte Chat-Aktivitaet: Wenn die letzte Nachricht weniger als
     1 Stunde her ist, wird der Schlaf-Status ignoriert (Character ist wach weil aktiv im Chat).
     """
+    # Active-Activity-Check: wenn der Char aktuell Sleeping macht, ist er es —
+    # unabhaengig von Daily-Schedule. Wichtig fuer Auto-Sleep-Pfad: nachdem
+    # _maybe_auto_sleep Activity=Sleeping setzt, soll der Char nicht im
+    # naechsten AgentLoop-Tick wieder eligible werden.
+    try:
+        profile = get_character_profile(character_name) or {}
+        cur_act = (profile.get("current_activity") or "").strip().lower()
+        if cur_act == "sleeping":
+            return True
+    except Exception:
+        pass
     schedule = get_character_daily_schedule(character_name)
     if not schedule or not schedule.get("enabled", False):
         return False
     current_hour = datetime.now().hour
-    is_sleep_slot = False
-    for slot in schedule.get("slots", []):
-        if slot.get("hour") != current_hour:
-            continue
-        # Prefer the explicit sleep flag; fall back to legacy sentinels.
-        if (slot.get("sleep")
-                or slot.get("activity") == "__sleep__"
-                or slot.get("location") == "__sleep__"):
-            is_sleep_slot = True
-        break
+    is_sleep_slot = any(
+        slot.get("hour") == current_hour and slot.get("sleep")
+        for slot in schedule.get("slots", [])
+    )
     if not is_sleep_slot:
         return False
 

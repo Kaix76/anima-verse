@@ -204,8 +204,9 @@ def get_all_logs(limit: int = 100,
 
 class DailyScheduleSlot(BaseModel):
     hour: int
-    location: str
-    activity: str = ""
+    location: str = ""
+    role: str = ""
+    sleep: bool = False
 
 class DailyScheduleSave(BaseModel):
     character: str

@@ -10,11 +10,16 @@
 
    IDENTITY block (must be set, can be empty list):
      char_lines: list[str] — character template output (build_prompt_section)
+       Contains personality, tasks, current feeling, and PRESENCE
+       (`character_presence` from soul/presence.md — what others perceive
+       about you, beyond mere appearance).
 
    PARTNER block (one of these three modes, mutually exclusive):
      partner_mode: "chatbot" | "character" | "fallback" | "none"
      partner_name: str  (used in chatbot/character/fallback)
      partner_lines: list[str]  (used only in character mode)
+       Like char_lines but for the partner — also carries `character_presence`,
+       so the speaker knows the impression the partner radiates.
 
    PRE-FORMATTED OPTIONAL BLOCKS (omit / pass empty string to skip):
      self_wearing       — clothing + inventory line(s) for the character

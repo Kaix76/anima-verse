@@ -297,24 +297,16 @@ def get_active_condition_image_modifiers(character_name: str) -> str:
 
     Wird an den Expression-Prompt angehaengt, damit die Bildgenerierung
     die visuellen Hinweise (z.B. 'flushed cheeks, glassy eyes' bei drunk)
-    beruecksichtigt.
+    beruecksichtigt. Liest aus der unified prompt_filters-Quelle (shared
+    baseline + world overlay).
     """
     try:
         from app.models.character import get_character_profile
+        from app.core.prompt_filters import get_filter_for_condition
         profile = get_character_profile(character_name) or {}
         active = profile.get("active_conditions", []) or []
         if not active:
             return ""
-
-        # Index: condition_name -> image_modifier
-        image_by_condition: Dict[str, str] = {}
-        for mod in _load_status_modifiers():
-            cond_str = mod.get("condition", "") or ""
-            if cond_str.startswith("condition:"):
-                name = cond_str[10:].strip().lower()
-                img_mod = (mod.get("image_modifier", "") or "").strip()
-                if img_mod:
-                    image_by_condition[name] = img_mod
 
         now = datetime.now()
         parts: List[str] = []
@@ -327,8 +319,13 @@ def get_active_condition_image_modifiers(character_name: str) -> str:
                         continue
                 except (ValueError, KeyError):
                     pass
-            name = (cond.get("name") or "").strip().lower()
-            img_mod = image_by_condition.get(name, "")
+            name = (cond.get("name") or "").strip()
+            if not name:
+                continue
+            entry = get_filter_for_condition(name)
+            if not entry or entry.get("enabled", True) is False:
+                continue
+            img_mod = (entry.get("image_modifier") or "").strip()
             if img_mod:
                 parts.append(img_mod)
         return ", ".join(parts)

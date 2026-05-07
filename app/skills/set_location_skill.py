@@ -4,7 +4,6 @@ Leichtgewichtiger Skill, der dem Agenten erlaubt seinen Aufenthaltsort,
 Raum und Aktivitaet zu aendern. Wird automatisch vom Chat-System erkannt
 wenn der User z.B. sagt "Du bist jetzt zu Hause" oder "Reise ins Buero".
 """
-import os
 import random
 from typing import Any, Dict
 
@@ -18,11 +17,14 @@ from app.models.character import (
     save_character_current_activity,
     save_character_current_room,
     get_character_current_location,
-    get_character_config)
+    get_character_config,
+    set_movement_target,
+    get_known_locations)
 from app.models.world import (
     list_locations, get_location_rooms, get_room_by_name,
         find_room_by_activity,
-        get_location_by_id)
+        get_location_by_id,
+        find_path_through_known)
 
 
 class SetLocationSkill(BaseSkill):
@@ -39,11 +41,10 @@ class SetLocationSkill(BaseSkill):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        self.name = os.environ.get("SKILL_SETLOCATION_NAME", "SetLocation")
-        self.description = os.environ.get(
-            "SKILL_SETLOCATION_DESCRIPTION",
-            "Sets the current location and activity of the agent"
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("set_location")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {}
 
     def execute(self, raw_input: str) -> str:
@@ -142,6 +143,15 @@ class SetLocationSkill(BaseSkill):
             if requested_location.lower() in home_aliases:
                 cfg = get_character_config(character_name)
                 home_loc_id = cfg.get("home_location", "")
+                # Offmap-Sentinel: Char hat keine Karten-Heimat — er
+                # verschwindet einfach von der Map. enter_offmap_sleep
+                # speichert die letzte Position fuer den Wakeup.
+                from app.models.character import (
+                    OFFMAP_SLEEP_SENTINEL, enter_offmap_sleep)
+                if home_loc_id == OFFMAP_SLEEP_SENTINEL:
+                    if enter_offmap_sleep(character_name):
+                        return f"{character_name} hat sich zurueckgezogen — offmap."
+                    return f"{character_name} ist bereits offmap."
                 if home_loc_id:
                     matched_location = get_location_by_id(home_loc_id)
                     if matched_location:
@@ -191,6 +201,51 @@ class SetLocationSkill(BaseSkill):
                 logger.debug("record_access_denied failed", exc_info=True)
             _trigger_access_denied_thought(character_name, location_name, rules_reason)
             return rules_reason
+
+        # Passable-Tiles (Durchgangsorte) sind keine Ziele — der LLM darf
+        # nicht direkt dort hinwandern. Pathfinder kann sie aber als
+        # Zwischenschritt nutzen, wenn der Character sie kennt.
+        if matched_location.get("passable"):
+            logger.info("SetLocation auf Durchgangsort abgelehnt: %s -> %s",
+                        character_name, location_name)
+            return (f"{location_name} ist ein Durchgangsort, kein Ziel. "
+                    f"Waehle einen richtigen Ort als Reiseziel.")
+
+        # Walk-Modus: Cross-Location-Move => movement_target setzen, Schritt
+        # erfolgt im naechsten AgentLoop-Tick. Same-Location (nur Raum-Wechsel)
+        # bleibt instant. Legacy-Characters (kein known_locations-Feld)
+        # teleportieren wie bisher — bekanntes Verhalten der alten Welten.
+        current_loc_id_now = get_character_current_location(character_name) or ""
+        known_list = get_known_locations(character_name)
+        is_cross_location = bool(current_loc_id_now and current_loc_id_now != location_id)
+        # Walk-Mode greift NUR bei NPCs — der Spieler-Avatar bewegt sich
+        # direkt (der AgentLoop-Walk-Step skippt player-controlled, sodass
+        # ein gesetzter movement_target sonst ewig auf "intent" stehen bleibt
+        # waehrend der Char visuell schon woanders ist).
+        from app.models.account import is_player_controlled as _is_player
+        if is_cross_location and known_list is not None and not _is_player(character_name):
+            path = find_path_through_known(current_loc_id_now, location_id, known_list)
+            if not path:
+                logger.info("Kein bekannter Pfad %s -> %s fuer %s",
+                            current_loc_id_now, location_id, character_name)
+                # Tagebuch-Eintrag: gescheiterter Reise-Versuch
+                try:
+                    from app.models.character import _record_state_change
+                    _record_state_change(character_name, "travel_failed",
+                        location_name,
+                        metadata={"location_id": location_id,
+                                  "reason": "no_known_path"})
+                except Exception:
+                    logger.debug("travel_failed record failed", exc_info=True)
+                return (f"Du kennst den Weg nach {location_name} (noch) nicht. "
+                        f"Du musst zuerst dorthin gefuehrt werden oder einen "
+                        f"angrenzenden Ort entdecken.")
+            set_movement_target(character_name, location_id)
+            steps = max(0, len(path) - 1)
+            logger.info("Walk-Mode: %s -> %s (%d Schritte)",
+                        character_name, location_name, steps)
+            return (f"Du machst dich auf den Weg nach {location_name}. "
+                    f"Geschaetzt {steps} Schritt(e) ueber bekannte Orte.")
 
         rooms = get_location_rooms(matched_location)
 
@@ -377,6 +432,11 @@ class SetLocationSkill(BaseSkill):
                 f"{self.description}. "
                 f"Input: location name, optionally with room and/or activity "
                 f"(e.g. 'Büro, Küche' or 'home, bedroom, sleeping'). "
+                f"Cross-location moves walk one grid-step per tick along a "
+                f"path through locations you already know — you set the "
+                f"destination once, the system carries you over multiple "
+                f"ticks. Within the same location (room change), the move is "
+                f"instant. "
                 f"IMPORTANT: You MUST use one of the available location names exactly as listed. "
                 f"Do NOT invent location names."
                 f"{locations_hint}"

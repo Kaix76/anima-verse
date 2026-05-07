@@ -67,7 +67,9 @@ def build_thought_context(character_name: str, tools_hint: str = "") -> Dict[str
         "room_items_block": _build_room_items_block(location_id, room_id),
         "inventory_block": _build_inventory_block(character_name),
         "present_people_block": _build_present_people_block(character_name, location_id),
+        "tracker_block": _build_tracker_block(character_name, location_id),
         "known_locations_block": _build_known_locations_block(character_name, location_id),
+        "travel_block": _build_travel_block(character_name, location_id),
         "available_activities_block": _build_available_activities_block(character_name, location_id, room_id),
         "daily_schedule_block": _build_daily_schedule_block(character_name),
         "tools_hint": tools_hint,
@@ -341,12 +343,17 @@ def _build_arc_block(character_name: str) -> str:
 def _build_retrospective_block(character_name: str) -> str:
     """Existing beliefs/improvements + a hint to reflect when overdue.
 
-    Always shows the most recent reflections (so they actually influence
-    decisions) and adds a "time to reflect" hint when the character hasn't
-    done a Retrospect in over 24h. The hint surfaces the option to the LLM
-    without forcing it.
+    Returns empty when ``retrospect_enabled`` is false for this character
+    (per-char config or template feature) — the agent_thought.md template
+    skips the block via ``{% if retrospective_block %}``.
+
+    Otherwise: shows most recent reflections (so they influence decisions)
+    and adds a "time to reflect" hint when the last Retrospect was >24h ago.
     """
     try:
+        from app.models.character_template import is_feature_enabled
+        if not is_feature_enabled(character_name, "retrospect_enabled"):
+            return ""
         from app.skills.retrospect_skill import (
             get_beliefs_path, get_improvements_path,
             get_seed_beliefs_path, get_seed_improvements_path,
@@ -406,34 +413,52 @@ def _build_effects_block(character_name: str) -> str:
 
 
 def _build_recent_chat_block(character_name: str, limit: int = 3) -> str:
-    """Last N chat messages between this character and the player's avatar.
+    """Last N chat messages between this character and their most recent
+    chat partner (avatar OR another NPC via TalkTo).
 
     The thought turn doesn't carry chat history by default — when the
     character is mid-conversation we want them to see the latest exchanges
     so a follow-up thought can refer to actual content. Newest first.
+
+    Partner-Aufloesung: wir verlassen uns NICHT auf ``get_active_character``
+    (im AgentLoop-Background-Kontext oft leer und greift bei NPC↔NPC-
+    TalkTo-Konversationen ohnehin nicht). Stattdessen lesen wir das
+    Gegenueber direkt aus dem letzten ``chat_messages``-Eintrag dieses
+    Characters — egal in welcher Storage-Richtung.
+
+    Anschliessend ``UnifiedChatManager.get_chat_history`` mergen beide
+    Storage-Richtungen (A,B)/(B,A) und dedupen Doppel-Eintraege.
     """
     try:
-        from app.models.account import get_active_character
         from app.core.db import get_connection
-        avatar = (get_active_character() or "").strip()
-        if not avatar:
-            return ""
+        from app.models.unified_chat import UnifiedChatManager
         conn = get_connection()
-        rows = conn.execute(
-            "SELECT ts, role, content FROM chat_messages "
-            "WHERE character_name=? AND partner=? "
-            "ORDER BY ts DESC LIMIT ?",
-            (character_name, avatar, limit),
-        ).fetchall()
-        if not rows:
+        # Letzten Partner aus beiden Speicher-Richtungen finden
+        row = conn.execute(
+            "SELECT ts, partner, character_name FROM chat_messages "
+            "WHERE character_name=? OR partner=? "
+            "ORDER BY ts DESC LIMIT 1",
+            (character_name, character_name),
+        ).fetchone()
+        if not row:
             return ""
+        # Partner = die Seite die NICHT character_name ist
+        ts, p_partner, p_char = row
+        partner = p_partner if p_char == character_name else p_char
+        if not partner:
+            return ""
+        history = UnifiedChatManager.get_chat_history(
+            character_name=character_name, partner_name=partner)
+        if not history:
+            return ""
+        recent = history[-limit:] if limit else history
         lines: List[str] = []
-        # Reverse to chronological order so the LLM reads top-down.
-        for ts, role, content in reversed(rows):
-            speaker = avatar if role == "user" else character_name
-            content = (content or "").strip()
+        for msg in recent:
+            role = getattr(msg, "role", "") or ""
+            content = (getattr(msg, "content", "") or "").strip()
             if not content:
                 continue
+            speaker = partner if role == "user" else character_name
             if len(content) > 400:
                 content = content[:400].rstrip() + " […]"
             lines.append(f"  {speaker}: {content}")
@@ -535,6 +560,54 @@ def _build_inventory_block(character_name: str) -> str:
         return ""
 
 
+def _build_tracker_block(character_name: str, current_location_id: str) -> str:
+    """Lines for each carried item with a `tracks_character` field.
+
+    Reveals the tracked character's current location to the carrier — the
+    in-world fiction is a magical amulet/ring/sigil that pinpoints another
+    being. Skips items whose target is missing, equals self, or has no
+    location yet. The agent decides what to do with the info; movement still
+    requires SetLocation.
+    """
+    try:
+        from app.models.inventory import get_character_inventory, get_item
+        from app.models.character import get_character_current_location
+        from app.models.world import get_location_name
+        inv = get_character_inventory(character_name, include_equipped=True) or {}
+        items = inv.get("inventory") if isinstance(inv, dict) else inv
+        if not items:
+            return ""
+        lines: List[str] = []
+        seen_targets: set = set()
+        for entry in items:
+            iid = entry.get("item_id") or ""
+            if not iid:
+                continue
+            item = get_item(iid)
+            if not item:
+                continue
+            target = (item.get("tracks_character") or "").strip()
+            if not target or target == character_name:
+                continue
+            if target in seen_targets:
+                continue
+            seen_targets.add(target)
+            target_loc = get_character_current_location(target) or ""
+            item_name = (item.get("name") or iid).strip()
+            if not target_loc:
+                lines.append(f"- Your {item_name} reaches for {target}, but cannot find them right now.")
+                continue
+            if target_loc == current_location_id:
+                lines.append(f"- Your {item_name} hums softly: {target} is here with you.")
+                continue
+            loc_name = get_location_name(target_loc) or target_loc
+            lines.append(f"- Your {item_name} reveals: {target} is at {loc_name}.")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.debug("tracker block failed for %s: %s", character_name, e)
+        return ""
+
+
 def _build_present_people_block(character_name: str, location_id: str) -> str:
     """Characters at the same location, excluding self. Avatar marked."""
     if not location_id:
@@ -559,10 +632,48 @@ def _build_present_people_block(character_name: str, location_id: str) -> str:
         return ""
 
 
+def _build_travel_block(character_name: str, current_location_id: str) -> str:
+    """Active journey info: target name + remaining steps via known path.
+
+    Empty string when no movement_target is set. Communicates that the
+    system handles the movement automatically and re-issuing SetLocation
+    is only needed to change the destination.
+    """
+    try:
+        from app.models.character import get_movement_target
+        target_id = get_movement_target(character_name)
+        if not target_id:
+            return ""
+        from app.models.world import (
+            get_location_name, find_path_through_known)
+        from app.models.character import get_known_locations
+        target_name = get_location_name(target_id) or target_id
+        known = get_known_locations(character_name) or []
+        path = find_path_through_known(current_location_id, target_id, known) \
+            if current_location_id else None
+        if path and len(path) >= 2:
+            steps = len(path) - 1
+            return (f"You are travelling to {target_name}. "
+                    f"{steps} step(s) remaining — the system moves you one "
+                    f"grid-cell per tick. Re-using SetLocation only to change "
+                    f"the destination.")
+        if path and len(path) == 1:
+            # already at target — will be cleared next tick
+            return f"You have arrived at {target_name}."
+        return (f"You wanted to travel to {target_name}, but the path through "
+                f"known places is no longer reachable. The destination will "
+                f"be cleared on the next tick.")
+    except Exception as e:
+        logger.debug("travel block failed for %s: %s", character_name, e)
+        return ""
+
+
 def _build_known_locations_block(character_name: str, current_location_id: str) -> str:
     """Visibility-filtered location list the character can travel to.
 
     Uses ``list_locations_for_character`` (respects knowledge-item gating).
+    Filters out passable tiles (Durchgangsorte) — the LLM never picks them
+    as travel targets, but the pathfinder traverses them when known.
     Marks the current location with a chevron so the LLM doesn't propose
     "moving" there. Cap at 12 locations to keep the prompt slim.
     """
@@ -572,11 +683,17 @@ def _build_known_locations_block(character_name: str, current_location_id: str) 
         if not locs:
             return ""
         lines: List[str] = []
-        for loc in locs[:12]:
+        count = 0
+        for loc in locs:
+            if loc.get("passable"):
+                continue
+            if count >= 12:
+                break
             lid = (loc.get("id") or "").strip()
             name = (loc.get("name") or lid or "?").strip()
             marker = " (you are here)" if lid and lid == current_location_id else ""
             lines.append(f"- {name}{marker}")
+            count += 1
         return "\n".join(lines)
     except Exception as e:
         logger.debug("known_locations block failed for %s: %s", character_name, e)
@@ -619,11 +736,10 @@ def _build_available_activities_block(character_name: str,
 def _build_daily_schedule_block(character_name: str) -> str:
     """Soft hint about the character's typical rhythm at the current hour.
 
-    Reads ``daily_schedules`` (per character) and surfaces the slot for
-    the current hour plus the next slot — as a guideline, NOT as enforced
-    state. ``__sleep__`` slots become "you usually sleep around now" so
-    the energy-based rule can decide separately whether sleep is actually
-    needed. Returns '' if the character has no schedule or it's disabled.
+    Each slot now carries ``location`` and ``role`` (or ``sleep: true``).
+    Hours without a slot are intentionally left blank — the agent is free
+    to choose. Sleep stays a hint; the energy-based rule decides whether
+    it actually triggers. Returns '' if there is no usable hint.
     """
     try:
         from app.models.character import get_character_daily_schedule
@@ -633,6 +749,18 @@ def _build_daily_schedule_block(character_name: str) -> str:
         slots = schedule.get("slots") or []
         if not slots:
             return ""
+
+        loc_id_to_name: Dict[str, str] = {}
+        try:
+            from app.models.world import list_locations
+            for loc in list_locations() or []:
+                lid = (loc.get("id") or loc.get("name") or "").strip()
+                lname = (loc.get("name") or lid).strip()
+                if lid:
+                    loc_id_to_name[lid] = lname
+        except Exception:
+            pass
+
         slot_by_hour: Dict[int, Dict[str, Any]] = {}
         for s in slots:
             try:
@@ -646,15 +774,15 @@ def _build_daily_schedule_block(character_name: str) -> str:
         next_h = (cur_h + 1) % 24
 
         def _fmt(slot: Dict[str, Any], hour: int) -> str:
-            loc = (slot.get("location") or "").strip()
-            act = (slot.get("activity") or "").strip()
-            if loc == "__sleep__" or act == "__sleep__":
+            if slot.get("sleep"):
                 return f"  {hour:02d}:00 — you usually sleep around now"
+            loc = (slot.get("location") or "").strip()
+            role = (slot.get("role") or "").strip()
             parts = []
-            if loc and not loc.startswith("__"):
-                parts.append(f"location: {loc}")
-            if act and not act.startswith("__"):
-                parts.append(f"activity: {act}")
+            if loc:
+                parts.append(f"location: {loc_id_to_name.get(loc, loc)}")
+            if role:
+                parts.append(f"role: {role}")
             if not parts:
                 return ""
             return f"  {hour:02d}:00 — " + ", ".join(parts)

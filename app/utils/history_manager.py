@@ -114,6 +114,56 @@ def get_time_based_history(
     return recent, old
 
 
+_FUZZY_MARKER_RE = re.compile(
+    r'\*\*I\s+(?:feel|do|am\s+at)\s+[^*]+\*\*', re.IGNORECASE)
+_FUZZY_NONALNUM_RE = re.compile(r'[^a-z0-9äöüß]+')
+
+
+def fuzzy_signature(content: str, length: int = 60) -> str:
+    """Erzeugt eine fuzzy-Signatur einer Assistant-Antwort fuer Repetitions-
+    Erkennung. Marker (`**I feel ...**`), Whitespace, Satzzeichen werden
+    rausgefiltert; die ersten ``length`` alphanumerischen Zeichen sind die
+    Signatur. So matchen Antworten die nur in Marker/Whitespace/Akzent
+    abweichen.
+    """
+    if not content:
+        return ""
+    s = _FUZZY_MARKER_RE.sub("", content).lower()
+    s = _FUZZY_NONALNUM_RE.sub("", s)
+    return s[:length]
+
+
+def detect_assistant_repetition(messages: List[Dict[str, str]],
+                                 lookback: int = 6) -> bool:
+    """Boolean-Wrapper fuer ``count_assistant_repetitions`` — kompatibel mit
+    aelteren Aufrufern. True wenn mindestens 1 Duplikat gefunden wurde.
+    """
+    return count_assistant_repetitions(messages, lookback) > 0
+
+
+def count_assistant_repetitions(messages: List[Dict[str, str]],
+                                 lookback: int = 6) -> int:
+    """Zaehlt wie viele der letzten ``lookback`` Assistant-Antworten
+    eine bereits gesehene Fuzzy-Signatur haben.
+
+    Beispiel: 4 Antworten mit Signatur A + 1 mit Signatur B + 1 mit C
+    → 3 Duplikate (3x A wiederholt). Ergebnis nutzbar fuer eine graduelle
+    Temperature-Erhoehung (z.B. base + step * count).
+    """
+    if not messages:
+        return 0
+    sigs: List[str] = []
+    for msg in reversed(messages):
+        if msg.get("role") != "assistant":
+            continue
+        sig = fuzzy_signature(msg.get("content", ""))
+        if sig:
+            sigs.append(sig)
+        if len(sigs) >= lookback:
+            break
+    return len(sigs) - len(set(sigs))
+
+
 def strip_history_artifacts(content: str) -> str:
     """Entfernt Artefakte aus Chat-Content bevor er ins messages-Array geht.
 
@@ -133,18 +183,36 @@ def strip_history_artifacts(content: str) -> str:
     return content.strip()
 
 
-def _resolve_user_name() -> str:
-    """Resolve player display name: active character > 'Player'.
+def resolve_speaker(msg: Dict[str, str],
+                    partner: str,
+                    character_name: str) -> str:
+    """Bestimmt den tatsaechlichen Sprecher einer chat_messages-Zeile.
 
-    Login-Name (z.B. "admin") wird absichtlich NICHT als Fallback genutzt —
-    wuerde sonst in Daily-Summaries und Tagebuch-Eintraegen als Speaker
-    auftauchen.
+    Priorisiert:
+      1. metadata.speaker  (gesetzt bei TalkTo, Group, Inbox)
+      2. partner           (bei role='user' = Gegenueber sprach)
+      3. character_name    (bei role='assistant' = Selbst sprach)
+
+    Gibt einen Charakternamen zurueck. Kein "Player"-Fallback.
+    Leerstring nur, wenn weder partner noch character_name bekannt sind —
+    Aufrufer sollen solche Zeilen ueberspringen.
     """
-    try:
-        from app.models.account import get_player_identity
-        return get_player_identity("Player")
-    except Exception:
-        return "Player"
+    meta = msg.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+    speaker = (meta.get("speaker") or "").strip() if isinstance(meta, dict) else ""
+    if speaker:
+        return speaker
+
+    role = (msg.get("role") or "").strip().lower()
+    if role == "user":
+        return (partner or "").strip()
+    if role == "assistant":
+        return (character_name or "").strip()
+    return (character_name or partner or "").strip()
 
 
 def _clean_message_for_summary(content: str) -> str:
@@ -181,26 +249,44 @@ def _clean_message_for_summary(content: str) -> str:
 
 def _create_history_summary(
     old_history: List[Dict[str, str]],
-    character_name: str = "") -> str:
-    """Erstellt eine Zusammenfassung aelterer Chat-Nachrichten via Router (Task: consolidation).
+    character_name: str = "",
+    partner_name: str = "") -> str:
+    """Erstellt eine Zusammenfassung aelterer Chat-Nachrichten zwischen ZWEI
+    Charakteren via Router (Task: consolidation).
 
     Args:
-        old_history: Aeltere Chat-Nachrichten, die zusammengefasst werden sollen
-        character_name: Character-Name (fuer Logging)
+        old_history: Aeltere Chat-Nachrichten dieser dyadischen Konversation.
+                     Kann Felder `partner`, `metadata` enthalten — werden zur
+                     Sprecher-Aufloesung benutzt.
+        character_name: Memory-Owner (Speaker B)
+        partner_name:   Konversationspartner (Speaker A). Wenn leer, wird er
+                        aus dem ersten Message-Eintrag mit role='user'
+                        abgeleitet.
     """
     if not old_history:
         return ""
 
-    # Resolve user display name
-    user_display_name = _resolve_user_name()
+    if not partner_name:
+        for msg in old_history:
+            p = (msg.get("partner") or "").strip() if isinstance(msg, dict) else ""
+            if p:
+                partner_name = p
+                break
 
-    # Nachrichten bereinigen (Tool-Calls, Bild-URLs etc. entfernen)
+    if not partner_name or not character_name:
+        return ""
+
+    # Nachrichten bereinigen (Tool-Calls, Bild-URLs etc. entfernen).
+    # Sprecher pro Zeile aus metadata/partner/role aufloesen — kein
+    # globales user_display-Label mehr.
     cleaned_parts = []
     for msg in old_history:
-        role = user_display_name if msg['role'] == 'user' else (character_name or 'Assistant')
-        cleaned = _clean_message_for_summary(msg['content'])
+        speaker = resolve_speaker(msg, partner_name, character_name)
+        if not speaker:
+            continue
+        cleaned = _clean_message_for_summary(msg.get('content', ''))
         if cleaned:
-            cleaned_parts.append(f"{role}: {cleaned}")
+            cleaned_parts.append(f"{speaker}: {cleaned}")
 
     if not cleaned_parts:
         return ""
@@ -230,19 +316,13 @@ def _create_history_summary(
     except Exception:
         pass
 
-    # Context line for the prompt
-    context_line = ""
-    if character_name and user_display_name != "Player":
-        context_line = f"This is a conversation between {user_display_name} (user) and {character_name} (character).\n\n"
-
     from app.core.prompt_templates import render_task
 
     def _build(text: str) -> tuple:
         return render_task(
             "consolidation_history_summary",
-            user_display_name=user_display_name,
-            character_name=character_name or "Assistant",
-            context_line=context_line,
+            speaker_a=partner_name,
+            speaker_b=character_name,
             lang_instruction=lang_instruction,
             history_text=text)
 
@@ -355,7 +435,9 @@ def _is_summary_fresh(character_name: str) -> bool:
     return False
 
 
-def update_summary_background(character_name: str, old_messages: List[Dict[str, str]]):
+def update_summary_background(character_name: str,
+                              old_messages: List[Dict[str, str]],
+                              partner_name: str = ""):
     """Aktualisiert die Sitzungs-Summary (Chat vor Sliding Window).
 
     Wird nach dem Chat aufgerufen, blockiert den Chat NICHT.
@@ -363,13 +445,18 @@ def update_summary_background(character_name: str, old_messages: List[Dict[str, 
 
     NUR die History-Summary — Tages-Summaries werden in der
     Konsolidierungs-Pipeline erstellt (alle 6h), nicht im Chat-Path.
+
+    `partner_name` ist optional — wenn leer, wird der erste Partner aus
+    den Messages abgeleitet.
     """
     if _is_summary_fresh(character_name):
         logger.debug("Summary fuer %s noch frisch, ueberspringe Update", character_name)
         return
 
     try:
-        summary = _create_history_summary(old_messages, character_name=character_name)
+        summary = _create_history_summary(old_messages,
+                                          character_name=character_name,
+                                          partner_name=partner_name)
         if summary:
             _save_cached_summary(character_name, summary, len(old_messages))
             logger.info("Session-Summary aktualisiert fuer %s (%d Nachrichten)", character_name, len(old_messages))
@@ -436,7 +523,8 @@ def refresh_summary_if_uncovered(
         return cached
 
     try:
-        summary = _create_history_summary(old_messages, character_name=character_name)
+        summary = _create_history_summary(old_messages,
+                                          character_name=character_name)
         if summary:
             _save_cached_summary(character_name, summary, len(old_messages))
             logger.info(
@@ -451,87 +539,148 @@ def refresh_summary_if_uncovered(
 
 # === Daily Summaries ===
 
-def load_daily_summaries(character_name: str) -> Dict[str, str]:
-    """Laedt alle Tages-Summaries aus DB. Returns {date_str: summary_text}."""
+def load_daily_summaries(character_name: str,
+                         partner: str = "") -> Dict[str, Dict[str, str]]:
+    """Laedt alle Tages-Summaries aus DB.
+
+    Returns:
+        Wenn `partner` leer: {date_str: {partner_name: summary_text, ...}}
+        Wenn `partner` gesetzt: {date_str: summary_text} (Legacy-Form fuer
+        einzelne Partner-Filter)
+    """
     try:
         conn = get_connection()
+        if partner:
+            rows = conn.execute("""
+                SELECT date_key, content FROM summaries
+                WHERE character_name=? AND kind='daily' AND partner=?
+                ORDER BY date_key ASC
+            """, (character_name, partner)).fetchall()
+            return {r[0]: r[1] for r in rows} if rows else {}
         rows = conn.execute("""
-            SELECT date_key, content FROM summaries
+            SELECT date_key, partner, content FROM summaries
             WHERE character_name=? AND kind='daily'
             ORDER BY date_key ASC
         """, (character_name,)).fetchall()
-        if rows:
-            return {r[0]: r[1] for r in rows}
+        result: Dict[str, Dict[str, str]] = {}
+        for date_key, p, content in rows:
+            result.setdefault(date_key, {})[p or ""] = content
+        return result
     except Exception as e:
         logger.debug("load_daily_summaries DB-Fehler fuer %s: %s", character_name, e)
-
-    # Fallback: JSON-Datei
-    from app.models.character import get_character_dir
-    path = get_character_dir(character_name) / "daily_summaries.json"
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return data.get("summaries", {})
-        except Exception:
-            pass
-    return {}
+        return {}
 
 
-def save_daily_summary(character_name: str, date_str: str, summary: str):
-    """Speichert/ueberschreibt eine Tages-Summary in der DB."""
+def load_daily_summaries_combined(character_name: str) -> Dict[str, str]:
+    """Variante von load_daily_summaries fuer Konsumenten, die nicht
+    partner-aware sind (Wochen-/Monats-Konsolidierung).
+
+    Faltet pro Tag alle Partner-Eintraege in einen kombinierten String:
+        "Mit Kahiro: ...
+         Mit Rosi: ...
+         <Allgemein>: ..."
+    """
+    by_day = load_daily_summaries(character_name)  # {date: {partner: text}}
+    flat: Dict[str, str] = {}
+    for day_str, by_partner in by_day.items():
+        if not by_partner:
+            continue
+        parts = []
+        for partner, text in by_partner.items():
+            if not text:
+                continue
+            if partner:
+                parts.append(f"Mit {partner}: {text}")
+            else:
+                parts.append(text)
+        if parts:
+            flat[day_str] = "\n".join(parts)
+    return flat
+
+
+def save_daily_summary(character_name: str, date_str: str, summary: str,
+                       partner: str = ""):
+    """Speichert/ueberschreibt eine Tages-Summary in der DB.
+
+    `partner` ist der Konversationspartner (Charaktername). Pflicht fuer
+    neue Schreibwege — Aufrufer ohne Partner schreiben in den
+    Legacy-Slot ('').
+    """
     try:
         with transaction() as conn:
             conn.execute("""
-                INSERT INTO summaries (character_name, kind, date_key, content)
-                VALUES (?, 'daily', ?, ?)
-                ON CONFLICT(character_name, kind, date_key) DO UPDATE SET
+                INSERT INTO summaries (character_name, kind, date_key, partner, content)
+                VALUES (?, 'daily', ?, ?, ?)
+                ON CONFLICT(character_name, kind, date_key, partner) DO UPDATE SET
                     content=excluded.content
-            """, (character_name, date_str, summary))
+            """, (character_name, date_str, partner, summary))
     except Exception as e:
-        logger.error("save_daily_summary DB-Fehler fuer %s: %s", character_name, e)
+        logger.error("save_daily_summary DB-Fehler fuer %s/%s: %s",
+                     character_name, partner, e)
 
 
-def delete_daily_summaries(character_name: str, date_keys: List[str]):
-    """Loescht Tages-Summaries aus der DB."""
+def delete_daily_summaries(character_name: str, date_keys: List[str],
+                           partner: str = ""):
+    """Loescht Tages-Summaries aus der DB.
+
+    Wenn `partner` gesetzt: nur Eintraege fuer diesen Partner. Sonst alle
+    Partner-Eintraege fuer die Date-Keys.
+    """
     if not date_keys:
         return
     try:
         with transaction() as conn:
             placeholders = ",".join("?" for _ in date_keys)
-            conn.execute(
-                f"DELETE FROM summaries WHERE character_name=? AND kind='daily' "
-                f"AND date_key IN ({placeholders})",
-                (character_name, *date_keys),
-            )
+            if partner:
+                conn.execute(
+                    f"DELETE FROM summaries WHERE character_name=? AND "
+                    f"kind='daily' AND partner=? AND "
+                    f"date_key IN ({placeholders})",
+                    (character_name, partner, *date_keys),
+                )
+            else:
+                conn.execute(
+                    f"DELETE FROM summaries WHERE character_name=? AND "
+                    f"kind='daily' AND date_key IN ({placeholders})",
+                    (character_name, *date_keys),
+                )
     except Exception as e:
         logger.error("delete_daily_summaries DB-Fehler fuer %s: %s", character_name, e)
 
 
-def get_recent_daily_summaries(character_name: str, days: int = 0) -> List[Dict[str, str]]:
+def get_recent_daily_summaries(character_name: str,
+                               days: int = 0,
+                               partner: str = "") -> List[Dict[str, str]]:
     """Gibt die letzten N Tage mit Summaries zurueck (aelteste zuerst).
 
-    Returns: [{"date": "2026-02-23", "summary": "..."}, ...]
+    Returns: [{"date": "2026-02-23", "partner": "Kahiro", "summary": "..."}, ...]
+    Wenn `partner` gesetzt: nur Summaries dieses Partners.
     """
     if days <= 0:
         days = int(os.environ.get("DAILY_SUMMARY_DAYS", "7"))
 
-    summaries = load_daily_summaries(character_name)
+    summaries = load_daily_summaries(character_name)  # date -> {partner: text}
     if not summaries:
         return []
 
     today = date.today()
-    result = []
+    result: List[Dict[str, str]] = []
     for i in range(days, 0, -1):
         day = today - timedelta(days=i)
         day_str = day.isoformat()
-        if day_str in summaries:
-            result.append({"date": day_str, "summary": summaries[day_str]})
-
+        per_partner = summaries.get(day_str) or {}
+        if not per_partner:
+            continue
+        for p, text in per_partner.items():
+            if partner and p != partner:
+                continue
+            result.append({"date": day_str, "partner": p, "summary": text})
     return result
 
 
 def build_daily_summary_prompt_section(character_name: str,
-                                       max_days: int = 0) -> str:
+                                       max_days: int = 0,
+                                       partner: str = "") -> str:
     """Baut den Prompt-Abschnitt fuer Tages-Summaries (Stufe 2: SHORT bis MID).
 
     Laedt Tages-Summaries ab SHORT_TERM_DAYS (Default 3) bis max_days.
@@ -540,18 +689,22 @@ def build_daily_summary_prompt_section(character_name: str,
 
     max_days: 0 = MID_TERM_DAYS (Default 30). Kann reduziert werden
               fuer TalkTo/Social (z.B. 7 Tage).
+    partner: Wenn gesetzt, nur Summaries fuer diesen Konversationspartner.
+             Sonst werden Summaries pro Tag/Partner gerendert.
 
     Format:
     Recent days:
-    - Feb 23: Summary text...
-    - Feb 24: Summary text...
+    - Feb 23 with Kahiro: Summary text...
+    - Feb 23 with Rosi:   Summary text...
+    - Feb 24 with Kahiro: Summary text...
     """
     thresholds = get_memory_thresholds()
     if max_days <= 0:
         max_days = thresholds["mid_term_days"]
     short = thresholds["short_term_days"]
 
-    recent = get_recent_daily_summaries(character_name, days=max_days)
+    recent = get_recent_daily_summaries(character_name, days=max_days,
+                                        partner=partner)
     if not recent:
         return ""
 
@@ -566,7 +719,11 @@ def build_daily_summary_prompt_section(character_name: str,
             label = d.strftime("%b %d")
         except ValueError:
             label = entry["date"]
-        lines.append(f"- {label}: {entry['summary']}")
+        partner_label = entry.get("partner") or ""
+        if partner_label:
+            lines.append(f"- {label} with {partner_label}: {entry['summary']}")
+        else:
+            lines.append(f"- {label}: {entry['summary']}")
 
     if not lines:
         return ""
@@ -612,37 +769,82 @@ def _get_today_messages(character_name: str) -> List[Dict[str, str]]:
 
 
 def _get_day_messages(character_name: str, day: date) -> List[Dict[str, str]]:
-    """Laedt Nachrichten fuer einen bestimmten Tag aus der DB."""
+    """Laedt Nachrichten fuer einen bestimmten Tag aus der DB.
+
+    Liefert pro Zeile: role, content, partner, metadata, ts.
+    Aufrufer entscheiden, wie sie nach Partner gruppieren oder filtern.
+    """
     day_str = day.isoformat()
     try:
         conn = get_connection()
         rows = conn.execute("""
-            SELECT role, content FROM chat_messages
+            SELECT role, content, partner, metadata, ts FROM chat_messages
             WHERE character_name=?
               AND ts >= ? AND ts < ?
             ORDER BY ts ASC
         """, (character_name, f"{day_str}T00:00:00", f"{day_str}T23:59:59")).fetchall()
-        return [{"role": r[0], "content": r[1]} for r in rows if r[0] and r[1]]
+        result = []
+        for r in rows:
+            role, content, partner, metadata, ts = r
+            if not role or not content:
+                continue
+            result.append({
+                "role": role,
+                "content": content,
+                "partner": partner or "",
+                "metadata": metadata or "{}",
+                "ts": ts or "",
+            })
+        return result
     except Exception as e:
         logger.debug("_get_day_messages DB-Fehler fuer %s/%s: %s", character_name, day_str, e)
         return []
 
 
+def _group_by_partner(messages: List[Dict[str, str]]) -> Dict[str, List[Dict[str, str]]]:
+    """Gruppiert Tagesnachrichten nach Partner-Charakter.
+
+    Partner ist der tatsaechliche Konversationspartner. Group-Chat-Zeilen
+    (mehrere Sprecher) landen unter dem `partner`-Feld der Zeile.
+    Zeilen ohne Partner werden geskipped.
+    """
+    grouped: Dict[str, List[Dict[str, str]]] = {}
+    for msg in messages:
+        partner = (msg.get("partner") or "").strip()
+        if not partner:
+            continue
+        grouped.setdefault(partner, []).append(msg)
+    return grouped
+
+
 def _create_daily_summary(messages: List[Dict[str, str]],
-                          character_name: str = "") -> str:
-    """Erstellt eine Tages-Summary fuer gegebene Nachrichten via Router (consolidation)."""
+                          character_name: str = "",
+                          partner_name: str = "") -> str:
+    """Erstellt eine Tages-Summary fuer einen Konversationspartner.
+
+    Args:
+        messages: Tagesnachrichten ZWISCHEN character_name und partner_name.
+                  Aufrufer hat bereits per `_group_by_partner` gefiltert.
+        character_name: Memory-Owner (Speaker B)
+        partner_name:   Konversationspartner (Speaker A). Pflichtfeld — ohne
+                        Partner gibt es keine dyadische Summary.
+    """
     if not messages:
         return ""
+    if not partner_name or not character_name:
+        logger.debug("daily_summary skip: partner_name=%r char=%r",
+                     partner_name, character_name)
+        return ""
 
-    # Resolve user display name
-    user_display_name = _resolve_user_name()
-
+    # Sprecher pro Zeile aufloesen — KEIN globales user_display-Label.
     cleaned_parts = []
     for msg in messages:
-        role = user_display_name if msg["role"] == "user" else (character_name or "Assistant")
-        cleaned = _clean_message_for_summary(msg["content"])
+        speaker = resolve_speaker(msg, partner_name, character_name)
+        if not speaker:
+            continue
+        cleaned = _clean_message_for_summary(msg.get("content", ""))
         if cleaned:
-            cleaned_parts.append(f"{role}: {cleaned}")
+            cleaned_parts.append(f"{speaker}: {cleaned}")
 
     if not cleaned_parts:
         return ""
@@ -672,17 +874,11 @@ def _create_daily_summary(messages: List[Dict[str, str]],
     except Exception:
         pass
 
-    # Context line
-    context_line = ""
-    if character_name and user_display_name != "Player":
-        context_line = f"This is a conversation between {user_display_name} and {character_name}.\n\n"
-
     from app.core.prompt_templates import render_task
     sys_prompt, summary_prompt = render_task(
         "consolidation_today",
-        user_display_name=user_display_name,
-        character_name=character_name or "the character",
-        context_line=context_line,
+        speaker_a=partner_name,
+        speaker_b=character_name,
         lang_instruction=lang_instruction,
         history_text=history_text)
 
@@ -702,17 +898,26 @@ def _create_daily_summary(messages: List[Dict[str, str]],
 
 
 def _update_daily_summary(character_name: str):
-    """Aktualisiert die Tages-Summary fuer heute."""
+    """Aktualisiert die Tages-Summary fuer heute — pro Konversationspartner
+    eine eigene Summary."""
     today_messages = _get_today_messages(character_name)
-    if len(today_messages) < 4:
-        # Zu wenige Nachrichten fuer eine sinnvolle Summary
+    if not today_messages:
         return
 
+    grouped = _group_by_partner(today_messages)
     today_str = date.today().isoformat()
-    summary = _create_daily_summary(today_messages, character_name=character_name)
-    if summary:
-        save_daily_summary(character_name, today_str, summary)
-        logger.info("Daily summary %s: %s aktualisiert (%d Nachrichten)", character_name, today_str, len(today_messages))
+    for partner, msgs in grouped.items():
+        if len(msgs) < 4:
+            # Zu wenige Nachrichten fuer eine sinnvolle Summary
+            continue
+        summary = _create_daily_summary(msgs,
+                                        character_name=character_name,
+                                        partner_name=partner)
+        if summary:
+            save_daily_summary(character_name, today_str, summary,
+                               partner=partner)
+            logger.info("Daily summary %s↔%s %s: aktualisiert (%d Nachrichten)",
+                        character_name, partner, today_str, len(msgs))
 
 
 def _is_bad_summary(summary: str) -> bool:
@@ -733,28 +938,17 @@ def _is_bad_summary(summary: str) -> bool:
 
 
 def backfill_missing_daily_summaries(character_name: str):
-    """Erstellt fehlende Tages-Summaries fuer vergangene Tage.
+    """Erstellt fehlende Tages-Summaries fuer vergangene Tage — pro Partner.
 
     Prueft die letzten 7 Tage. Ueberspringt heute (wird separat aktualisiert)
-    und Tage die bereits eine Summary haben.
+    und (Tag, Partner)-Paare die bereits eine Summary haben.
     """
-    from app.models.character import get_character_dir
-    from app.models.account import get_player_identity
-
-    existing = load_daily_summaries(character_name)
-    chat_dir = get_character_dir(character_name) / "chats"
-    if not chat_dir.exists():
-        return
-
-    # Legacy: alte Daily-Summaries lagen als {avatar}_chat_{date}.json. Avatar
-    # statt Login, sonst suchen wir bei admin-Login auf "admin_chat_*.json"
-    # statt "Kai_chat_*.json".
-    key_base = get_player_identity("")
+    existing = load_daily_summaries(character_name)  # {date: {partner: text}}
     today = date.today()
     days = int(os.environ.get("DAILY_SUMMARY_DAYS", "7"))
 
     backfilled = 0
-    max_backfill_per_run = 2  # Maximal 2 Tage pro Durchlauf um Queue nicht zu blockieren
+    max_backfill_per_run = 2  # Cap pro Durchlauf, damit die Queue nicht blockt
 
     for i in range(1, days + 1):
         if backfilled >= max_backfill_per_run:
@@ -763,21 +957,32 @@ def backfill_missing_daily_summaries(character_name: str):
         day = today - timedelta(days=i)
         day_str = day.isoformat()
 
-        # Bereits vorhanden → skip (ausser offensichtlich kaputt)
-        if day_str in existing and not _is_bad_summary(existing[day_str]):
-            continue
-
-        # Chat-Datei fuer diesen Tag?
-        day_file = chat_dir / f"{key_base}_chat_{day_str}.json"
-        if not day_file.exists():
-            continue
-
         messages = _get_day_messages(character_name, day)
-        if len(messages) < 4:
+        if not messages:
             continue
 
-        summary = _create_daily_summary(messages, character_name=character_name)
-        if summary:
-            save_daily_summary(character_name, day_str, summary)
-            logger.info("Daily summary backfill %s: %s (%d Nachrichten)", character_name, day_str, len(messages))
-            backfilled += 1
+        grouped = _group_by_partner(messages)
+        if not grouped:
+            continue
+
+        existing_for_day = existing.get(day_str) or {}
+
+        for partner, msgs in grouped.items():
+            if backfilled >= max_backfill_per_run:
+                break
+            if len(msgs) < 4:
+                continue
+            # Bereits vorhanden und sauber → skip
+            if (partner in existing_for_day
+                    and not _is_bad_summary(existing_for_day[partner])):
+                continue
+
+            summary = _create_daily_summary(msgs,
+                                            character_name=character_name,
+                                            partner_name=partner)
+            if summary:
+                save_daily_summary(character_name, day_str, summary,
+                                   partner=partner)
+                logger.info("Daily summary backfill %s↔%s %s (%d Nachrichten)",
+                            character_name, partner, day_str, len(msgs))
+                backfilled += 1

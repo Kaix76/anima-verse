@@ -167,6 +167,46 @@ def _evaluate_single_condition_inner(
             logger.debug("current_activity-Check fehlgeschlagen: %s", e)
             return False, f"Aktuelle Aktivitaet muss '{target}' sein"
 
+    # --- schedule:X (aktueller Tagesablauf-Slot) ---
+    # Beispiel: "schedule:sleeping" matched wenn der aktuelle Stunden-Slot
+    # in daily_schedule.slots als sleep-Slot markiert ist (sleep=True oder
+    # activity="__sleep__" o.ae.). "schedule:awake" matched die Negation.
+    sched_match = re.match(r"schedule:(.+)", cond)
+    if sched_match:
+        target = sched_match.group(1).strip().lower()
+        try:
+            from app.models.character import get_character_daily_schedule
+            schedule = get_character_daily_schedule(character_name) or {}
+            if not schedule.get("enabled", False):
+                # Kein aktiver Schedule — schedule-Bedingungen matchen nicht
+                # (weder sleeping noch awake werden erzwungen).
+                return False, "Tagesablauf nicht aktiv"
+            current_hour = datetime.now().hour
+            slot = next((s for s in schedule.get("slots", [])
+                         if s.get("hour") == current_hour), None)
+            if target in ("sleeping", "sleep"):
+                is_sleep = bool(slot and (slot.get("sleep")
+                                          or slot.get("activity") == "__sleep__"
+                                          or slot.get("location") == "__sleep__"))
+                if is_sleep:
+                    return True, ""
+                return False, "Schedule sagt nicht Schlafen"
+            if target in ("awake", "wake"):
+                is_sleep = bool(slot and (slot.get("sleep")
+                                          or slot.get("activity") == "__sleep__"
+                                          or slot.get("location") == "__sleep__"))
+                if not is_sleep:
+                    return True, ""
+                return False, "Schedule sagt Schlafen"
+            # Sonst: target gegen slot.activity matchen (z.B. "schedule:Working")
+            slot_act = (slot.get("activity") if slot else "") or ""
+            if slot_act.lower() == target:
+                return True, ""
+            return False, f"Schedule sagt nicht '{target}' (ist: '{slot_act}')"
+        except Exception as e:
+            logger.debug("schedule-condition Fehler: %s", e)
+            return False, f"Schedule-Bedingung nicht auswertbar: {target}"
+
     # --- condition:X (active_conditions im Profil) ---
     cond_match = re.match(r"condition:(.+)", cond)
     if cond_match:
@@ -488,8 +528,8 @@ def check_cooldown(character_name: str,
     if not sa:
         return True, ""
 
-    cooldown_hours = sa.get("cooldown_hours", 0)
-    if not cooldown_hours or cooldown_hours <= 0:
+    cooldown_minutes = sa.get("cooldown_minutes", 0)
+    if not cooldown_minutes or cooldown_minutes <= 0:
         return True, ""
 
     # Cooldown-Timestamp aus Character-Profil lesen
@@ -506,15 +546,15 @@ def check_cooldown(character_name: str,
 
     try:
         last_dt = datetime.fromisoformat(last_used)
-        cooldown_end = last_dt + timedelta(hours=cooldown_hours)
+        cooldown_end = last_dt + timedelta(minutes=cooldown_minutes)
         now = datetime.now()
         if now < cooldown_end:
             remaining = cooldown_end - now
-            hours_left = remaining.total_seconds() / 3600
-            if hours_left >= 1:
-                return False, f"Noch {int(hours_left)}h Cooldown"
+            mins_left = remaining.total_seconds() / 60
+            if mins_left >= 60:
+                return False, f"Noch {int(mins_left / 60)}h Cooldown"
             else:
-                return False, f"Noch {int(remaining.total_seconds() / 60)}min Cooldown"
+                return False, f"Noch {int(mins_left)}min Cooldown"
         return True, ""
     except (ValueError, TypeError):
         return True, ""
@@ -592,11 +632,11 @@ def _scale_effects_by_time(character_name: str,
     duration_minutes: The activity's cycle length (from duration_minutes field, default 60).
     Effects are scaled by (elapsed / duration), capped at 1.0.
 
-    is_event_trigger: True bei Aktivitaeten mit cooldown_hours > 0 — diese sind
-        Event-Trigger (Orgasm, etc.) mit einmaligem diskretem Effekt, nicht
-        ambient. Effekte werden in voller Hoehe angewandt, kein proportionales
-        Skalieren, kein 1-Min-Threshold. Sonst werden bei schnellem Activity-
-        Spam (LLM emittiert 5x "Orgasm" in 1 Sek) keine Effekte angewendet.
+    is_event_trigger: True fuer Aktivitaeten mit ``effect_type == "once"`` —
+        diese sind diskrete Event-Trigger (Orgasm, etc.) mit einmaligem
+        Vollwert-Effekt, nicht ambient. Kein proportionales Skalieren, kein
+        1-Min-Threshold. Sonst wuerden bei schnellem Activity-Spam (LLM
+        emittiert 5x "Orgasm" in 1 Sek) keine Effekte angewendet.
 
     Returns scaled effects dict, or empty dict if too little time has passed.
     """
@@ -605,9 +645,15 @@ def _scale_effects_by_time(character_name: str,
     now = datetime.now()
 
     # Event-Trigger: Effects voll anwenden, kein proportionales Skalieren.
-    # Tracking trotzdem updaten, damit ein zweites Triggern (vor Cooldown)
-    # erkennbar ist.
+    # ABER: nur einmal pro Activity-Start. Wenn Tracking fuer dieselbe
+    # Activity schon einen last_applied-Eintrag hat, wurde der Once-Effekt
+    # bereits gefeuert — naechste Aufrufe (z.B. hourly tick auf weiterhin
+    # gesetzter Activity) skippen, sonst wuerde -20 Stamina jede Stunde neu
+    # gezogen. Beim Activity-Wechsel raeumt finalize_activity_effects das
+    # Tracking auf, sodass ein erneutes Triggern (nach Cooldown) wieder feuert.
     if is_event_trigger:
+        if tracking.get("activity") == activity_name and tracking.get("last_applied"):
+            return {}
         scaled: Dict[str, Any] = {}
         for k, v in effects.items():
             if k.endswith("_change") and isinstance(v, (int, float)) and v:
@@ -766,17 +812,14 @@ def apply_activity_effects(character_name: str,
             pass
 
     # 2. Effects zeitproportional skalieren und anwenden.
-    # Event-Trigger erkennen: cooldown_hours > 0 = diskretes Event (Orgasm,
-    # Spezial-Aktionen) mit einmaligem Effekt. Sonst ambient (Working,
-    # Cooking) mit proportionalem Skalieren.
+    # effect_type == "once" = diskretes Event (Orgasm, Spezial-Aktionen) mit
+    # einmaligem Vollwert-Effekt. effect_type == "ongoing" (Default) = ambient
+    # (Working, Cooking) mit proportionalem Skalieren.
     raw_effects = act_data.get("effects", {}) if act_data else {}
     if raw_effects:
         duration_minutes = int(act_data.get("duration_minutes") or 60) if act_data else 60
-        try:
-            cooldown_h = float(act_data.get("cooldown_hours") or 0)
-        except (TypeError, ValueError):
-            cooldown_h = 0.0
-        is_event = cooldown_h > 0
+        effect_type = (act_data.get("effect_type") or "ongoing").strip().lower() if act_data else "ongoing"
+        is_event = effect_type == "once"
         scaled = _scale_effects_by_time(character_name, activity_name, raw_effects,
                                          duration_minutes, is_event_trigger=is_event)
         if scaled:
@@ -909,11 +952,6 @@ def _check_cumulative_effect(character_name: str,
         if cum_config.get("effects"):
             apply_effects(character_name, cum_config["effects"],
                          source=f"cumulative:{condition_name}")
-
-        # Kumulative Folge-Aktivitaeten
-        if cum_config.get("follow_up_activities"):
-            _execute_follow_up(character_name, cum_config["follow_up_activities"],
-                              source=f"cumulative_followup:{condition_name}")
 
         # Im Tagebuch dokumentieren
         from app.models.character import _record_state_change
@@ -1138,10 +1176,25 @@ def classify_activity_background(character_name: str, raw_activity: str):
                         return ok
                 return True
 
+            # Cooldown-Check: einmalige Aktivitaeten (effect_type='once') duerfen
+            # waehrend der Cooldown-Phase weder direkt gematcht noch via LLM
+            # klassifiziert werden — sonst wuerde der Effekt erneut gefeuert
+            # bzw. die "nicht wieder anbieten"-Regel umgangen.
+            def _cooldown_ok_for(act_name: str) -> bool:
+                ok, _ = check_cooldown(character_name, act_name)
+                return ok
+
+            # Whitelist: gueltige Klassifikations-Targets sind ausschliesslich
+            # die Aktivitaeten aus der bereits gefilterten Liste (Rollen,
+            # Conditions, Cooldowns alle beruecksichtigt). Alles andere ist
+            # potenzielle LLM-Halluzination (z.B. "OutfitChange") und wird
+            # verworfen — Detail bleibt erhalten, current_activity unangetastet.
+            known_lower = {n.lower() for n in known_activities if n}
+
             # Direct match first (skip LLM if possible)
             for known in known_activities:
                 if known.lower() == raw_activity.lower():
-                    if not _partner_ok_for(known):
+                    if not _partner_ok_for(known) or not _cooldown_ok_for(known):
                         break
                     _track(known)
                     return  # Already a known activity name, no classify needed
@@ -1149,7 +1202,7 @@ def classify_activity_background(character_name: str, raw_activity: str):
                 if known_tokens and known_tokens.issubset(raw_tokens):
                     # Alle Woerter der bekannten Aktivitaet kommen als
                     # eigenstaendige Woerter im Freitext vor.
-                    if not _partner_ok_for(known):
+                    if not _partner_ok_for(known) or not _cooldown_ok_for(known):
                         continue
                     save_character_current_activity(character_name, known, detail=raw_activity,
                         _skip_classify=True, _is_reclassify=True)
@@ -1191,10 +1244,28 @@ def classify_activity_background(character_name: str, raw_activity: str):
 
             category = response.content.strip().strip('"').strip("'").strip(".")
             if category and len(category) < 40 and category.lower() != raw_activity.lower():
+                # Whitelist: nur Klassifikation akzeptieren, die in der
+                # gefilterten Liste der verfuegbaren Aktivitaeten liegt.
+                # Sonst rutschen LLM-Halluzinationen wie "OutfitChange"
+                # als current_activity durch.
+                if category.lower() not in known_lower:
+                    logger.info("Classify-Reject: '%s' -> '%s' (nicht in known_activities, "
+                                "wahrscheinlich LLM-Halluzination)",
+                                raw_activity[:40], category)
+                    _trigger_expression(raw_activity)
+                    return
                 # Partner-Check: wenn die klassifizierte Aktivitaet einen Partner
                 # braucht und keiner da ist, Klassifikation verwerfen.
                 if not _partner_ok_for(category):
                     logger.info("Classify-Reject: '%s' -> '%s' (requires_partner, keiner am Ort)",
+                                raw_activity[:40], category)
+                    _trigger_expression(raw_activity)
+                    return
+                # Cooldown-Check: gleiche Logik wie beim Direct-Match,
+                # damit einmalige Aktivitaeten waehrend der Cooldown-Phase
+                # nicht erneut zugewiesen werden.
+                if not _cooldown_ok_for(category):
+                    logger.info("Classify-Reject: '%s' -> '%s' (cooldown aktiv)",
                                 raw_activity[:40], category)
                     _trigger_expression(raw_activity)
                     return
@@ -1228,6 +1299,8 @@ def execute_trigger(character_name: str,
     - relationship_change: Aendert Beziehungswerte (Placeholder)
     - npc_spawn: Spawnt einen NPC (Placeholder)
     - random_event_chance: Wahrscheinlichkeits-basierter Event-Spawn
+    - set_activity: Setzt eine Activity bei self/partner/avatar/<name>
+    - effect: Direkte Stat-Aenderungen
     """
     if not trigger_config:
         return
@@ -1255,6 +1328,10 @@ def execute_trigger(character_name: str,
             if _effects:
                 apply_effects(character_name, _effects,
                               source=ctx.get("interrupted_activity") or "trigger")
+        elif trigger_type == "set_activity":
+            _trigger_set_activity(character_name, trigger_config, ctx)
+        elif trigger_type == "set_location":
+            _trigger_set_location(character_name, trigger_config, ctx)
         elif trigger_type == "npc_spawn":
             logger.info("Trigger npc_spawn: noch nicht implementiert")
         elif trigger_type == "random_event_chance":
@@ -1263,6 +1340,141 @@ def execute_trigger(character_name: str,
             logger.warning("Unbekannter Trigger-Typ: %s", trigger_type)
     except Exception as e:
         logger.error("Trigger-Ausfuehrung fehlgeschlagen (%s): %s", trigger_type, e)
+
+
+def _trigger_set_activity(character_name: str,
+    config: Dict[str, Any], ctx: Dict[str, Any]):
+    """Setzt eine Activity bei einem konfigurierbaren Subjekt.
+
+    Felder:
+      activity — Activity-id oder -name aus der Library (Pflicht).
+      target   — Wer bekommt die Activity? Werte:
+                 "self" (Default)         — der Trigger-ausloesende Char
+                 "partner"                — get_last_matched_partner() oder
+                                             ctx['partner']
+                 "avatar"                 — der aktive Spieler-Avatar
+                 "<konkreter Char-Name>"  — beliebiger Character
+
+    Effects + apply_condition + Outfit-Compliance laufen ueber
+    ``save_character_current_activity`` automatisch. Raum-Wechsel wird fuer
+    Avatar-Targets uebersprungen (siehe ``_set_partner_activity``).
+    """
+    activity_id = (config.get("activity") or config.get("activity_id") or "").strip()
+    if not activity_id:
+        logger.warning("set_activity-Trigger ohne 'activity'-Feld bei %s", character_name)
+        return
+
+    target_spec = (config.get("target") or "self").strip().lower()
+    target = ""
+    if target_spec == "self":
+        target = character_name
+    elif target_spec == "partner":
+        target = get_last_matched_partner() or (ctx.get("partner") or "").strip()
+    elif target_spec == "avatar":
+        try:
+            from app.models.account import get_active_character
+            target = (get_active_character() or "").strip()
+        except Exception:
+            target = ""
+    else:
+        # Literaler Character-Name aus dem Config
+        target = (config.get("target") or "").strip()
+
+    if not target:
+        logger.info("set_activity-Trigger uebersprungen (target=%s nicht aufloesbar) "
+                    "bei %s -> %s", target_spec, character_name, activity_id)
+        return
+
+    _set_partner_activity(target, activity_id,
+                          source=f"trigger:from:{character_name}",
+                          source_character=character_name)
+
+
+def _trigger_set_location(character_name: str,
+    config: Dict[str, Any], ctx: Dict[str, Any]):
+    """Bewegt einen Char zu einer Location (z.B. nach Hause beim Schlaf-Start).
+
+    Felder:
+      target — wohin?
+        "home"     — Char-Config home_location/home_room. Bei Sentinel
+                     ``__offmap__``: enter_offmap_sleep (Char verschwindet
+                     von der Karte, vorherige Position fuer Wakeup gesichert).
+        "<id>"     — literale Location-ID (analog SetLocation-Skill).
+      character_target — wer wird bewegt? "self" (Default) | "partner" | "avatar"
+                         | "<Name>". Player-Avatare werden NICHT bewegt
+                         (User steuert Avatar-Position selbst).
+
+    Anwendung: Activity ``sleeping`` setzt ``triggers.on_start`` mit
+    ``{type: set_location, target: home}`` damit der Char beim Aktivieren
+    der Schlaf-Activity automatisch nach Hause wandert.
+    """
+    target_spec = (config.get("target") or "").strip()
+    if not target_spec:
+        logger.warning("set_location-Trigger ohne 'target'-Feld bei %s", character_name)
+        return
+
+    # Wer wird bewegt?
+    char_target_spec = (config.get("character_target") or "self").strip().lower()
+    target_char = ""
+    if char_target_spec == "self":
+        target_char = character_name
+    elif char_target_spec == "partner":
+        target_char = get_last_matched_partner() or (ctx.get("partner") or "").strip()
+    elif char_target_spec == "avatar":
+        try:
+            from app.models.account import get_active_character
+            target_char = (get_active_character() or "").strip()
+        except Exception:
+            target_char = ""
+    else:
+        target_char = (config.get("character_target") or "").strip()
+    if not target_char:
+        logger.info("set_location-Trigger uebersprungen (character_target=%s nicht aufloesbar) "
+                    "bei %s -> %s", char_target_spec, character_name, target_spec)
+        return
+
+    # Avatar nicht bewegen — User steuert dessen Position
+    try:
+        from app.models.account import is_player_controlled
+        if is_player_controlled(target_char):
+            logger.info("set_location-Trigger uebersprungen: %s ist Avatar (User steuert Position)",
+                        target_char)
+            return
+    except Exception:
+        pass
+
+    # "home"-Resolution
+    if target_spec.lower() == "home":
+        from app.models.character import get_character_config, OFFMAP_SLEEP_SENTINEL, enter_offmap_sleep
+        cfg = get_character_config(target_char) or {}
+        home_loc = (cfg.get("home_location") or "").strip()
+        home_room = (cfg.get("home_room") or "").strip()
+        if not home_loc:
+            logger.info("set_location-Trigger 'home' fuer %s — kein home_location konfiguriert",
+                        target_char)
+            return
+        if home_loc == OFFMAP_SLEEP_SENTINEL:
+            enter_offmap_sleep(target_char)
+            logger.info("set_location-Trigger: %s -> offmap (home)", target_char)
+            return
+        # Echter Ort — bewegen
+        from app.models.character import save_character_current_location, save_character_current_room
+        save_character_current_location(target_char, home_loc)
+        if home_room:
+            save_character_current_room(target_char, home_room)
+        logger.info("set_location-Trigger: %s -> home (loc=%s, room=%s)",
+                    target_char, home_loc, home_room or "-")
+        return
+
+    # Literaler Location-ID-Pfad
+    from app.models.character import save_character_current_location
+    save_character_current_location(target_char, target_spec)
+    room_id = (config.get("room") or "").strip()
+    if room_id:
+        from app.models.character import save_character_current_room
+        save_character_current_room(target_char, room_id)
+    logger.info("set_location-Trigger: %s -> loc=%s, room=%s",
+                target_char, target_spec, room_id or "-")
 
 
 def _trigger_event(character_name, config, ctx):
@@ -1498,6 +1710,15 @@ def apply_hourly_status_tick(character_name: str):
             save_character_profile(character_name, profile)
             logger.info("Hourly status tick fuer %s angewendet", character_name)
 
+        # Auto-Wake laeuft jetzt ueber Force-Rules — der frueher hier
+        # hardcoded Stamina-Threshold-Check ist obsolet. Standard-Wake-Rule
+        # wird beim Welt-Init geseedet (siehe rules.ensure_default_rules):
+        #   condition: "stamina>60 AND current_activity:sleeping"
+        #   set_activity: ""  (loescht Activity + ruft wake_from_offmap)
+        # Force-Rules werden vom world_admin_tick jeden Sub-Tick (default 60s)
+        # ausgewertet, also reagiert Wake schneller als der vorige hourly-
+        # gegate Pfad.
+
         # Zwangs-Regeln pruefen (nach Status-Update)
         try:
             from app.models.rules import check_force_rules, resolve_force_destination
@@ -1505,6 +1726,7 @@ def apply_hourly_status_tick(character_name: str):
                 save_character_current_location, save_character_current_room,
                 save_character_current_activity, _record_state_change)
             force = check_force_rules(character_name)
+            _force_changed = False
             if force:
                 # Spieler-Avatar: Zwang nicht ausfuehren, nur warnen
                 from app.models.account import is_player_controlled
@@ -1520,28 +1742,70 @@ def apply_hourly_status_tick(character_name: str):
                         pass
                 else:
                     dest_loc, dest_room = resolve_force_destination(character_name, force["go_to"])
+                    # Vorher-Snapshot fuer "wirklich was passiert?"-Check.
+                    from app.models.character import (
+                        get_character_current_location, get_character_current_room,
+                        get_character_current_activity,
+                        enter_offmap_sleep, wake_from_offmap, OFFMAP_SLEEP_SENTINEL)
+                    _before_loc = (get_character_current_location(character_name) or "").strip()
+                    _before_room = (get_character_current_room(character_name) or "").strip()
+                    _before_act = (get_character_current_activity(character_name) or "").strip().lower()
+
+                    # Offmap-Sentinel als dest_loc: nicht stumpf speichern, sondern
+                    # echten Offmap-Schlaf via enter_offmap_sleep einleiten.
+                    if dest_loc == OFFMAP_SLEEP_SENTINEL:
+                        if _before_loc:
+                            try:
+                                enter_offmap_sleep(character_name)
+                            except Exception:
+                                pass
+                        dest_loc = ""
+                        dest_room = ""
+
                     if dest_loc:
                         save_character_current_location(character_name, dest_loc)
                     if dest_room:
                         save_character_current_room(character_name, dest_room)
-                    if force.get("set_activity"):
-                        save_character_current_activity(character_name, force["set_activity"])
-                    # Tagebuch
-                    _record_state_change(character_name, "forced_action",
-                                         force.get("message", force.get("rule_name", "")),
-                                         metadata={"rule": force.get("rule_name", ""),
-                                                   "go_to": force["go_to"],
-                                                   "activity": force.get("set_activity", "")})
-                    logger.info("Zwangs-Regel ausgefuehrt: %s -> %s (%s)",
-                               character_name, force.get("rule_name", ""), force.get("message", ""))
-                # Notification an User senden
-                try:
-                    from app.models.notifications import add_notification
-                    add_notification(character_name,
-                        force.get("message", f"{character_name}: {force.get('rule_name', 'Erzwungene Aktion')}"),
-                        notification_type="forced_action")
-                except Exception:
-                    pass
+                    # set_activity: explizit gesetzte Activity (truthy) ODER
+                    # explizit leerer String (Wake-Up-Rule). Wir pruefen ob
+                    # der KEY in der Action vorhanden ist — mit leerem String
+                    # wird die Activity entfernt (Char wacht auf / wird passiv).
+                    if "set_activity" in force:
+                        new_act = (force.get("set_activity") or "").strip()
+                        save_character_current_activity(character_name, new_act)
+                        if not new_act:
+                            # Bei leerer Activity: ggf. offmap-Char zurueckholen
+                            try:
+                                wake_from_offmap(character_name)
+                            except Exception:
+                                pass
+
+                    _after_loc = (get_character_current_location(character_name) or "").strip()
+                    _after_room = (get_character_current_room(character_name) or "").strip()
+                    _after_act = (get_character_current_activity(character_name) or "").strip().lower()
+                    _force_changed = (_before_loc != _after_loc
+                                      or _before_room != _after_room
+                                      or _before_act != _after_act)
+                    if _force_changed:
+                        _record_state_change(character_name, "forced_action",
+                                             force.get("message", force.get("rule_name", "")),
+                                             metadata={"rule": force.get("rule_name", ""),
+                                                       "go_to": force["go_to"],
+                                                       "activity": force.get("set_activity", "")})
+                        logger.info("Zwangs-Regel ausgefuehrt: %s -> %s (%s)",
+                                   character_name, force.get("rule_name", ""), force.get("message", ""))
+                # Notification an User: nur wenn die NPC-Regel wirklich was
+                # geaendert hat (Avatar-Pfad hat oben schon eine Warnung
+                # gesendet). Verhindert Diary/Toast-Spam wenn die Regel jeden
+                # Tick auswertet aber kein neuer Zustand entsteht.
+                if _force_changed:
+                    try:
+                        from app.models.notifications import add_notification
+                        add_notification(character_name,
+                            force.get("message", f"{character_name}: {force.get('rule_name', 'Erzwungene Aktion')}"),
+                            notification_type="forced_action")
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug("Force rules check failed: %s", e)
 

@@ -77,8 +77,9 @@ def save_template(rel_path: str, content: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     try:
-        from app.core.prompt_templates import _env
+        from app.core.prompt_templates import _env, _invalidate_skill_meta_cache
         _env.cache.clear()
+        _invalidate_skill_meta_cache()
     except Exception:
         pass
 
@@ -286,7 +287,7 @@ def _drive_extraction_memory(agent: str, avatar: str) -> PreviewResult:
                         f"between {avatar!r} and {agent!r}."}
     from app.core.memory_service import extract_memories_from_exchange
     task, sys, user = _capture_render(
-        lambda: extract_memories_from_exchange(agent, user_msg, asst_msg, llm=None))
+        lambda: extract_memories_from_exchange(agent, avatar, user_msg, asst_msg, llm=None))
     return {"ok": True, "output": _format(task, sys, user),
             "note": "Production: memory_service.extract_memories_from_exchange "
                     "with the latest avatar↔agent exchange."}

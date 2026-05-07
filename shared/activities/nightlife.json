@@ -1,0 +1,77 @@
+{
+  "group": "Nightlife",
+  "activities": [
+    {
+      "id": "drinking",
+      "name": "Drinking",
+      "description": "Drink non-alcoholic beverages",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 30,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 1,
+        "stamina_change": 1
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "required_roles": [
+        "Customer"
+      ]
+    },
+    {
+      "id": "playing_music",
+      "name": "Playing music",
+      "description": "Play an instrument or DJ",
+      "category": "creative",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -3,
+        "courage_change": 3,
+        "mood_influence": "creative"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "drinking_alcoholics",
+      "name": "Drinking",
+      "description": "Drink alcoholic beverages",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 30,
+      "outfit_type": "",
+      "effects": {
+        "courage_change": 5,
+        "stamina_change": -3,
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "required_roles": [
+        "Customer"
+      ],
+      "cumulative_effect": {
+        "threshold": 3,
+        "condition_name": "drunk",
+        "mood_influence": "happy",
+        "duration_hours": 1,
+        "effects": {
+          "attention_change": -20,
+          "courage_change": 30
+        }
+      }
+    }
+  ]
+}

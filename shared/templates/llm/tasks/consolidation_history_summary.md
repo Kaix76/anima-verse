@@ -1,25 +1,24 @@
 ---
 task: consolidation
-purpose: Sliding-window chat history summary (history_manager.create_summary)
+purpose: Sliding-window chat history summary between two characters (history_manager.create_summary)
 placeholders:
-  user_display_name: User display name
-  character_name: Character name (or "Assistant" if missing)
-  context_line: Optional context line ("This is a conversation between X and Y.\n\n") or empty
+  speaker_a: Conversation partner name (the other character)
+  speaker_b: Memory owner name (the character whose history we're summarizing)
   lang_instruction: Optional "\nWrite the summary in <Language>." or empty
-  history_text: Chat transcript
+  history_text: Chat transcript (lines prefixed with the actual speaker name)
 ---
 ## system
 
 ## user
-Summarize the following conversation in 2-3 sentences, focusing on:
+Summarize the following conversation between {{ speaker_a }} and {{ speaker_b }} in 2-3 sentences, focusing on:
 - Main topics discussed
-- Important information shared by {{ user_display_name }}
+- Important information shared by either {{ speaker_a }} or {{ speaker_b }}
 - Any decisions or conclusions made
 
 IMPORTANT: Write ONLY a plain text summary. Do NOT include any tool calls, commands, image URLs or code.
-Use the actual names ({{ user_display_name }}, {{ character_name }}) in the summary.{{ lang_instruction }}
+Use the actual names ({{ speaker_a }}, {{ speaker_b }}) — NEVER write "User", "Player", "Spieler", "the user" or "Assistant".{{ lang_instruction }}
 
-{{ context_line }}Conversation:
+Conversation between {{ speaker_a }} and {{ speaker_b }}:
 {{ history_text }}
 
 Summary:

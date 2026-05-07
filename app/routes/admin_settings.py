@@ -20,7 +20,20 @@ router = APIRouter(prefix="/admin", tags=["admin-settings"],
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page():
     """Serve the admin settings HTML page."""
-    return HTMLResponse(content=_build_settings_html())
+    return HTMLResponse(
+        content=_build_settings_html(),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@router.get("/world-name")
+async def world_name(user=Depends(require_admin)):
+    """Return the active world name (= storage dir basename) so the admin
+    UI can display which world it's actually configuring. Prevents the
+    "I just saved Hotopia data into anima-dome" footgun where a stale
+    browser tab carries form state across world boundaries.
+    """
+    from app.core.paths import get_storage_dir
+    return {"world": get_storage_dir().name}
 
 
 @router.get("/users", response_class=HTMLResponse)
@@ -209,7 +222,12 @@ async def outfit_rules_get(user=Depends(require_admin)):
 
 @router.put("/outfit-rules/data")
 async def outfit_rules_save(request: Request, user=Depends(require_admin)):
-    """Speichert outfit_rules.json und invalidiert den Rules-Cache."""
+    """Speichert outfit_rules.json und invalidiert den Rules-Cache.
+
+    Schema pro Eintrag: ``required`` (slot-Liste), ``description`` (string),
+    ``default`` (bool, max EIN Eintrag darf default=true sein — wenn keine
+    Quelle einen Type liefert, wird dieser als Fallback genutzt).
+    """
     import json as _json
     from app.models.inventory import VALID_PIECE_SLOTS
     from app.core.paths import get_config_dir
@@ -219,7 +237,8 @@ async def outfit_rules_save(request: Request, user=Depends(require_admin)):
     incoming = body.get("outfit_types") or {}
     valid = set(VALID_PIECE_SLOTS)
 
-    cleaned = {}
+    cleaned: Dict[str, Dict[str, Any]] = {}
+    default_seen = False
     for otype, entry in incoming.items():
         key = (otype or "").strip()
         if not key:
@@ -229,10 +248,15 @@ async def outfit_rules_save(request: Request, user=Depends(require_admin)):
         req = entry.get("required") or []
         if not isinstance(req, list):
             continue
-        entry_out = {"required": [s for s in req if s in valid]}
+        entry_out: Dict[str, Any] = {"required": [s for s in req if s in valid]}
         description = (entry.get("description") or "").strip()
         if description:
             entry_out["description"] = description
+        # Default-Flag — nur eines darf gesetzt sein. Erstes wins, alle
+        # weiteren werden auf False gezwungen.
+        if entry.get("default") and not default_seen:
+            entry_out["default"] = True
+            default_seen = True
         cleaned[key] = entry_out
 
     path = get_config_dir() / "outfit_rules.json"
@@ -242,6 +266,325 @@ async def outfit_rules_save(request: Request, user=Depends(require_admin)):
                     encoding="utf-8")
     reload_rules()
     return {"status": "ok", "outfit_types": cleaned}
+
+
+@router.post("/outfit-rules/rename")
+async def outfit_rules_rename(request: Request, user=Depends(require_admin)):
+    """Benennt einen outfit_type um (oder merged ihn in einen existierenden).
+
+    Body: {"old": "<alter Name>", "new": "<neuer Name>"}.
+    Wenn der neue Name bereits in den Regeln existiert, wird der Vorgang
+    zum Merge: alle Referenzen werden umgeschrieben, der alte Eintrag
+    wird geloescht (die Slots/Description des Ziels bleiben erhalten).
+
+    Updated wird:
+      - shared/config/outfit_rules.json (Key umbenennen / loeschen)
+      - world.db locations.outfit_type + locations.meta (rooms[].outfit_type)
+      - world.db rooms.outfit_type + rooms.meta
+      - world.db items.pieces (outfit_piece.outfit_types)
+      - world.db items.meta (outfit_piece.outfit_types — Legacy)
+      - world.db activities.meta (outfit_type)
+      - world.db characters.profile_json (outfit_exceptions keys)
+    """
+    import json as _json
+    from app.core.paths import get_config_dir
+    from app.core.outfit_rules import reload_rules
+    from app.core.db import transaction
+
+    body = await request.json()
+    old_name = (body.get("old") or "").strip()
+    new_name = (body.get("new") or "").strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old + new required")
+    if old_name == new_name:
+        return {"status": "noop", "merged": False, "updated": {}}
+
+    path = get_config_dir() / "outfit_rules.json"
+    data = {"outfit_types": {}}
+    if path.exists():
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    types = data.get("outfit_types") or {}
+    if old_name not in types:
+        raise HTTPException(status_code=404, detail=f"outfit_type '{old_name}' nicht gefunden")
+
+    is_merge = new_name in types
+    if not is_merge:
+        # Reines Rename: Ziel-Eintrag = alter Eintrag
+        types[new_name] = types[old_name]
+    # Bei Merge: Ziel-Eintrag bleibt unveraendert, alter Eintrag faellt weg.
+    types.pop(old_name, None)
+    data["outfit_types"] = types
+    path.write_text(_json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    reload_rules()
+
+    updated = {"locations": 0, "rooms": 0, "items": 0,
+               "activities": 0, "character_exceptions": 0}
+
+    def _replace_in_list(lst):
+        out, changed = [], False
+        for v in lst or []:
+            if isinstance(v, str) and v.strip().lower() == old_name.lower():
+                if new_name not in out:
+                    out.append(new_name)
+                changed = True
+            else:
+                if v not in out:
+                    out.append(v)
+        return out, changed
+
+    with transaction() as conn:
+        # locations
+        rows = conn.execute("SELECT id, outfit_type, meta FROM locations").fetchall()
+        for lid, ot, meta_str in rows:
+            new_ot = ot
+            if (ot or "").strip().lower() == old_name.lower():
+                new_ot = new_name
+            try:
+                meta = _json.loads(meta_str or "{}")
+            except Exception:
+                meta = {}
+            mchanged = False
+            if (meta.get("outfit_type") or "").strip().lower() == old_name.lower():
+                meta["outfit_type"] = new_name
+                mchanged = True
+            for r in (meta.get("rooms") or []):
+                if (r.get("outfit_type") or "").strip().lower() == old_name.lower():
+                    r["outfit_type"] = new_name
+                    mchanged = True
+            if new_ot != ot or mchanged:
+                conn.execute("UPDATE locations SET outfit_type=?, meta=? WHERE id=?",
+                             (new_ot, _json.dumps(meta, ensure_ascii=False), lid))
+                updated["locations"] += 1
+
+        # rooms
+        rows = conn.execute("SELECT id, outfit_type, meta FROM rooms").fetchall()
+        for rid, ot, meta_str in rows:
+            new_ot = ot
+            if (ot or "").strip().lower() == old_name.lower():
+                new_ot = new_name
+            try:
+                meta = _json.loads(meta_str or "{}")
+            except Exception:
+                meta = {}
+            mchanged = False
+            if (meta.get("outfit_type") or "").strip().lower() == old_name.lower():
+                meta["outfit_type"] = new_name
+                mchanged = True
+            if new_ot != ot or mchanged:
+                conn.execute("UPDATE rooms SET outfit_type=?, meta=? WHERE id=?",
+                             (new_ot, _json.dumps(meta, ensure_ascii=False), rid))
+                updated["rooms"] += 1
+
+        # items.pieces (outfit_piece.outfit_types[])
+        rows = conn.execute("SELECT id, pieces, meta FROM items").fetchall()
+        for iid, pieces_str, meta_str in rows:
+            try:
+                pieces = _json.loads(pieces_str or "{}")
+            except Exception:
+                pieces = {}
+            try:
+                meta = _json.loads(meta_str or "{}")
+            except Exception:
+                meta = {}
+            ichanged = False
+            new_types, ch = _replace_in_list(pieces.get("outfit_types"))
+            if ch:
+                pieces["outfit_types"] = new_types
+                ichanged = True
+            mop = meta.get("outfit_piece") or {}
+            new_mtypes, mch = _replace_in_list(mop.get("outfit_types"))
+            if mch:
+                mop["outfit_types"] = new_mtypes
+                meta["outfit_piece"] = mop
+                ichanged = True
+            if ichanged:
+                conn.execute("UPDATE items SET pieces=?, meta=? WHERE id=?",
+                             (_json.dumps(pieces, ensure_ascii=False),
+                              _json.dumps(meta, ensure_ascii=False), iid))
+                updated["items"] += 1
+
+        # activities.meta.outfit_type
+        rows = conn.execute("SELECT id, meta FROM activities").fetchall()
+        for aid, meta_str in rows:
+            try:
+                meta = _json.loads(meta_str or "{}")
+            except Exception:
+                meta = {}
+            if (meta.get("outfit_type") or "").strip().lower() == old_name.lower():
+                meta["outfit_type"] = new_name
+                conn.execute("UPDATE activities SET meta=? WHERE id=?",
+                             (_json.dumps(meta, ensure_ascii=False), aid))
+                updated["activities"] += 1
+
+        # characters.profile_json.outfit_exceptions (keys)
+        rows = conn.execute("SELECT name, profile_json FROM characters").fetchall()
+        for cname, prof_str in rows:
+            try:
+                prof = _json.loads(prof_str or "{}")
+            except Exception:
+                prof = {}
+            exc = prof.get("outfit_exceptions") or {}
+            if not isinstance(exc, dict):
+                continue
+            target_key = None
+            for k in list(exc.keys()):
+                if isinstance(k, str) and k.strip().lower() == old_name.lower():
+                    target_key = k
+                    break
+            if target_key:
+                # Bei Merge: Eintrag mit gleichem neuen Key hat Vorrang —
+                # alten Eintrag verwerfen wenn schon einer da ist.
+                if new_name not in exc:
+                    exc[new_name] = exc[target_key]
+                exc.pop(target_key, None)
+                prof["outfit_exceptions"] = exc
+                conn.execute("UPDATE characters SET profile_json=? WHERE name=?",
+                             (_json.dumps(prof, ensure_ascii=False), cname))
+                updated["character_exceptions"] += 1
+
+    logger.info("outfit_rules rename: '%s' -> '%s' (merge=%s) — updated=%s",
+                old_name, new_name, is_merge, updated)
+    return {"status": "ok", "merged": is_merge, "updated": updated}
+
+
+# --- Prompt-Filters ----------------------------------------------------
+
+# Block-keys die in einem Filter unter drop_blocks aufgefuehrt werden duerfen.
+# Synchron mit shared/templates/llm/chat/agent_thought.md +
+# app/core/thought_context.py (alle ctx-Keys die *_block heissen).
+_PROMPT_FILTER_BLOCK_KEYS = [
+    "inbox_block", "events_block", "assignments_block", "general_task",
+    "commitments_block", "outfit_decision_block", "arc_block",
+    "retrospective_block", "instagram_pending_block", "effects_block",
+    "recent_chat_block", "outfit_self_block", "outfit_avatar_block",
+    "room_items_block", "inventory_block", "present_people_block",
+    "known_locations_block", "travel_block", "available_activities_block",
+    "daily_schedule_block",
+]
+
+
+@router.get("/prompt-filters/data")
+async def prompt_filters_data(user=Depends(require_admin)):
+    """Liste der gemergten Prompt-Filter (shared baseline + world overlay).
+
+    Jeder Eintrag bekommt ein ``source``-Feld: "shared" / "world".
+    Wenn dieselbe id in beiden vorkommt, gewinnt world (overlay) und
+    source="world override".
+    """
+    from app.core.prompt_filters import _load_shared, _load_world
+
+    shared = {(e.get("id") or "").strip(): e
+              for e in _load_shared() if e.get("id")}
+    world = {(e.get("id") or "").strip(): e
+             for e in _load_world() if e.get("id")}
+
+    out = []
+    seen_ids = set()
+    for fid, e in shared.items():
+        if fid in world:
+            entry = dict(world[fid])
+            entry["source"] = "world override"
+        else:
+            entry = dict(e)
+            entry["source"] = "shared"
+        seen_ids.add(fid)
+        out.append(entry)
+    for fid, e in world.items():
+        if fid in seen_ids:
+            continue
+        entry = dict(e)
+        entry["source"] = "world"
+        out.append(entry)
+
+    return {
+        "filters": out,
+        "block_keys": _PROMPT_FILTER_BLOCK_KEYS,
+        "condition_hint": (
+            "Filter-id triggert IMMER wenn als Tag im Profil aktiv (apply_condition). "
+            "Diese Expression triggert ZUSAETZLICH:\n"
+            "Status: stamina>N, courage<N, stress>N, lust>N\n"
+            "Zeit/Anwesenheit: alone, night, day\n"
+            "Beziehung: relationship:Name>N, romantic:Name>N (Name oder 'any')\n"
+            "Stimmung: mood:happy\n"
+            "Anderer Zustand: condition:<tag>\n"
+            "Aktuelle Aktivitaet: current_activity:kochen\n"
+            "Tagesablauf: schedule:sleeping, schedule:awake, schedule:<activity>\n"
+            "Item: has_item:item_a1b2c3d4\n"
+            "Verknuepfung: AND / OR / NOT"
+        ),
+    }
+
+
+@router.post("/prompt-filters/save")
+async def prompt_filters_save(request: Request, user=Depends(require_admin)):
+    """Upsert eines Filters in die per-world prompt_filters-Tabelle.
+
+    Body: {id, condition, label, drop_blocks: [...], prompt_modifier,
+           icon, image_modifier, enabled}.
+    Wenn die id auch in shared/prompt_filters/filters.json existiert, ist das
+    ein Override. Sonst wird ein neuer world-only Filter angelegt.
+    """
+    import json as _json
+    from app.core.db import transaction
+
+    body = await request.json()
+    fid = (body.get("id") or "").strip()
+    condition = (body.get("condition") or "").strip()
+    label = (body.get("label") or "").strip()
+    drop_blocks = body.get("drop_blocks") or []
+    prompt_modifier = (body.get("prompt_modifier") or "").strip()
+    icon = (body.get("icon") or "").strip()
+    image_modifier = (body.get("image_modifier") or "").strip()
+    enabled = bool(body.get("enabled", True))
+
+    if not fid:
+        raise HTTPException(status_code=400, detail="id required")
+    # condition ist im neuen Modell optional — Filter-id triggert
+    # implizit ueber den Profil-Tag, condition ist nur ein zusaetzlicher
+    # Stat-/Composite-Trigger.
+    if not isinstance(drop_blocks, list):
+        raise HTTPException(status_code=400,
+                             detail="drop_blocks must be a list")
+    valid = set(_PROMPT_FILTER_BLOCK_KEYS)
+    drop_blocks = [b for b in drop_blocks if b in valid]
+
+    with transaction() as conn:
+        conn.execute("""
+            INSERT INTO prompt_filters (id, condition, label, drop_blocks,
+                                        prompt_modifier, enabled, meta,
+                                        icon, image_modifier)
+            VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                condition=excluded.condition,
+                label=excluded.label,
+                drop_blocks=excluded.drop_blocks,
+                prompt_modifier=excluded.prompt_modifier,
+                enabled=excluded.enabled,
+                icon=excluded.icon,
+                image_modifier=excluded.image_modifier
+        """, (fid, condition, label,
+              _json.dumps(drop_blocks, ensure_ascii=False),
+              prompt_modifier, 1 if enabled else 0,
+              icon, image_modifier))
+    return {"status": "ok", "id": fid}
+
+
+@router.delete("/prompt-filters/{filter_id}")
+async def prompt_filters_delete(filter_id: str, user=Depends(require_admin)):
+    """Entfernt den world-overlay-Eintrag fuer diese id.
+
+    Wenn dieselbe id auch im shared baseline existiert, wird damit der
+    Override aufgehoben — der baseline-Filter greift wieder. Wenn die id
+    nur in world existierte, ist der Filter danach komplett weg.
+    """
+    from app.core.db import transaction
+
+    with transaction() as conn:
+        conn.execute("DELETE FROM prompt_filters WHERE id=?", (filter_id,))
+    return {"status": "ok", "id": filter_id}
 
 
 @router.get("/settings/data")
@@ -278,6 +621,9 @@ async def settings_save(request: Request, user=Depends(require_admin)):
     # Merge: keep current values for masked sensitive fields
     current = config.get_all()
     merged = _merge_sensitive(new_data, current)
+    # Schutz fuer Felder in sub_array/is_dict-Items (z.B. comfyui_workflows),
+    # die der Frontend bei undefined-CONFIG-Werten beim Save weglaesst.
+    _preserve_unsent_subarray_fields(merged, current)
 
     # Structural validation (e.g. llm_routing order uniqueness)
     err = _validate_llm_routing(merged.get("llm_routing"))
@@ -394,6 +740,10 @@ def _validate_llm_routing(routing) -> str:
     seen: dict = {}  # (task, order) -> entry_index
     for idx, entry in enumerate(routing):
         if not isinstance(entry, dict):
+            continue
+        # Disabled-Eintraege werden zur Laufzeit ignoriert -> auch
+        # Order-Konflikte zwischen disabled+enabled sind erlaubt.
+        if entry.get("enabled") is False:
             continue
         tasks = entry.get("tasks") or []
         if not isinstance(tasks, list):
@@ -838,7 +1188,34 @@ function render() {
     const tools = (r.tools || []).map(t => `<span class="tag tool">${escapeHtml(t)}</span>`).join('');
     const intents = (r.intents || []).map(i => `<span class="tag intent">${escapeHtml(i)}</span>`).join('');
     const tagsCell = (tools + intents) || '<span class="muted">—</span>';
-    const preview = r.preview ? `<span class="preview">${escapeHtml(r.preview)}</span>` : '<span class="muted">—</span>';
+    // Link zum LLM Log: nur fuer Outcomes wo tatsaechlich ein LLM-Call lief.
+    // Auto-Sleep / in_chat_skip / no_llm haben keinen Eintrag im LLM-Log.
+    const _llmRanOutcomes = !(
+      (r.outcome || '').startsWith('auto_sleep') ||
+      r.outcome === 'in_chat_skip' || r.outcome === 'no_llm'
+    );
+    let logLink = '';
+    if (_llmRanOutcomes && r.agent && r.started_at) {
+      // Search-Filter: ISO-Format mit "T" + Minute des Turn-Starts (matcht
+      // das Roh-Format in llm_calls.jsonl 'starttime'). Beispiel:
+      // "2026-05-05T13:35". Der LLM-Log-Viewer liest die URL-Params, wendet
+      // Filter an und auto-expanded den ersten Treffer.
+      const tsMin = (r.started_at || '').slice(0, 16);
+      const url = '/logs/llm?character=' + encodeURIComponent(r.agent)
+                + '&search=' + encodeURIComponent(tsMin);
+      // Wir versuchen die Admin-Sidebar-Navigation (parent.activateIframe) zu
+      // nutzen — dann wird im Admin-Layout NUR der iframe-Inhalt getauscht
+      // und Sidebar-Links bleiben erhalten. Fallback: direkte Navigation
+      // (z.B. wenn Agent-Loop standalone geoeffnet wurde).
+      const onclick = "event.preventDefault();"
+        + " try { if (window.parent && window.parent.activateIframe) {"
+        + " window.parent.activateIframe('_llm_log', '" + url + "', 'LLM Log'); return; } } catch(e) {}"
+        + " window.location = '" + url + "';";
+      logLink = ` <a href="${url}" onclick="${onclick}" title="Im LLM-Log oeffnen" style="margin-left:6px;text-decoration:none;color:#58a6ff;">🔍</a>`;
+    }
+    const preview = r.preview
+      ? `<span class="preview">${escapeHtml(r.preview)}</span>${logLink}`
+      : (logLink ? `<span class="muted">—</span>${logLink}` : '<span class="muted">—</span>');
     const startedShort = (r.started_at || '').replace('T', ' ').split('.')[0];
     tr.innerHTML = `<td>${escapeHtml(r.agent)}</td><td>${escapeHtml(startedShort)}</td><td>${r.duration_s}s</td><td class="${cls}">${escapeHtml(r.outcome)}</td><td>${tagsCell}</td><td>${preview}</td>`;
     tbody.appendChild(tr);
@@ -1372,7 +1749,11 @@ def _apply_schema_defaults(data: dict) -> None:
         else:
             section_data = data.get(section_key)
             if not isinstance(section_data, dict):
-                section_data = data
+                # Section fehlt oder ist None → frisch anlegen, NICHT in Top-Level
+                # droppen (das wuerde die Schema-Felder ausserhalb ihrer Section
+                # ablegen, das Frontend rendert sie dann gar nicht oder crasht).
+                section_data = {}
+                data[section_key] = section_data
             _fill_defaults(section_data, fields)
 
 
@@ -1388,6 +1769,61 @@ def _fill_defaults(obj: dict, fields: dict) -> None:
         if current is None or current == "":
             obj[key] = default
             logger.debug("Config-Default gesetzt: %s = %r", key, default)
+
+
+def _preserve_unsent_subarray_fields(merged: dict, current: dict) -> None:
+    """Bewahrt Schema-Felder in sub_array/is_dict-Items, wenn der Payload sie
+    weglaesst.
+
+    Frontend-Bug: `setVal()` aktualisiert CONFIG nur bei `onchange`. Wenn ein
+    Feld vor dem ersten Edit undefined ist (z.B. weil ein neues Schema-Feld
+    in einer alten Welt-Config noch fehlt) und der User es nie anfasst,
+    bleibt CONFIG undefined → JSON.stringify laesst den Key weg →
+    `_merge_sensitive` wertet den fehlenden Key als 'absichtlich geloescht'.
+
+    Wir wandern hier durch alle Schema-`sub_arrays` (z.B.
+    image_generation.comfyui_workflows, image_generation.backends) und
+    uebernehmen fehlende Felder aus der current Config.
+    """
+    schema = get_schema()
+    for sec_key, sec_def in schema.items():
+        sub_arrays = sec_def.get("sub_arrays") or {}
+        if not sub_arrays:
+            continue
+        cur_sec = current.get(sec_key)
+        new_sec = merged.get(sec_key)
+        if not isinstance(cur_sec, dict) or not isinstance(new_sec, dict):
+            continue
+        for sub_key, sub_def in sub_arrays.items():
+            field_keys = list((sub_def.get("fields") or {}).keys())
+            if not field_keys:
+                continue
+            cur_sub = cur_sec.get(sub_key)
+            new_sub = new_sec.get(sub_key)
+            if cur_sub is None or new_sub is None:
+                continue
+            if sub_def.get("is_dict"):
+                if not isinstance(cur_sub, dict) or not isinstance(new_sub, dict):
+                    continue
+                for item_id, new_item in new_sub.items():
+                    cur_item = cur_sub.get(item_id)
+                    if not isinstance(cur_item, dict) or not isinstance(new_item, dict):
+                        continue
+                    for f in field_keys:
+                        if f not in new_item and f in cur_item:
+                            new_item[f] = cur_item[f]
+            else:
+                if not isinstance(cur_sub, list) or not isinstance(new_sub, list):
+                    continue
+                for i, new_item in enumerate(new_sub):
+                    if i >= len(cur_sub):
+                        break
+                    cur_item = cur_sub[i]
+                    if not isinstance(cur_item, dict) or not isinstance(new_item, dict):
+                        continue
+                    for f in field_keys:
+                        if f not in new_item and f in cur_item:
+                            new_item[f] = cur_item[f]
 
 
 def _merge_sensitive(new: Any, current: Any) -> Any:
@@ -1568,6 +2004,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 
 <nav class="sidebar">
     <h1>Admin</h1>
+    <div id="world-badge" style="margin: 4px 0 12px 8px; padding: 4px 8px; background:#1f3a5f; color:#79c0ff; font-size:12px; border-radius:4px; display:inline-block;">world: <span id="world-name">…</span></div>
     <div class="nav-section-label">Server-Einstellungen</div>
     <div id="nav-links"></div>
     <div class="nav-section-label">Verwaltung</div>
@@ -1675,10 +2112,22 @@ function activateIframe(key, url, title) {
     content.innerHTML = '<iframe src="' + url + '" title="' + esc(title) + '"></iframe>';
 }
 
+// World-Badge im Sidebar — auf jeder Seite + iframe-Children einsehbar.
+fetch('/admin/world-name', { credentials: 'same-origin', cache: 'no-store' })
+  .then(r => r.ok ? r.json() : null)
+  .then(d => {
+      const el = document.getElementById('world-name');
+      if (el && d && d.world) el.textContent = d.world;
+  })
+  .catch(() => {});
+
 // ── Render Section ──
 function renderSection(key) {
     const sec = SCHEMA[key];
-    const data = CONFIG[key] !== undefined ? CONFIG[key] : (sec.is_array ? [] : {});
+    // null und undefined beide auf Default fallen lassen — sonst wirft
+    // renderFields(null, ...) bei data[fKey] einen TypeError.
+    const cfgVal = CONFIG[key];
+    const data = (cfgVal !== undefined && cfgVal !== null) ? cfgVal : (sec.is_array ? [] : {});
     const content = document.getElementById('content');
 
     let html = '<div class="section active">';
@@ -1787,18 +2236,20 @@ async function renderLlmTaskView(entries) {
     );
     const runtimeDisabled = new Set(state.runtime_disabled || []);
 
-    // task_id -> [{order, provider, model}]
+    // task_id -> [{order, provider, model, llmDisabled}]
     const byTask = {};
     for (const entry of (entries || [])) {
         if (!entry || typeof entry !== 'object') continue;
         const prov = entry.provider || '';
         const mod = entry.model || '';
+        const llmDisabled = entry.enabled === false;
         for (const t of (entry.tasks || [])) {
             if (!t || !t.task) continue;
             (byTask[t.task] = byTask[t.task] || []).push({
                 order: t.order || 999,
                 provider: prov,
                 model: mod,
+                llmDisabled: llmDisabled,
             });
         }
     }
@@ -1819,17 +2270,59 @@ async function renderLlmTaskView(entries) {
     }
     html += '</div>';
 
-    for (const t of tasks) {
+    // Sortierung nach Category (chat → tool → helper → image), innerhalb
+    // dann nach Label. So sind groessere Modelle (chat) oben, kleine
+    // Helfer unten — entspricht der Lese-Erwartung "wer braucht was".
+    const _CAT_ORDER = { chat: 0, tool: 1, helper: 2, image: 3 };
+    // Per-Category Farben fuer Border + Badge:
+    //   chat:   blau    — grosse Modelle
+    //   tool:   violett — strukturierte Outputs
+    //   helper: gruen   — kleine/billige Modelle
+    //   image:  orange  — Vision / Bild-IO
+    const _CAT_COLORS = {
+        chat:   { bg: '#1f3a5f', fg: '#79c0ff', border: '#30547a' },
+        tool:   { bg: '#3a2f5f', fg: '#d2a8ff', border: '#54497a' },
+        helper: { bg: '#1c3a2c', fg: '#7ee787', border: '#2d553f' },
+        image:  { bg: '#5a3a1f', fg: '#ffaa66', border: '#7a543d' },
+        '':     { bg: '#21262d', fg: '#8b949e', border: '#30363d' },
+    };
+    const sortedTasks = [...tasks].sort((a, b) => {
+        const ao = _CAT_ORDER[a.category] ?? 99;
+        const bo = _CAT_ORDER[b.category] ?? 99;
+        if (ao !== bo) return ao - bo;
+        return (a.label || '').localeCompare(b.label || '');
+    });
+
+    let _lastCat = null;
+    for (const t of sortedTasks) {
+        // Category-Header bei Wechsel
+        if (t.category !== _lastCat) {
+            _lastCat = t.category;
+            const cc = _CAT_COLORS[t.category] || _CAT_COLORS[''];
+            html += '<div style="margin:14px 0 6px 0; padding:4px 10px; '
+                 + 'background:' + cc.bg + '; color:' + cc.fg + '; '
+                 + 'border-left:3px solid ' + cc.fg + '; border-radius:3px; '
+                 + 'font-size:11px; font-weight:600; letter-spacing:0.3px; '
+                 + 'text-transform:uppercase;">'
+                 + esc(t.category_label || 'Other') + '</div>';
+        }
+
         const rows = byTask[t.id] || [];
         const isEmpty = rows.length === 0;
         const isPersistDisabled = persistentDisabled.has(t.id);
         const isRuntimeDisabled = runtimeDisabled.has(t.id);
         const disabledStyle = (isPersistDisabled || isRuntimeDisabled) ? 'opacity:0.5;' : '';
-        html += '<div style="margin-bottom:10px; padding:8px 10px; background:#0d1117; border:1px solid #30363d; border-radius:6px; ' + disabledStyle + '">';
+        const cc = _CAT_COLORS[t.category] || _CAT_COLORS[''];
+        html += '<div style="margin-bottom:6px; padding:8px 10px; background:#0d1117; '
+             + 'border:1px solid #30363d; border-left:3px solid ' + cc.fg + '; '
+             + 'border-radius:6px; ' + disabledStyle + '">';
         html += '<div style="display:flex; justify-content:space-between; align-items:center;">';
         let catBadge = '';
         if (t.category_label) {
-            catBadge = ' <span style="font-size:10px; color:#8b949e; font-weight:400; background:#21262d; padding:1px 6px; border-radius:8px; margin-left:4px;">' + esc(t.category_label) + '</span>';
+            catBadge = ' <span style="font-size:10px; color:' + cc.fg
+                 + '; font-weight:400; background:' + cc.bg
+                 + '; padding:1px 6px; border-radius:8px; margin-left:4px;">'
+                 + esc(t.category_label) + '</span>';
         }
         html += '<div style="font-size:12px; color:#58a6ff; font-weight:600;">' + esc(t.label) + catBadge + ' <span style="color:#6e7681; font-weight:400;">— ' + esc(t.id) + '</span></div>';
         html += '<label style="display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#8b949e; cursor:pointer;">';
@@ -1844,9 +2337,15 @@ async function renderLlmTaskView(entries) {
         } else {
             html += '<div style="margin-top:4px;">';
             for (const r of rows) {
-                html += '<div style="font-size:12px; color:#c9d1d9; display:flex; gap:8px;">';
+                const rowStyle = r.llmDisabled
+                    ? 'font-size:12px; color:#6e7681; display:flex; gap:8px; text-decoration:line-through;'
+                    : 'font-size:12px; color:#c9d1d9; display:flex; gap:8px;';
+                html += '<div style="' + rowStyle + '">';
                 html += '<span style="color:#6e7681; min-width:22px;">' + r.order + '.</span>';
                 html += '<span>' + esc(r.provider) + ' / ' + esc(r.model) + '</span>';
+                if (r.llmDisabled) {
+                    html += '<span style="color:#d29922; text-decoration:none;">(LLM disabled)</span>';
+                }
                 html += '</div>';
             }
             html += '</div>';
@@ -2599,15 +3098,52 @@ function _ensureContainer(path, leafType) {
 }
 
 // ── Actions ──
+// Defaults pro image_model fuer neue ComfyUI-Workflows. Werte 1:1 aus den
+// produktiv erprobten Hotopia-Workflows uebernommen — der Admin muss nicht
+// jedes Mal Negative Prompt / Style / Enhancer-Instruction von Hand setzen.
+const WORKFLOW_DEFAULTS = {
+    qwen: {
+        prompt_style: 'photograph, shot on iPhone 15 Pro, natural window light, skin texture, unedited, detailed anatomy, 8k, high detail, \\n',
+        prompt_negative: 'illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\\n',
+        prompt_instruction: 'Write a natural-language descriptive prompt (not tags). Describe the scene as a flowing sentence with rich detail about the setting, characters, poses, and mood. Avoid comma-separated tag lists.',
+    },
+    z_image: {
+        prompt_style: 'RAW photo, amateur photograph, 35mm, natural light, skin texture, visible pores, detailed anatomy, 8k, high detail, \\n',
+        prompt_negative: 'illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\\n',
+        prompt_instruction: 'Write a tag-based prompt with comma-separated keywords. Use quality tags like "masterpiece, best quality". Describe pose, lighting, and setting as short tags.',
+    },
+    flux: {
+        prompt_style: 'a candid photograph taken with a 35mm lens, natural indoor lighting, skin with visible pores and texture, detailed anatomy, 8k, high detail, ',
+        prompt_negative: 'illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\\n',
+        prompt_instruction: 'Write a natural-language descriptive prompt for a Flux 2 Klein model. Describe the scene in flowing detail — subject, pose, environment, lighting, mood. Flux understands natural language well, so be descriptive and avoid tag lists.',
+    },
+};
+
+function _detectImageModelFromId(id) {
+    const u = String(id || '').toUpperCase();
+    if (u.includes('QWEN')) return 'qwen';
+    if (u.includes('Z-IMAGE') || u.includes('Z_IMAGE') || u.includes('ZIMAGE')) return 'z_image';
+    if (u.includes('FLUX')) return 'flux';
+    return '';
+}
+
 function addArrayItem(path, type) {
     const obj = _ensureContainer(path, type);
     if (type === 'dict') {
-        const id = prompt('Workflow ID (e.g. FLUX, QWEN):');
+        const id = prompt('Workflow ID (e.g. FLUX, QWEN, Z-IMAGE):');
         if (!id) return;
-        obj[id] = { name: id, loras: [{file:'',strength:1},{file:'',strength:1},{file:'',strength:1},{file:'',strength:1}] };
+        // Modell-Type aus ID raten und Defaults uebernehmen.
+        const detectedModel = _detectImageModelFromId(id);
+        const defaults = WORKFLOW_DEFAULTS[detectedModel] || {};
+        obj[id] = {
+            name: id,
+            loras: [{file:'',strength:1},{file:'',strength:1},{file:'',strength:1},{file:'',strength:1}],
+            ...(detectedModel ? { image_model: detectedModel } : {}),
+            ...defaults,
+        };
     } else {
         if (path === 'llm_routing') {
-            obj.push({ provider: '', model: '', temperature: 0.7, tasks: [] });
+            obj.push({ enabled: true, preload_on_startup: false, provider: '', model: '', temperature: 0.7, tasks: [] });
         } else {
             obj.push({ name: 'New', enabled: true, gpus: [] });
         }
@@ -3267,30 +3803,75 @@ async function loadAll() {
 function renderTable() {
     const thead = document.getElementById('rules-thead');
     const tbody = document.getElementById('rules-tbody');
-    let th = '<tr><th class="type-col">outfit_type</th>';
+    let th = '<tr><th class="type-col">outfit_type</th><th title="Wenn weder Activity noch Ort einen Type vorgibt — dieser Type wird genutzt">Default</th>';
     for (const s of SLOTS) th += '<th>' + escapeHtml(s) + '</th>';
     th += '<th class="actions-col"></th></tr>';
     thead.innerHTML = th;
 
     const types = Object.keys(RULES).sort();
     if (!types.length) {
-        tbody.innerHTML = '<tr><td colspan="' + (SLOTS.length + 2) + '" style="text-align:center;color:#8b949e;">Noch keine outfit_types</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="' + (SLOTS.length + 3) + '" style="text-align:center;color:#8b949e;">Noch keine outfit_types</td></tr>';
         return;
     }
     tbody.innerHTML = types.map(t => {
         const req = new Set((RULES[t] || {}).required || []);
         const desc = (RULES[t] || {}).description || '';
+        const isDefault = !!((RULES[t] || {}).default);
         let cells = '';
         for (const s of SLOTS) {
             cells += '<td><input type="checkbox" data-type="' + escapeHtml(t) + '" data-slot="' + escapeHtml(s) + '"' + (req.has(s) ? ' checked' : '') + ' onchange="onToggle(this)"></td>';
         }
-        const rowMain = '<tr><td class="type-col"><b>' + escapeHtml(t) + '</b></td>' + cells +
-               '<td class="actions-col"><button class="btn btn-sm btn-danger" onclick="deleteType(\\'' + t + '\\')">Del</button></td></tr>';
-        const rowDesc = '<tr class="desc-row"><td colspan="' + (SLOTS.length + 2) + '" style="padding:2px 8px 10px 8px;">' +
+        const defCell = '<td><input type="radio" name="default-type" data-type="' + escapeHtml(t) + '"' + (isDefault ? ' checked' : '') + ' onchange="onDefaultChange(this)" title="Als Default markieren"></td>';
+        const rowMain = '<tr><td class="type-col"><b>' + escapeHtml(t) + '</b></td>' + defCell + cells +
+               '<td class="actions-col">' +
+               '<button class="btn btn-sm" onclick="renameType(\\'' + t + '\\')" title="Umbenennen oder mit anderem Type mergen">Rename</button> ' +
+               '<button class="btn btn-sm btn-danger" onclick="deleteType(\\'' + t + '\\')">Del</button></td></tr>';
+        const rowDesc = '<tr class="desc-row"><td colspan="' + (SLOTS.length + 3) + '" style="padding:2px 8px 10px 8px;">' +
                '<textarea data-type="' + escapeHtml(t) + '" rows="2" placeholder="Beschreibung fuer LLM (z.B. Club-Stil: eng, bauchfrei, neon/schwarz)" style="width:100%;font-size:12px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:4px 6px;" onchange="onDescChange(this)">' +
                escapeHtml(desc) + '</textarea></td></tr>';
         return rowMain + rowDesc;
     }).join('');
+}
+
+function onDefaultChange(radio) {
+    const t = radio.dataset.type;
+    // Alle anderen entmarkieren, gewaehlten markieren
+    for (const k of Object.keys(RULES)) {
+        if (RULES[k] && typeof RULES[k] === 'object') {
+            if (k === t) RULES[k].default = true;
+            else delete RULES[k].default;
+        }
+    }
+}
+
+async function renameType(t) {
+    const nn = prompt('Neuer Name fuer "' + t + '"\\n(existiert er bereits → wird gemergt):', t);
+    if (nn === null) return;
+    const newName = (nn || '').trim().toLowerCase();
+    if (!newName || newName === t) return;
+    const isMerge = !!RULES[newName];
+    const msg = isMerge
+        ? `"${t}" in existierenden Type "${newName}" MERGEN? Alle Referenzen werden umgeschrieben, Slots/Description von "${newName}" bleiben erhalten.`
+        : `"${t}" → "${newName}" umbenennen? Alle Referenzen (Locations, Raeume, Items, Activities, Character-Exceptions) werden mitumgeschrieben.`;
+    if (!confirm(msg)) return;
+    try {
+        const r = await fetch('/admin/outfit-rules/rename', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old: t, new: newName }),
+        });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            toast('Fehler: ' + (d.detail || r.status), 'error');
+            return;
+        }
+        const data = await r.json();
+        const u = data.updated || {};
+        toast((data.merged ? 'Gemergt' : 'Umbenannt') +
+              ` — locations:${u.locations||0} rooms:${u.rooms||0} items:${u.items||0} activities:${u.activities||0} chars:${u.character_exceptions||0}`);
+        await loadAll();
+    } catch (e) {
+        toast('Fehler: ' + e.message, 'error');
+    }
 }
 
 function onDescChange(el) {

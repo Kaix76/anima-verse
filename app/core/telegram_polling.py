@@ -660,8 +660,9 @@ class CharacterBotPoller:
             shutil.move(str(src_path), str(dst_path))
 
             # Remove background + crop (may change filename to .png)
+            # rembg/ONNX-Inferenz ist CPU-bound → Threadpool damit der Event-Loop nicht blockiert.
             try:
-                dst_path = postprocess_outfit_image(dst_path)
+                dst_path = await asyncio.to_thread(postprocess_outfit_image, dst_path)
             except Exception as pp_err:
                 logger.warning("[%s] Outfit image postprocess failed: %s", self.character_name, pp_err)
 

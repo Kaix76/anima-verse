@@ -1,16 +1,13 @@
-"""ThoughtRunner - Autonomes NachdenkSystem fuer Characters.
+"""ThoughtRunner — Container fuer ``run_thought_turn``.
 
-Characters koennen periodisch selbststaendig "nachdenken" und basierend auf
-ihrer Aufgabe (character_task) entscheiden, ob sie den User benachrichtigen
-oder Tools nutzen.
+Hostet die LLM-Streaming-Logik fuer einen einzelnen Thought-Turn. Wer einen
+Char "denken" laesst (AgentLoop scheduling, Telegram-Trigger, Admin-Bump),
+ruft ``get_thought_runner().run_thought_turn(...)``.
 
-Bedingungen pro Tick (alle 60s):
-  - User idle >= THOUGHT_MIN_IDLE_MINUTES (default 4)
-  - Naechster Scheduler-Job >= THOUGHT_MIN_SCHEDULER_GAP_MINUTES (default 5)
-  - Kein anderer Gedanken-Call aktiv (globaler Lock)
-  - Character hat character_task + thoughts_enabled=true in config
-  - Tages-Limit und Cooldown eingehalten
-  - Wahrscheinlichkeitswurf bestanden
+Scheduling laeuft im ``app.core.agent_loop.AgentLoop`` (importance-gewichtetes
+Round-Robin, Bumps, In-Chat-Gating, Cooldowns). Die hier frueher gepflegten
+Tick-Konditionen (THOUGHT_MIN_IDLE_MINUTES etc.) sind weg — Pacing
+konfiguriert man im Admin unter "Gedanken" (siehe agent_loop.py).
 """
 import asyncio
 import os
@@ -189,10 +186,11 @@ class ThoughtRunner:
 
         profile = get_character_profile(character_name)
         config = get_character_config(character_name)
-        from app.models.account import get_player_identity
-        # Avatar-Identitaet, niemals Login-Name. Wuerde sonst als "admin"
-        # in den System-Prompt sickern.
-        user_name = get_player_identity("user")
+        from app.models.account import get_active_character
+        # Avatar-Identitaet wenn aktiv, sonst leer — kein "user"/"Player"
+        # Sentinel mehr, der als Pseudo-Charakter in Prompts oder
+        # Relationship-Updates leakt.
+        user_name = (get_active_character() or "").strip()
 
         # Turn-Summary fuer den Agent-Loop / Admin-Panel.
         # tools = list of tool-name strings actually invoked (stream + narrative).

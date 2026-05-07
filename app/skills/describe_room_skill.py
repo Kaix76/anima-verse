@@ -52,11 +52,10 @@ class DescribeRoomSkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get("SKILL_DESCRIBEROOM_NAME", "DescribeRoom")
-        self.description = os.environ.get(
-            "SKILL_DESCRIBEROOM_DESCRIPTION",
-            "Describes or creates a room at an allowed location"
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("describe_room")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {
             "enabled": True,
             "max_custom_rooms": int(os.environ.get("SKILL_DESCRIBEROOM_MAX_ROOMS", "3")),

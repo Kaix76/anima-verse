@@ -1075,49 +1075,42 @@ class ComfyUIBackend(ImageBackend):
                 _inputs[_key] = _model_for_loader
                 logger.debug(f"Model -> {_target_kind} ({_cls}.{_key}): {_model_for_loader}")
 
-            # Ungenutzte Loader-Nodes (z.B. input_safetensors bei GGUF-Mode)
-            # auf eine vorhandene Datei umstellen — sonst lehnt ComfyUI's
-            # Validator den ganzen Prompt ab, auch wenn der Switch sie
-            # ausblendet. allowed_models enthaelt alle auf dem Backend
-            # verfuegbaren UNet/Checkpoint-Dateien (vom Skill mitgeliefert).
-            _allowed = params.get("allowed_models") or []
-            if _allowed:
-                for _other in (_safe_node, _gguf_node, _unet_node):
-                    if not _other or _other == _target_node:
-                        continue
-                    _other_inputs = workflow[_other].get("inputs", {})
-                    _other_key = "gguf_name" if "gguf_name" in _other_inputs else "unet_name"
-                    _other_default = _other_inputs.get(_other_key, "")
-                    if _other_default in _allowed:
-                        continue
-                    # Bevorzugt eine Datei mit passender Extension fuer diesen Loader
-                    _other_cls = workflow[_other].get("class_type", "")
-                    _wants_gguf = "GGUF" in _other_cls
-                    _matching = [m for m in _allowed
-                                  if m.lower().endswith(".gguf") == _wants_gguf]
-                    _replacement = _matching[0] if _matching else _allowed[0]
-                    _other_inputs[_other_key] = _replacement
-                    _other_title = workflow[_other].get("_meta", {}).get("title", _other)
-                    logger.debug(
-                        f"Unused-Loader '{_other_title}' ({_other_cls}): "
-                        f"'{_other_default}' -> '{_replacement}' "
-                        f"(Workflow-Default nicht auf Backend, Switch blendet aus)")
-
             # input_unet (Legacy) auch befuellen, falls separat vorhanden
             if _unet_node and _unet_node != _target_node:
                 workflow[_unet_node]["inputs"]["unet_name"] = _model_for_loader
                 logger.debug(f"input_unet (Legacy) auch gesetzt: {_model_for_loader}")
 
             # safetensors_gguf Switch automatisch auf passenden Branch.
-            # boolean=True -> on_true (safetensors), boolean=False -> on_false (gguf)
+            # Verkabelung der aktuellen Workflows (qwen, flux2):
+            #   on_true  -> input_gguf
+            #   on_false -> input_safetensors
+            # → boolean=True bei .gguf-Modellen, False bei .safetensors.
+            #
+            # Crystools "Switch any" fuehrt BEIDE Branches eager aus (nicht
+            # lazy). Der ungenutzte Loader wuerde mit leerem oder falsch-Format
+            # Modell scheitern und den KSampler crashen. Loesung: den ungenutzten
+            # Branch auf den genutzten Branch umbiegen — dadurch hat der
+            # ungenutzte Loader-Node keinen Consumer mehr und ComfyUI ignoriert
+            # ihn beim Build des Execution-Graph.
             _gguf_switch = self._find_node_by_title(workflow, "safetensors_gguf")
             if _gguf_switch:
                 _switch_inputs = workflow[_gguf_switch].get("inputs", {})
                 if "boolean" in _switch_inputs:
-                    _switch_inputs["boolean"] = (not _is_gguf)
-                    logger.debug(
-                        f"safetensors_gguf Switch: boolean={not _is_gguf} "
-                        f"({'safetensors' if not _is_gguf else 'gguf'})")
+                    _switch_inputs["boolean"] = _is_gguf
+                    used_branch = "on_true" if _is_gguf else "on_false"
+                    unused_branch = "on_false" if _is_gguf else "on_true"
+                    used_ref = _switch_inputs.get(used_branch)
+                    if isinstance(used_ref, list) and len(used_ref) == 2:
+                        _switch_inputs[unused_branch] = list(used_ref)
+                        logger.info(
+                            f"safetensors_gguf Switch: boolean={_is_gguf} "
+                            f"({'gguf' if _is_gguf else 'safetensors'}) — "
+                            f"{unused_branch} rewired to {used_branch}={used_ref} "
+                            f"(model={_model_for_loader})")
+                    else:
+                        logger.info(
+                            f"safetensors_gguf Switch: boolean={_is_gguf} "
+                            f"({'gguf' if _is_gguf else 'safetensors'}) — model={_model_for_loader}")
 
         # CLIP in input_clip Node setzen (z.B. Flux2 CLIPLoader)
         clip_name = params.get("clip_name", "")

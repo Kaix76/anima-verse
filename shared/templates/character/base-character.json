@@ -188,6 +188,7 @@
           "prompt_label": "Soul",
           "prompt_self_only": true,
           "prompt_requires_feature": "soul_enabled",
+          "llm_generable": true,
           "hint": "Innermost identity: what moves you, what is sacred, deeper values (in soul/soul.md). Locked by default — sections can be opened with <!-- EDITABLE --> marker.",
           "hint_de": "Innerste Identität: was bewegt mich, was ist heilig, tiefere Werte (in soul/soul.md). Standardmäßig gesperrt — einzelne Sections per <!-- EDITABLE --> Marker freigeben.",
           "editor_visible": false
@@ -420,6 +421,29 @@
       "fields": []
     },
     {
+      "id": "image_options",
+      "label": "Image Options",
+      "label_de": "Bild-Optionen",
+      "column": 23,
+      "row": 0,
+      "fields": [
+        {
+          "key": "faceswap_enabled",
+          "label": "FaceSwap / MultiSwap",
+          "label_de": "FaceSwap / MultiSwap",
+          "type": "select",
+          "options": [
+            {"value": "true",  "label": "On",  "label_de": "An"},
+            {"value": "false", "label": "Off", "label_de": "Aus"}
+          ],
+          "store": "config",
+          "default": "false",
+          "hint": "Apply face/multi-swap to generated images and expression variants. Off if the model already produces faithful portraits.",
+          "hint_de": "Face/MultiSwap auf generierte Bilder + Expression-Variants anwenden. Aus, wenn das Modell ohnehin schon gute Portraits liefert."
+        }
+      ]
+    },
+    {
       "id": "behavior_config",
       "label": "Behavior",
       "label_de": "Verhalten",
@@ -572,6 +596,28 @@
           "default": 1,
           "hint": "How often this character gets to think relative to others. High = 3x as often as Low.",
           "hint_de": "Wie oft dieser Character im Vergleich zu anderen denken darf. Hoch = 3x so oft wie Niedrig."
+        },
+        {
+          "key": "retrospect_enabled",
+          "label": "Retrospect",
+          "label_de": "Retrospektive",
+          "type": "select",
+          "options": [
+            {
+              "value": "false",
+              "label": "No",
+              "label_de": "Nein"
+            },
+            {
+              "value": "true",
+              "label": "Yes",
+              "label_de": "Ja"
+            }
+          ],
+          "store": "config",
+          "default": "true",
+          "hint": "If active, the character periodically reflects on recent events to update their beliefs, lessons learned, and goals. Disabling hides those sections from the editor.",
+          "hint_de": "Wenn aktiv, reflektiert der Character regelmaessig ueber die juengsten Ereignisse und aktualisiert seine Ueberzeugungen, Lektionen und Ziele. Deaktivieren blendet diese Abschnitte im Editor aus."
         }
       ]
     },
@@ -684,6 +730,7 @@
       "label_de": "Innere Entwicklung",
       "column": 18,
       "row": 0,
+      "visible_when": {"field": "retrospect_enabled", "values": ["true"]},
       "fields": [
         {
           "key": "character_beliefs",
@@ -695,10 +742,9 @@
           "in_prompt": true,
           "prompt_label": "Meine Überzeugungen",
           "prompt_self_only": true,
-          "prompt_requires_feature": "beliefs_enabled",
-          "hint": "Core beliefs shaped by experiences (auto-generated, in soul/beliefs.md)",
-          "hint_de": "Überzeugungen, geprägt durch Erfahrungen (automatisch, soul/beliefs.md)",
-          "editor_visible": false
+          "prompt_requires_feature": "retrospect_enabled",
+          "hint": "Core beliefs shaped by experiences (auto-generated, in soul/beliefs.md). Hidden from prompt when Retrospect is disabled.",
+          "hint_de": "Überzeugungen, geprägt durch Erfahrungen (automatisch, soul/beliefs.md). Wird bei deaktivierter Retrospektive nicht in den Prompt geladen."
         },
         {
           "key": "character_lessons",
@@ -710,10 +756,9 @@
           "in_prompt": true,
           "prompt_label": "Was ich gelernt habe",
           "prompt_self_only": true,
-          "prompt_requires_feature": "lessons_enabled",
-          "hint": "Important lessons from past experiences (auto-generated, in soul/lessons.md)",
-          "hint_de": "Wichtige Lektionen aus vergangenen Erfahrungen (automatisch, soul/lessons.md)",
-          "editor_visible": false
+          "prompt_requires_feature": "retrospect_enabled",
+          "hint": "Important lessons from past experiences (auto-generated, in soul/lessons.md). Hidden from prompt when Retrospect is disabled.",
+          "hint_de": "Wichtige Lektionen aus vergangenen Erfahrungen (automatisch, soul/lessons.md). Wird bei deaktivierter Retrospektive nicht in den Prompt geladen."
         }
       ]
     },
@@ -723,6 +768,7 @@
       "label_de": "Persönliche Ziele",
       "column": 19,
       "row": 0,
+      "visible_when": {"field": "retrospect_enabled", "values": ["true"]},
       "fields": [
         {
           "key": "character_goals",
@@ -734,10 +780,9 @@
           "in_prompt": true,
           "prompt_label": "Meine persönlichen Ziele",
           "prompt_self_only": true,
-          "prompt_requires_feature": "goals_enabled",
-          "hint": "Short-term and long-term personal goals (auto-generated, in soul/goals.md)",
-          "hint_de": "Kurz- und langfristige persönliche Ziele (automatisch, soul/goals.md)",
-          "editor_visible": false
+          "prompt_requires_feature": "retrospect_enabled",
+          "hint": "Short-term and long-term personal goals (auto-generated, in soul/goals.md). Hidden from prompt when Retrospect is disabled.",
+          "hint_de": "Kurz- und langfristige persönliche Ziele (automatisch, soul/goals.md). Wird bei deaktivierter Retrospektive nicht in den Prompt geladen."
         }
       ]
     }

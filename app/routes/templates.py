@@ -58,6 +58,94 @@ async def delete_template_route(template_name: str) -> Dict[str, Any]:
     return {"status": "ok"}
 
 
+@router.get("/coverage/{character_name}")
+async def get_template_coverage(character_name: str) -> Dict[str, Any]:
+    """Pruefe welche Template-extra_activities in der Welt-Library vorhanden sind.
+
+    Liefert pro extra_activity einen Status:
+        - ``present`` (List[Dict])  — Activity ist in der Library (id matcht
+          strict). Jeder Eintrag: {id, name}.
+        - ``missing`` (List[str])   — Activity-id ist im Template referenziert
+          aber nicht in der Library — Char wird sie nicht haben.
+
+    Im Char-Editor als kleines Indikator-Panel rendern; via
+    /coverage/{name}/seed kann der User die fehlenden Stubs anlegen.
+    """
+    profile = get_character_profile(character_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Character not found")
+    template_name = profile.get("template", "human-default")
+    template = get_template(template_name)
+    if template is None:
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
+
+    extras_raw = template.get("extra_activities") or []
+    extras = [str(x).strip() for x in extras_raw if x and str(x).strip()]
+
+    from app.models.activity_library import get_library_activity
+    present: List[Dict[str, str]] = []
+    missing: List[str] = []
+    for eid in extras:
+        act = get_library_activity(eid)
+        if act:
+            present.append({"id": act.get("id", eid),
+                            "name": act.get("name") or eid})
+        else:
+            missing.append(eid)
+
+    return {
+        "character": character_name,
+        "template": template_name,
+        "extra_activities": extras,
+        "present": present,
+        "missing": missing,
+    }
+
+
+@router.post("/coverage/{character_name}/seed")
+async def seed_template_coverage(character_name: str) -> Dict[str, Any]:
+    """Legt fuer alle fehlenden Template-extra_activities Skelett-Eintraege
+    in der Welt-Library an.
+
+    Stub-Format: id == Template-Referenz, name == Title-Case der id,
+    description "(Auto-generated stub for template '<X>')". Keine Effects,
+    keine Conditions — der User soll die Werte im Game-Admin-Editor
+    nachpflegen. Reload der Library wird automatisch invalidiert.
+    """
+    profile = get_character_profile(character_name)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Character not found")
+    template_name = profile.get("template", "human-default")
+    template = get_template(template_name)
+    if template is None:
+        raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
+
+    extras_raw = template.get("extra_activities") or []
+    extras = [str(x).strip() for x in extras_raw if x and str(x).strip()]
+
+    from app.models.activity_library import (
+        get_library_activity, save_library_activity, reload_library)
+    created: List[str] = []
+    for eid in extras:
+        if get_library_activity(eid):
+            continue
+        # Title-Case fuer den Anzeige-Namen
+        name = eid.replace("_", " ").strip().title() or eid
+        stub = {
+            "id": eid,
+            "name": name,
+            "description": f"(Auto-generated stub for template '{template_name}')",
+            "category": "custom",
+            "_group": "custom",
+            "effects": {},
+        }
+        save_library_activity(stub, target_dir="world")
+        created.append(eid)
+    if created:
+        reload_library()
+    return {"created": created, "count": len(created)}
+
+
 @router.get("/readiness/{character_name}")
 async def get_readiness(character_name: str) -> Dict[str, Any]:
     """Berechnet abgeleitete Capabilities aus Kombinationen von Settings.
@@ -69,7 +157,6 @@ async def get_readiness(character_name: str) -> Dict[str, Any]:
     Capabilities:
       - autonomy: Char kann selbststaendig handeln (Thoughts + LLM + Task)
       - instagram_autopost: Auto-Posten moeglich (Skills + Appearance)
-      - self_evolution: Char kann sich selbst entwickeln (edit_self + editierb. Soul-File)
       - cross_char: Kann andere Chars erreichen (talk_to/send_message + 2+ Chars)
       - faceswap: Bilder mit Face-Referenz (Flag + Profilbild + image-Skill)
     """
@@ -136,16 +223,6 @@ def _check_combination_features(character_name: str,
         insta_missing.append({"key": "character_appearance",
                               "label": "Appearance im Charakter-Tab setzen"})
 
-    # 3. Self-Evolution
-    evo_missing = []
-    if not _skill_enabled("edit_self"):
-        evo_missing.append({"key": "edit_self",
-                            "label": "EditSelf-Skill aktivieren"})
-    soul_features = ("beliefs_enabled", "lessons_enabled", "goals_enabled")
-    if not any(features.get(f) for f in soul_features):
-        evo_missing.append({"key": "soul_features",
-                            "label": "Template ohne editierbare Soul-Felder"})
-
     # 4. Cross-Char Kommunikation
     cross_missing = []
     has_comm_skill = _skill_enabled("talk_to") or _skill_enabled("send_message")
@@ -179,8 +256,6 @@ def _check_combination_features(character_name: str,
                                   "label": "Autonomy"},
         "instagram_autopost":   {"ready": not insta_missing, "missing": insta_missing,
                                   "label": "Instagram"},
-        "self_evolution":       {"ready": not evo_missing, "missing": evo_missing,
-                                  "label": "Self-Evolution"},
         "cross_char":           {"ready": not cross_missing, "missing": cross_missing,
                                   "label": "Cross-Char"},
         "faceswap":             {"ready": not fs_missing, "missing": fs_missing,

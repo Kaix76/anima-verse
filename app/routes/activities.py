@@ -56,7 +56,10 @@ async def create_or_update_activity(request: Request) -> Dict[str, Any]:
     if not activity.get("id"):
         activity["id"] = activity["name"].lower().replace(" ", "_")
 
-    save_library_activity(activity, target_dir=target)
+    try:
+        save_library_activity(activity, target_dir=target)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "activity": activity}
 
 

@@ -18,7 +18,6 @@ reflect now". The thought-context layer hints at this option when enough
 new material has accumulated since the last retrospect.
 """
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -114,14 +113,10 @@ class RetrospectSkill(BaseSkill):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.name = os.environ.get("SKILL_RETROSPECT_NAME", "Retrospect")
-        self.description = os.environ.get(
-            "SKILL_RETROSPECT_DESCRIPTION",
-            "Reflect on your recent experience and notice what shifted in how "
-            "you see the world or yourself. Use this when something happened "
-            "that changes your view, or when you haven't reflected in a while. "
-            "No input required."
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("retrospect")
+        self.name = meta["name"]
+        self.description = meta["description"]
         self._defaults = {"enabled": True}
         logger.info("Retrospect Skill initialized")
 
@@ -133,6 +128,14 @@ class RetrospectSkill(BaseSkill):
         character_name = (ctx.get("agent_name") or "").strip()
         if not character_name:
             return "Error: agent_name missing."
+
+        # Per-Character Master-Switch: UI-Toggle "Retrospektive: Nein"
+        # ueberschreibt das Skill-Default. Verhindert sowohl den LLM-Call
+        # als auch das Anlegen von retrospect_beliefs.md fuer Chars die
+        # Retrospect bewusst aus haben.
+        from app.models.character_template import is_feature_enabled
+        if not is_feature_enabled(character_name, "retrospect_enabled"):
+            return "Retrospect disabled for this character."
 
         from app.models.character import (
             get_character_profile, get_character_language, LANGUAGE_MAP)
@@ -202,10 +205,10 @@ class RetrospectSkill(BaseSkill):
     # ------------------------------------------------------------------
 
     def _gather_recent_summaries(self, character_name: str) -> str:
-        """Most recent daily summaries (last 5 days)."""
+        """Most recent daily summaries (last 5 days, all partners combined)."""
         try:
-            from app.utils.history_manager import load_daily_summaries
-            daily = load_daily_summaries(character_name) or {}
+            from app.utils.history_manager import load_daily_summaries_combined
+            daily = load_daily_summaries_combined(character_name) or {}
         except Exception:
             return ""
         if not daily:

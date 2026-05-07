@@ -18,6 +18,22 @@ LOG_FILE = LOG_DIR / "llm_calls.jsonl"
 _lock = threading.Lock()
 
 
+def _template_basename(template_path: str, fallback_task: str) -> str:
+    """Schneidet Path und .md-Suffix vom Template-Pfad weg.
+
+    Beispiel: ``shared/templates/llm/tasks/classify_activity.md`` →
+    ``classify_activity``. Akzeptiert auch reine Basenames oder
+    Sub-Path-Form (``tasks/classify_activity.md``). Fallback auf den
+    Task-Namen wenn kein Template uebergeben wurde.
+    """
+    if not template_path:
+        return fallback_task or ""
+    name = template_path.replace("\\", "/").rsplit("/", 1)[-1]
+    if name.endswith(".md"):
+        name = name[:-3]
+    return name or fallback_task or ""
+
+
 def log_llm_call(
     task: str,
     model: str,
@@ -31,7 +47,8 @@ def log_llm_call(
     max_tokens: int = 0,
     messages: Optional[List[Dict[str, str]]] = None,
     error: str = "",
-    llm_role: str = ""):
+    llm_role: str = "",
+    template: str = ""):
     """Loggt einen LLM-Aufruf als JSONL-Zeile und gibt eine kurze Zeile auf stdout aus.
 
     Args:
@@ -48,13 +65,21 @@ def log_llm_call(
         max_tokens: Max. Tokens / Context-Laenge
         messages: Optionale volle Message-Liste fuer multi-message calls
         llm_role: Rolle des LLM-Aufrufs (Tool-LLM, Chat-LLM, LLM)
+        template: Voller Pfad oder Dateiname des verwendeten Jinja-Templates
+            (z.B. ``shared/templates/llm/tasks/classify_activity.md``).
+            Wird auf den Basenamen ohne ``.md`` reduziert und im Log-Viewer
+            als drittes Badge angezeigt — erleichtert Fehlersuche, weil man
+            sofort sieht welche Template-Datei gerendert wurde. Bei leerem
+            Wert faellt der Logger auf ``task`` zurueck.
     """
+    template_basename = _template_basename(template, task)
     end_time = datetime.now()
     start_time = end_time - timedelta(seconds=duration_s)
     entry: Dict[str, Any] = {
         "starttime": start_time.isoformat(timespec="seconds"),
         "endtime": end_time.isoformat(timespec="seconds"),
         "task": task,
+        "template": template_basename,
         "llm_role": llm_role or task,
         "provider": provider,
         "model": model,
@@ -144,3 +169,72 @@ def get_max_tokens(llm) -> int:
     """Extrahiert max_tokens aus einem LLMClient."""
     val = getattr(llm, "max_tokens", None)
     return int(val) if val else 0
+
+
+def prune_jsonl_log(path: Path, retention_days: int) -> int:
+    """Entfernt JSONL-Eintraege deren ``starttime`` aelter als
+    ``retention_days`` Tage ist. Schreibt die Datei atomic neu (tmp + rename).
+
+    Beide Logs (llm_calls.jsonl, image_prompts.jsonl) haben ``starttime``
+    als ISO-String — gleiche Schema-Annahme. Eintraege ohne starttime
+    werden konservativ behalten (kein Timestamp = nicht alterbar).
+
+    Returns: Anzahl entfernter Eintraege (0 wenn nichts zu tun).
+    """
+    if retention_days < 1:
+        return 0
+    if not path.exists():
+        return 0
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    cutoff_iso = cutoff.isoformat()
+
+    kept: List[str] = []
+    removed = 0
+    with _lock:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line_strip = line.strip()
+                    if not line_strip:
+                        continue
+                    try:
+                        obj = json.loads(line_strip)
+                    except Exception:
+                        # nicht-parsebare Zeile lieber behalten
+                        kept.append(line_strip)
+                        continue
+                    ts = (obj.get("starttime") or "").strip()
+                    if ts and ts < cutoff_iso:
+                        removed += 1
+                        continue
+                    kept.append(line_strip)
+            if removed:
+                tmp = path.with_suffix(path.suffix + ".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    for ln in kept:
+                        f.write(ln + "\n")
+                tmp.replace(path)
+                logger.info("Log-Cleanup %s: %d alte Eintraege entfernt (>%d Tage)",
+                            path.name, removed, retention_days)
+        except Exception as e:
+            logger.warning("Log-Cleanup fuer %s fehlgeschlagen: %s", path, e)
+            return 0
+    return removed
+
+
+def prune_logs_on_startup() -> Dict[str, int]:
+    """Wird vom Server-Lifespan beim Start aufgerufen. Liest die Aufbewahrungs-
+    dauer aus der Config (server.log_retention_days, Default 5) und schneidet
+    llm_calls.jsonl + image_prompts.jsonl auf den Zeitraum.
+    """
+    try:
+        from app.core import config as _cfg
+        days = int(_cfg.get("server.log_retention_days") or 5)
+    except Exception:
+        days = 5
+    out = {
+        "llm_calls": prune_jsonl_log(LOG_FILE, days),
+        "image_prompts": prune_jsonl_log(LOG_DIR / "image_prompts.jsonl", days),
+        "retention_days": days,
+    }
+    return out

@@ -5,7 +5,8 @@ placeholders:
   target_name: Character whose state is being extracted
   piece_list: Bullet list of currently equipped piece names (one per line, "- Name") — empty when no pieces equipped
   source_label: "User input" or "Character reply"
-  source_text: The text to analyze
+  source_text: The text to analyze (extraction applies ONLY to this)
+  context_text: Optional counterpart text (e.g. user input when source is the character reply, or vice versa) — for disambiguating references only, NOT a source for extraction. Empty string when no context available.
   outfit_locked: bool — when true, only activity is extracted
   is_avatar: bool — when true, only outfit is extracted (no activity field)
 ---
@@ -28,6 +29,7 @@ Rules:
 - Return ONLY pieces from the list above by their EXACT name. Never invent pieces, never return items not in the list.
 - If nothing is removed, return an empty array.
 - Do NOT include pieces that are merely mentioned, adjusted, lifted, or touched — only outright removal.
+- Extraction APPLIES ONLY TO the {{ source_label }}. The "Context" block (if present) is provided to disambiguate references (e.g. "yes, gladly" only makes sense once you see the request that triggered it) — do NOT extract from the context.
 
 Reply schema:
 { {%- if not is_avatar -%}"activity": "<short phrase>", {% endif -%}"removed": ["<exact piece name>", ...]}
@@ -35,5 +37,8 @@ Reply schema:
 
 ## user
 /no_think
-{{ source_label }} from {{ target_name }}:
+{% if context_text %}Context (do NOT extract from this — only for understanding):
+{{ context_text }}
+
+{% endif %}{{ source_label }} from {{ target_name }} (extract from this):
 {{ source_text }}

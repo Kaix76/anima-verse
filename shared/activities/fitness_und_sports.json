@@ -1,0 +1,163 @@
+{
+  "group": "Fitness & Sports",
+  "activities": [
+    {
+      "id": "cardio_training",
+      "name": "Cardio training",
+      "description": "Do cardio exercise",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "outfit_type": "sport",
+      "effects": {
+        "stamina_change": -12,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "follow_up_activities": [
+        {
+          "activity_id": "showering",
+          "probability": 20
+        }
+      ],
+      "cumulative_effect": {
+        "threshold": 4,
+        "condition_name": "exhausted",
+        "mood_influence": "erschoepft",
+        "duration_hours": 2,
+        "effects": {
+          "stamina_change": -25
+        }
+      }
+    },
+    {
+      "id": "dancing",
+      "name": "Dancing",
+      "description": "Dance to the music",
+      "category": "social",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -10,
+        "courage_change": 5,
+        "mood_influence": "euphorisch"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "lifting_weights",
+      "name": "Lifting weights",
+      "description": "Lift weights at the gym",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "outfit_type": "sport",
+      "effects": {
+        "stamina_change": -15,
+        "courage_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "follow_up_activities": [
+        {
+          "activity_id": "showering",
+          "probability": 20
+        }
+      ],
+      "cumulative_effect": {
+        "threshold": 4,
+        "condition_name": "exhausted",
+        "mood_influence": "erschoepft",
+        "duration_hours": 3,
+        "effects": {
+          "stamina_change": -25
+        }
+      }
+    },
+    {
+      "id": "sauna",
+      "name": "Sauna",
+      "description": "Relax in the sauna",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 15,
+      "outfit_type": "pool",
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "entspannt",
+        "attention_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "showering",
+      "name": "Showering",
+      "description": "Take a shower",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 10,
+      "outfit_type": "intimate",
+      "effects": {
+        "stamina_change": 10,
+        "mood_influence": "refreshed"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "sunbathing",
+      "name": "Sunbathing",
+      "description": "Laying at the sun",
+      "category": "rest",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "pool",
+      "effects": {
+        "stamina_change": 2,
+        "mood_influence": "sweating"
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "swimming",
+      "name": "Swimming",
+      "description": "swimming in the pool",
+      "category": "training",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "pool",
+      "effects": {
+        "stamina_change": -5,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    }
+  ]
+}

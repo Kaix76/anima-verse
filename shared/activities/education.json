@@ -1,0 +1,26 @@
+{
+  "group": "Education",
+  "activities": [
+    {
+      "id": "studying",
+      "name": "Studying",
+      "description": "Study and learn",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -8,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true,
+      "required_roles": [
+        "Student"
+      ]
+    }
+  ]
+}

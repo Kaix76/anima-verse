@@ -110,11 +110,10 @@ class ImageGenerationSkill(BaseSkill):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        self.name = os.environ.get('SKILL_IMAGEGEN_NAME', 'ImageGenerator')
-        self.description = os.environ.get(
-            'SKILL_IMAGEGEN_DESCRIPTION',
-            'Generates images based on text descriptions'
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("image_generation")
+        self.name = meta["name"]
+        self.description = meta["description"]
 
         # Letzter verwendeter enhanced_prompt (fuer Caller wie Instagram)
         self.last_enhanced_prompt: str = ""
@@ -175,13 +174,13 @@ class ImageGenerationSkill(BaseSkill):
         self._defaults = {}
 
     def get_config_fields(self) -> Dict[str, Dict[str, Any]]:
-        """Top-level Config-Felder fuer den Character-Editor."""
+        """Top-level Config-Felder fuer den Character-Editor.
+
+        ``faceswap_enabled`` lebt jetzt im Character-Profil (Bild-Tab),
+        nicht mehr hier — Single Source of Truth. Migration erfolgt
+        lazy beim ersten Read in ``_character_swap_disabled``.
+        """
         return {
-            "faceswap_enabled": {
-                "type": "bool",
-                "default": False,
-                "label": "FaceSwap",
-            },
             "swap_mode": {
                 "type": "select",
                 "default": "default",
@@ -2472,6 +2471,21 @@ class ImageGenerationSkill(BaseSkill):
             if not backend:
                 return f"Fehler: Backend '{explicit_backend}' nicht verfuegbar (Timeout)."
             logger.info("Explizites Backend: %s", explicit_backend)
+            # ComfyUI-Backends brauchen ZWINGEND einen Workflow — sonst kennt der
+            # Backend keine Workflow-Datei und _generate scheitert mit "Kein
+            # Workflow konfiguriert". Auto-Pick: erster Workflow der den Backend
+            # in compatible_backends fuehrt (oder None = jeder Backend).
+            if backend.api_type == "comfyui" and self.comfy_workflows:
+                active_workflow = next(
+                    (wf for wf in self.comfy_workflows
+                     if not wf.compatible_backends or backend.name in wf.compatible_backends),
+                    None) or self._default_workflow
+                if active_workflow:
+                    logger.info("Auto-Workflow fuer Backend %s: %s",
+                                explicit_backend, active_workflow.name)
+                else:
+                    return (f"Fehler: Backend '{explicit_backend}' ist ComfyUI, "
+                            f"aber kein kompatibler Workflow konfiguriert.")
 
         if not backend:
             # Auto-Auswahl (Standard-Verhalten)
@@ -2495,6 +2509,19 @@ class ImageGenerationSkill(BaseSkill):
                     None, character_name, workflow_only=False)
         if not backend:
             return "Fehler: Keine Image-Generation Instanz ist aktuell verfuegbar (Timeout)."
+
+        # Safety-Net: Auto-Pick eines Workflows fuer ComfyUI-Backends ohne Workflow.
+        # Sonst scheitert _generate mit "Kein Workflow konfiguriert" — das passiert
+        # wenn der Auto-Fallback die Workflow-Bindung loest aber dann doch ein
+        # ComfyUI-Backend findet.
+        if backend.api_type == "comfyui" and not active_workflow and self.comfy_workflows:
+            active_workflow = next(
+                (wf for wf in self.comfy_workflows
+                 if not wf.compatible_backends or backend.name in wf.compatible_backends),
+                None) or self._default_workflow
+            if active_workflow:
+                logger.info("Workflow-Auto-Pick fuer Backend %s: %s",
+                            backend.name, active_workflow.name)
 
         # Lade per-Agent per-Instanz Config
         cfg = self._get_instance_config(character_name, backend)

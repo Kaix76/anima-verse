@@ -26,7 +26,8 @@
     "beliefs_enabled": true,
     "lessons_enabled": true,
     "goals_enabled": true,
-    "soul_enabled": true
+    "soul_enabled": true,
+    "retrospect_enabled": true
   },
   "sections": [
     {
@@ -98,6 +99,20 @@
           "prompt_self_only": true,
           "llm_generable": true,
           "editor_visible": false
+        },
+        {
+          "key": "character_presence",
+          "label": "Presence",
+          "label_de": "Ausstrahlung",
+          "type": "text",
+          "multiline": true,
+          "source_file": "soul/presence.md",
+          "in_prompt": true,
+          "prompt_label": "How others perceive you",
+          "llm_generable": true,
+          "editor_visible": false,
+          "hint": "What others perceive when meeting this character — first impression and underlying vibe (more than appearance, less than personality). Used in BOTH self and partner blocks of the chat prompt.",
+          "hint_de": "Was andere wahrnehmen, wenn sie diesem Character begegnen — erster Eindruck und Ausstrahlung (mehr als Aussehen, weniger als Persönlichkeit). Wird in der Eigen- UND Partnerbeschreibung des Chat-Prompts verwendet."
         },
         {
           "key": "roleplay_instructions",

@@ -58,6 +58,31 @@ class SchedulerManager:
         # Lade Jobs aus allen Character-Verzeichnissen
         self._load_all_character_jobs()
 
+        # Legacy-Cleanup: world_hourly_tick wurde durch den zentralen
+        # World-Admin-Tick (app/core/periodic_jobs.py) ersetzt. Bestands-
+        # Eintraege rausraeumen, damit sie nicht in der Scheduler-UI
+        # auftauchen wo der User sie sehen + loeschen koennte.
+        try:
+            removed = self._purge_legacy_world_hourly_job()
+            if removed:
+                logger.info("world_hourly_tick: %d Legacy-Eintraege entfernt "
+                            "(durch periodic_jobs ersetzt)", removed)
+        except Exception as _ple:
+            logger.debug("world_hourly_tick legacy purge: %s", _ple)
+
+        # Legacy-Cleanup: activity_done_*-One-Time-Jobs sind durch den
+        # state-basierten Pfad (profile.activity_started_at +
+        # _sub_activity_expiry im world_admin_tick) ersetzt. Bestands-
+        # Eintraege purge'n damit der Scheduler-UI sauber bleibt.
+        try:
+            removed = self._purge_legacy_activity_done_jobs()
+            if removed:
+                logger.info("activity_done_*: %d Legacy-One-Time-Jobs entfernt "
+                            "(durch periodic_jobs._sub_activity_expiry ersetzt)",
+                            removed)
+        except Exception as _ple:
+            logger.debug("activity_done legacy purge: %s", _ple)
+
         logger.info("Initialisiert mit %d Jobs", len(self.jobs_data["jobs"]))
 
     def _migrate_global_jobs(self):
@@ -217,8 +242,9 @@ class SchedulerManager:
 
         Hier werden noch Legacy-Cron-Job-Eintraege aus der jobs-Liste
         entfernt (per-char ``daily_schedule`` Type + ``daily_schedule_marker``
-        Stubs), aber keine neuen Marker mehr angelegt. Der globale
-        ``world_hourly_tick`` bleibt fuer administrative Aufgaben.
+        Stubs), aber keine neuen Marker mehr angelegt. Welt-administrative
+        Aufgaben laufen ueber den ``world_admin_tick`` in
+        ``app/core/periodic_jobs.py`` (nicht mehr ueber diesen Scheduler).
         """
         try:
             stale_types = {"daily_schedule", "daily_schedule_marker"}
@@ -405,7 +431,12 @@ class SchedulerManager:
                                "Char %s wird vom AgentLoop selbst gesteuert", agent)
                 result = {"success": False, "error": "daily_schedule action is deactivated"}
             elif action_type == 'world_hourly_tick':
-                result = self._execute_world_hourly_tick()
+                # Obsolet — durch zentralen World-Admin-Tick ersetzt
+                # (app/core/periodic_jobs.py). Defensiv als No-Op behalten
+                # falls ein gespeicherter Job-Eintrag noch nicht via
+                # _purge_legacy_world_hourly_job entfernt wurde.
+                result = {"success": True, "action": "world_hourly_tick",
+                          "note": "deprecated — handled by app.core.periodic_jobs"}
             elif action_type == 'extract_files':
                 result = self._action_extract_files(action, agent)
             elif action_type == 'custom':
@@ -960,8 +991,8 @@ class SchedulerManager:
                 except Exception as e:
                     logger.error("Fehler beim Loggen: %s", e)
 
-        # Globaler Job ohne Character-Bezug (z.B. world_hourly_tick) —
-        # kein per-Character-Log-File, nur DEBUG-Konsole.
+        # Globaler Job ohne Character-Bezug — kein per-Character-Log-File,
+        # nur DEBUG-Konsole.
         logger.debug("Globaler Job-Log: %s", log_entry)
 
     def add_job(
@@ -1038,10 +1069,10 @@ class SchedulerManager:
     def sync_daily_schedule(self, character: str, schedule: Dict[str, Any]) -> int:
         """Persistiert den Tagesablauf des Characters.
 
-        Statt einen eigenen Cron-Job pro Character anzulegen, uebernimmt der
-        globale ``world_hourly_tick``-Job die Abarbeitung aller Characters
-        sequenziell (alphabetisch, 10s Pause dazwischen). Hier werden nur die
-        Slots validiert und Locations zu IDs aufgeloest.
+        Der Tagesablauf wird seit Phase-2 nicht mehr durch Cron-Jobs
+        enforced — er ist nur noch ein Hint-Block im Thought-Prompt
+        (``daily_schedule_block`` in ``thought_context.py``). Hier werden
+        nur die Slots validiert und Locations zu IDs aufgeloest.
 
         Returns: 1 wenn der Schedule aktiv ist, sonst 0.
         """
@@ -1064,20 +1095,21 @@ class SchedulerManager:
         # Location-Namen zu IDs aufloesen und im Schedule persistieren
         from app.models.world import resolve_location as _resolve_loc
         for slot in slots:
+            if slot.get("sleep"):
+                continue
             raw_loc = slot.get("location", "")
-            if raw_loc and raw_loc != "__llm_choice__":
+            if raw_loc:
                 loc_obj = _resolve_loc(raw_loc)
                 if loc_obj and loc_obj.get("id"):
                     slot["location"] = loc_obj["id"]
 
-        # 2. Globalen world_hourly_tick-Job sicherstellen (legt er nicht existiert)
-        self._ensure_world_hourly_job()
-
-        # 3. Per-Character Marker-Job — rein visuelles Signal in der UI
+        # 2. Per-Character Marker-Job — rein visuelles Signal in der UI
         #    dass der Tagesablauf aktiv ist. Der Marker hat KEIN Cron-Trigger
-        #    (er wird nicht ausgefuehrt); die tatsaechliche Abarbeitung laeuft
-        #    ueber den globalen world_hourly_tick, der alle Characters
-        #    sequenziell abarbeitet.
+        #    (er wird nicht ausgefuehrt); Welt-administrative Aufgaben
+        #    (Status-Decay, Force-Rules, Random-Events, ...) laufen seit dem
+        #    World-Admin-Tick-Refactor zentral in app/core/periodic_jobs.py.
+        #    Der frueher hier angelegte ``world_hourly_tick``-Job war
+        #    Phase-2-Cleanup-Stub und ist jetzt komplett obsolet.
         marker_id = f"daily_schedule_{character}"
         self.jobs_data["jobs"] = [
             j for j in self.jobs_data["jobs"] if j.get("id") != marker_id
@@ -1095,29 +1127,60 @@ class SchedulerManager:
         self._save_jobs_for_character(character)
         return 1
 
-    def _ensure_world_hourly_job(self) -> None:
-        """Legt den globalen world_hourly_tick-Job an (falls noch nicht da).
+    def _purge_legacy_world_hourly_job(self) -> int:
+        """Entfernt Bestands-Eintraege des obsoleten world_hourly_tick-Jobs.
 
-        Dieser Job feuert stuendlich und arbeitet alle Characters
-        sequenziell alphabetisch ab — verhindert Race-Conditions wie
-        "Vallerie sieht Diego noch als am Ort, obwohl er gerade umgezogen wird".
+        Wird beim SchedulerManager-Init aufgerufen. Die Welt-Admin-Aktionen
+        laufen seit dem Refactor zentral ueber ``app/core/periodic_jobs.py``
+        (asyncio-Tick, default 60s, konfigurierbar). Der alte stuendliche
+        Cron-Job war ein No-Op-Stub und konnte vom User versehentlich
+        geloescht werden — also raeumen wir ihn aus den Welt-Daten raus.
+
+        Returns: Anzahl entfernter Eintraege.
         """
         job_id = "world_hourly_tick"
-        existing = [j for j in self.jobs_data["jobs"] if j.get("id") == job_id]
-        if existing:
-            return
-        job_config = {
-            "id": job_id,
-            "user_id": "",
-            "enabled": True,
-            "trigger": {"type": "cron", "hour": "*", "minute": 0},
-            "action": {"type": "world_hourly_tick"},
-            "source": "daily_schedule",
-            "created_at": datetime.now().isoformat(),
-        }
-        self.jobs_data["jobs"].append(job_config)
-        self._schedule_job(job_config)
-        logger.info("world_hourly_tick registriert")
+        before = len(self.jobs_data["jobs"])
+        self.jobs_data["jobs"] = [
+            j for j in self.jobs_data["jobs"] if j.get("id") != job_id]
+        removed = before - len(self.jobs_data["jobs"])
+        # Auch im APScheduler entfernen falls bereits gescheduled
+        try:
+            if self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
+        except Exception:
+            pass
+        return removed
+
+    def _purge_legacy_activity_done_jobs(self) -> int:
+        """Entfernt obsolete ``activity_done_*``-One-Time-Jobs.
+
+        Frueher legte ``set_activity_skill._schedule_duration_complete`` pro
+        Activity-Set einen einmaligen Job an, der die Activity nach Ablauf
+        wieder zurueckgesetzt hat. Seit dem Refactor laeuft das ueber den
+        ``world_admin_tick`` mit profil-state-basierten Feldern
+        (``activity_started_at`` + ``activity_duration_minutes``).
+        Bestands-Eintraege koennten noch im Scheduler-UI auftauchen — hier
+        einmal beim Init rauspurgen, plus aus dem APScheduler aushaengen.
+
+        Returns: Anzahl entfernter Eintraege.
+        """
+        before = len(self.jobs_data["jobs"])
+        legacy_ids = [
+            j.get("id") for j in self.jobs_data["jobs"]
+            if (j.get("id") or "").startswith("activity_done_")
+        ]
+        if not legacy_ids:
+            return 0
+        self.jobs_data["jobs"] = [
+            j for j in self.jobs_data["jobs"]
+            if not (j.get("id") or "").startswith("activity_done_")]
+        for jid in legacy_ids:
+            try:
+                if self.scheduler.get_job(jid):
+                    self.scheduler.remove_job(jid)
+            except Exception:
+                pass
+        return before - len(self.jobs_data["jobs"])
 
     def _was_recently_chatting(self, character: str, minutes: int = 10) -> bool:
         """Prueft ob der Character in den letzten N Minuten im Chat mit dem User war.
@@ -1169,23 +1232,6 @@ class SchedulerManager:
             logger.debug("Fehler beim Pruefen der Gruppenchat-Aktivitaet: %s", e)
 
         return False
-
-    def _execute_world_hourly_tick(self) -> Dict[str, Any]:
-        """Administrative Hourly-Tick.
-
-        Phase-2 Cleanup: der frueher per-Character Daily-Schedule-Loop
-        (mit ``__llm_choice__`` Force-Move via ``intent_location``) wurde
-        entfernt. Die Tagesablauf-Daten werden jetzt im AgentLoop nur
-        noch als Hint-Block gerendert (``daily_schedule_block`` in
-        ``thought_context.py``). Charaktere entscheiden selbst, ob sie
-        ihrem Rhythmus folgen.
-
-        Dieser Tick bleibt als Stub fuer rein administrative Hourly-
-        Aufgaben (z.B. spaetere Memory-Consolidation-Trigger). Aktuell
-        ein No-Op.
-        """
-        return {"success": True, "action": "world_hourly_tick",
-                "note": "no per-character schedule loop — agent decides via daily_schedule_block hint"}
 
     def toggle_job(self, job_id: str) -> Dict[str, Any]:
         """Aktiviert/Deaktiviert einen Job"""

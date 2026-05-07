@@ -60,7 +60,7 @@
   },
   "61": {
     "inputs": {
-      "value": "man has sex with both woman at the couch"
+      "value": ""
     },
     "class_type": "PrimitiveStringMultiline",
     "_meta": {
@@ -205,7 +205,7 @@
       },
       "lora_1": {
         "on": true,
-        "lora": "None",
+        "lora": "Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors",
         "strength": 1
       },
       "lora_2": {
@@ -320,11 +320,11 @@
     "inputs": {
       "boolean": false,
       "on_true": [
-        "114",
+        "71",
         0
       ],
       "on_false": [
-        "71",
+        "114",
         0
       ]
     },

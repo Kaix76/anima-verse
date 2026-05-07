@@ -344,15 +344,30 @@ def regenerate_image(character_name: str,
             # Wird VOR resolve_reference_slots gesetzt, damit der Slot
             # korrekt fuer den Workflow-Kind gemappt wird (Qwen: Slot 4,
             # Flux: input_reference_image_background).
+            #
+            # strict_room=True: wenn der gewaehlte Raum keine dedizierten
+            # Gallery-Bilder hat, fallen wir NICHT auf Location-Default
+            # zurueck. Stattdessen: ref_image_room leeren, der Workflow
+            # generiert den Hintergrund rein aus dem Text-Prompt. Sonst
+            # wuerde der User die Raumaenderung im Dialog nicht bemerken,
+            # weil das vorher gewaehlte Default-Bild erneut zurueckkommt.
             if room_id:
                 from app.models.world import get_background_path
                 from app.models.character import get_character_current_location
                 _loc_id = location_id or get_character_current_location(character_name)
                 if _loc_id:
-                    _bg = get_background_path(_loc_id, room=room_id)
+                    _bg = get_background_path(_loc_id, room=room_id, strict_room=True)
                     if _bg and _bg.exists():
                         _regen_pv.ref_image_room = str(_bg)
                         logger.info("Room-Override Bild: %s", _bg.name)
+                    else:
+                        # Raum hat keine dedizierten Bilder — Default raus,
+                        # Hintergrund wird aus dem Text-Prompt generiert.
+                        _regen_pv.ref_image_room = ""
+                        logger.info("Room-Override [%s]: keine Gallery-Bilder fuer "
+                                    "Raum %s — kein ref_image_room (Hintergrund "
+                                    "kommt aus dem Text-Prompt)",
+                                    character_name, room_id)
 
             from app.skills.image_generation_skill import WorkflowKind
             _wf_kind = active_workflow.kind.value if active_workflow else None

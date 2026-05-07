@@ -3,10 +3,9 @@
 Queries Beszel (PocketBase-based) for real-time GPU VRAM usage.
 Used by ProviderQueue to decide whether to unload LLM models before GPU tasks.
 
-Config (.env):
+Config (Admin UI):
     BESZEL_URL=http://192.168.8.7:8090
-    BESZEL_EMAIL=admin@example.com
-    BESZEL_PASSWORD=secret
+    BESZEL_TOKEN=<read-only API token from Beszel UI>
 """
 import os
 import time
@@ -18,10 +17,6 @@ from app.core.log import get_logger
 
 logger = get_logger("beszel")
 
-_auth_token: Optional[str] = None
-_auth_expires: float = 0.0
-_auth_lock = threading.Lock()
-
 # Cache fuer get_gpu_stats: TTL=5s. Beszel selbst sammelt nur alle 60s,
 # also haben oeftere Polls (Frontend) keinen Mehrwert. Schuetzt Event-Loop +
 # Beszel-Server vor Last.
@@ -31,46 +26,33 @@ _STATS_CACHE_TTL = 5.0
 
 
 def _get_config() -> tuple:
-    """Returns (url, email, password) from env."""
+    """Returns (url, token) from env."""
     url = os.environ.get("BESZEL_URL", "").strip().rstrip("/")
-    email = os.environ.get("BESZEL_EMAIL", "").strip()
-    password = os.environ.get("BESZEL_PASSWORD", "").strip()
-    return url, email, password
+    token = os.environ.get("BESZEL_TOKEN", "").strip()
+    return url, token
 
 
-def _authenticate(url: str, email: str, password: str) -> Optional[str]:
-    """Authenticates with PocketBase and returns auth token."""
-    global _auth_token, _auth_expires
+def check_status() -> Dict[str, Any]:
+    """Verifies Beszel reachability + token validity.
+
+    Returns dict with keys: configured (bool), ok (bool), url (str), error (Optional[str]).
+    Used by the startup AVAILABILITY SUMMARY.
+    """
+    url, token = _get_config()
+    if not url or not token:
+        return {"configured": False, "ok": False, "url": url, "error": None}
     try:
-        resp = requests.post(
-            f"{url}/api/collections/users/auth-with-password",
-            json={"identity": email, "password": password},
-            timeout=10)
+        resp = requests.get(
+            f"{url}/api/collections/system_stats/records",
+            params={"perPage": "1"},
+            headers={"Authorization": token},
+            timeout=5)
         if resp.status_code == 200:
-            data = resp.json()
-            _auth_token = data.get("token")
-            # Token valid for ~1 hour, refresh after 50 min
-            _auth_expires = time.monotonic() + 3000
-            logger.debug("Beszel auth OK")
-            return _auth_token
-        else:
-            logger.warning("Beszel auth failed: HTTP %d", resp.status_code)
-    except Exception as e:
-        logger.warning("Beszel auth error: %s", e)
-    return None
-
-
-def _get_token() -> Optional[str]:
-    """Returns a valid auth token, refreshing if needed."""
-    global _auth_token, _auth_expires
-    with _auth_lock:
-        if _auth_token and time.monotonic() < _auth_expires:
-            return _auth_token
-
-        url, email, password = _get_config()
-        if not url or not email or not password:
-            return None
-        return _authenticate(url, email, password)
+            return {"configured": True, "ok": True, "url": url, "error": None}
+        return {"configured": True, "ok": False, "url": url,
+                "error": f"HTTP {resp.status_code}"}
+    except Exception as exc:
+        return {"configured": True, "ok": False, "url": url, "error": str(exc)}
 
 
 def get_gpu_stats(system_id: str, vram_overrides: Optional[Dict[str, int]] = None) -> Optional[Dict[str, Any]]:
@@ -101,12 +83,8 @@ def get_gpu_stats(system_id: str, vram_overrides: Optional[Dict[str, int]] = Non
 
 def _fetch_gpu_stats(system_id: str, vram_overrides: Optional[Dict[str, int]] = None) -> Optional[Dict[str, Any]]:
     """Eigentlicher HTTP-Call ohne Cache. Nicht direkt aufrufen — geht ueber get_gpu_stats."""
-    url, _, _ = _get_config()
-    if not url:
-        return None
-
-    token = _get_token()
-    if not token:
+    url, token = _get_config()
+    if not url or not token:
         return None
 
     try:

@@ -14,8 +14,8 @@ from .send_message_skill import SendMessageSkill
 from .notify_user_skill import NotifyUserSkill
 from .instagram_comment_skill import InstagramCommentSkill
 from .instagram_reply_skill import InstagramReplySkill
-from .edit_self_skill import EditSelfSkill
 from .describe_room_skill import DescribeRoomSkill
+from .consume_item_skill import ConsumeItemSkill
 from .outfit_change_skill import OutfitChangeSkill
 from .outfit_creation_skill import OutfitCreationSkill
 from .set_activity_skill import SetActivitySkill
@@ -43,8 +43,8 @@ class SkillManager:
         'notify_user': NotifyUserSkill,
         'instagram_comment': InstagramCommentSkill,
         'instagram_reply': InstagramReplySkill,
-        'edit_self': EditSelfSkill,
         'describe_room': DescribeRoomSkill,
+        'consume_item': ConsumeItemSkill,
         'outfit_change': OutfitChangeSkill,
         'outfit_creation': OutfitCreationSkill,
         'setactivity': SetActivitySkill,

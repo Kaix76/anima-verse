@@ -48,11 +48,10 @@ class InstagramSkill(BaseSkill):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
 
-        self.name = os.environ.get('SKILL_INSTAGRAM_NAME', 'Instagram')
-        self.description = os.environ.get(
-            'SKILL_INSTAGRAM_DESCRIPTION',
-            'Creates an Instagram post with a generated image and automatic caption'
-        )
+        from app.core.prompt_templates import load_skill_meta
+        meta = load_skill_meta("instagram")
+        self.name = meta["name"]
+        self.description = meta["description"]
 
         self._defaults = {
             "enabled": True,

@@ -207,8 +207,6 @@
   "search_max_return": 8,
   "summary_enabled": true,
   "summary_interval_minutes": 120,
-  "min_idle_minutes": 5,
-  "min_scheduler_gap_minutes": 5,
   "base_probability": 5,
   "resolution_proactive": true,
   "resolution_cooldown_minutes": 15,
@@ -231,5 +229,9 @@
   "random_events": {
     "base_probability": 2,
     "resolution_cooldown_minutes": 10
+  },
+  "thoughts": {
+    "min_turn_gap_seconds": 30,
+    "min_per_char_cooldown_minutes": 5
   }
 }

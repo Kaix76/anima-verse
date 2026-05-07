@@ -1,0 +1,97 @@
+{
+  "group": "Office",
+  "activities": [
+    {
+      "id": "discussing_concept",
+      "name": "Discussing concept",
+      "description": "Discuss a concept or plan",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "business",
+      "effects": {
+        "stamina_change": -3,
+        "courage_change": 2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "meeting",
+      "name": "Meeting",
+      "description": "Attend a meeting",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "business",
+      "effects": {
+        "stamina_change": -8,
+        "courage_change": 2,
+        "attention_change": 3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "sorting_papers",
+      "name": "Sorting papers",
+      "description": "Sort and organize documents",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "strategy_session",
+      "name": "Strategy session",
+      "description": "Plan strategies",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -10,
+        "courage_change": 3,
+        "attention_change": 5
+      },
+      "interruptible": true,
+      "auto_pick": true
+    },
+    {
+      "id": "working_on_computer",
+      "name": "Working on computer",
+      "description": "Work at the computer",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 0,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -8,
+        "attention_change": -3
+      },
+      "interruptible": true,
+      "auto_pick": true
+    }
+  ]
+}

@@ -45,7 +45,6 @@
                     <div class="header-image-buttons">
                         <div class="header-btn-row">
                             <button id="btn-edit-agent" class="reset-btn" title="Edit current character profile">⚙️</button>
-                            <button id="btn-new-character" class="reset-btn" title="Create a new character">➕ New</button>
                         </div>
                         <button id="btn-knowledge" class="reset-btn" title="Wissen des Characters">🧠</button>
                         <div id="header-activity-display" title="Aktuelle Aktivitaet">
@@ -80,10 +79,10 @@
                         <select id="active-character-select" class="active-character-select" title="Charakter wechseln" style="display:none;"></select>
                     </div>
                     <div class="player-btn-col player-btn-col-secondary">
+                        <button id="btn-new-character" class="header-action-btn" title="Create a new character">➕</button>
                         <button id="btn-logout" class="header-action-btn" title="Abmelden">🚪</button>
-                        <button id="btn-reload-config" class="header-action-btn" title="Config neu laden" onclick="reloadConfig()" data-admin-only="1">↻</button>
                         <button id="btn-game-admin" class="header-action-btn" title="Game Admin" onclick="openGameAdminModal()" data-admin-only="1">🎮</button>
-                        <a id="btn-admin-settings" class="header-action-btn" href="/admin/settings" target="_blank" title="Admin-Webseite" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">⚙</a>
+                        <a id="btn-admin-settings" class="header-action-btn" href="/admin/settings" target="_blank" title="Admin-Webseite" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">⚙️</a>
                     </div>
                 </div>
             </div>
@@ -135,11 +134,20 @@
                     autocomplete="off"
                 ></textarea>
                 <div class="chat-input-buttons">
+                    <button id="btn-gift-item" class="btn-attach-image" title="Item an Chat-Partner verschenken" onclick="_openChatGiftPicker()">🎁</button>
                     <input type="file" id="chat-image-upload" accept="image/*" style="display:none;">
                     <button id="btn-attach-image" class="btn-attach-image" title="Bild hochladen">📎</button>
                     <button id="btn-link-image" class="btn-attach-image" title="Bild aus Bibliothek">🖼️</button>
                 </div>
                 <button id="send-button">Senden</button>
+            </div>
+            <!-- Geschenk-Item-Picker (Avatar-Inventar → Chat-Partner) -->
+            <div id="chat-gift-picker" style="display:none;position:absolute;bottom:60px;right:8px;z-index:60;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);max-height:50vh;width:320px;overflow-y:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <strong style="font-size:12px;">Item verschenken</strong>
+                    <button onclick="_closeChatGiftPicker()" class="reset-btn" style="font-size:11px;padding:2px 8px;">×</button>
+                </div>
+                <div id="chat-gift-picker-body" style="font-size:12px;"></div>
             </div>
             <!-- Image Library Picker Modal -->
             <div id="image-library-modal" class="image-library-modal" style="display:none;">
@@ -309,6 +317,10 @@
         </div>
         <div class="tab-content" id="tab-worlddev" style="display: none;">
             <div class="worlddev-container">
+                <!-- Exit-Button: zurueck zum Chat (Chat-Tab kann ausgeblendet sein wenn kein Agent gewaehlt) -->
+                <div style="display:flex;justify-content:flex-end;padding:6px 8px 0 0;">
+                    <button class="reset-btn" onclick="switchTab('chat')" title="Zurueck zum Chat">← Zurueck zum Chat</button>
+                </div>
                 <!-- Pause-Button moved to /admin/agent-loop -->
 
                 <!-- Top Bar (3-column table) -->
@@ -320,6 +332,7 @@
                                 <option value="">-- Modell waehlen --</option>
                             </select>
                             <button class="reset-btn worlddev-new-btn" onclick="worldDevNewSession()">Neues Gespraech</button>
+                            <button class="reset-btn worlddev-new-btn" onclick="worldDevOpenJsonImport()" title="Manually paste a character/location/outfit/soul/profile-patch JSON and apply it">JSON Import</button>
                             <span id="worlddev-cost" class="worlddev-cost" style="display:none" title="Geschaetzte Kosten dieser Session"></span>
                         </td>
                         <td class="worlddev-col-mode">
@@ -394,6 +407,50 @@
             </div>
         </div>
     </div>
+    <!-- World Dev: Manual JSON Import Modal -->
+    <div id="worlddev-json-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-content-wide">
+            <div class="modal-header">
+                <h2>Manual JSON Import</h2>
+                <button class="modal-close" onclick="worldDevCloseJsonImport()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="opacity:0.8;margin:0 0 8px 0;font-size:0.9em;">
+                    Paste any character / location / outfit / soul-section / profile-patch JSON.
+                    The type is auto-detected; nested <code>soul</code> objects are flattened.
+                    Override the type below if detection fails.
+                </p>
+                <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:8px;">
+                    <div style="flex:0 0 auto;">
+                        <label for="worlddev-json-type" style="display:block;font-size:0.85em;opacity:0.8;margin-bottom:2px;">Type</label>
+                        <select id="worlddev-json-type" class="auth-input" onchange="worldDevJsonPreview()">
+                            <option value="">Auto-detect</option>
+                            <option value="character">Character</option>
+                            <option value="location">Location</option>
+                            <option value="outfit">Outfit (single)</option>
+                            <option value="soul">Soul section</option>
+                            <option value="profile-patch">Profile patch</option>
+                        </select>
+                    </div>
+                    <div id="worlddev-json-status" style="flex:1 1 220px;font-size:0.9em;padding:6px 10px;border-radius:4px;background:rgba(255,255,255,0.05);min-height:32px;">
+                        Paste JSON below.
+                    </div>
+                </div>
+                <textarea id="worlddev-json-input"
+                    rows="14"
+                    placeholder='{ "character_name": "...", "template": "human-roleplay", ... }'
+                    style="width:100%;font-family:monospace;font-size:0.85em;"
+                    oninput="worldDevJsonInputChanged()"></textarea>
+                <div id="worlddev-json-warnings" style="display:none;margin-top:8px;padding:8px 10px;border-radius:4px;background:rgba(255,180,0,0.12);color:#ffcc66;font-size:0.85em;"></div>
+                <div id="worlddev-json-info" style="display:none;margin-top:8px;font-size:0.85em;opacity:0.85;"></div>
+            </div>
+            <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;padding:12px;">
+                <button class="reset-btn" onclick="worldDevCloseJsonImport()">Cancel</button>
+                <button id="worlddev-json-apply-btn" class="save-btn" onclick="worldDevJsonApply()" disabled>Apply</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Login/Register Modal -->
     <div id="auth-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-narrow">
@@ -438,6 +495,7 @@
                     <button id="btn-save-editor" class="save-btn" onclick="saveCharacterEditor()">Alle Felder speichern</button>
                     <button class="export-btn" onclick="exportCharacter()">Export</button>
                     <label class="import-btn">Import<input type="file" accept=".zip" onchange="importCharacter(event)" hidden></label>
+                    <button class="export-btn" style="background:#a33;border-color:#a33;color:#fff;" onclick="deleteCharacterFromEditor()" title="Delete character permanently">Delete</button>
                     <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
                 </div>
             </div>
@@ -469,7 +527,7 @@
                         <button class="save-btn" onclick="saveDailySchedule()">Speichern</button>
                     </div>
                     <p class="field-hint" style="margin: 6px 0 12px 0; color: #888;">
-                        Der Tagesablauf ist ein <em>Hint</em> für den Charakter — er entscheidet selbst, ob er ihm folgt. Schlafen hängt am Energie-Level, nicht mehr an festen Slots.
+                        Grobe Richtung pro Stunde — der Charakter bekommt Ort &amp; Rolle als Hint zum Agent-Loop, entscheidet aber selbst. Leere Stunden = KI wählt frei. Schlafen ist ebenfalls nur ein Hint; das tatsächliche Schlafen hängt am Energie-Level.
                     </p>
                     <div id="tagesablauf-grid" class="tagesablauf-grid">
                         <p class="scheduler-empty">Lade Tagesablauf...</p>
@@ -954,7 +1012,7 @@
         <img id="character-scene-img" class="character-scene-img" src="" alt="" style="display:none;">
         <div id="character-scene-outfit" class="character-scene-outfit" style="display:none;"></div>
         <button id="character-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('agent')" title="Inventar oeffnen">🎒</button>
-        <button id="character-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('agent')" title="Outfit zusammenstellen">👗</button>
+        <button id="character-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('agent')" title="Outfit zusammenstellen">🧥</button>
         <button id="character-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('agent')" title="Outfit sperren">🔓</button>
         <!-- Group Chat: Mehrere Character-Bilder nebeneinander -->
         <div id="group-scene" class="group-scene" style="display:none;"></div>
@@ -965,7 +1023,7 @@
         <img id="player-scene-img" class="player-scene-img" src="" alt="" style="display:none;">
         <div id="player-scene-outfit" class="player-scene-outfit" style="display:none;"></div>
         <button id="player-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('avatar')" title="Inventar oeffnen">🎒</button>
-        <button id="player-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('avatar')" title="Outfit zusammenstellen">👗</button>
+        <button id="player-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('avatar')" title="Outfit zusammenstellen">🧥</button>
         <button id="player-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('avatar')" title="Outfit sperren">🔓</button>
     </div>
 
@@ -1070,6 +1128,7 @@
                 </div>
             </div>
             <div class="diary-controls">
+                <div id="diary-character" style="flex-shrink:0;"></div>
                 <select id="diary-date" class="diary-select" onchange="loadDiary()"></select>
                 <select id="diary-filter" class="diary-select" onchange="loadDiary()">
                     <option value="">Alle Typen</option>
@@ -1099,7 +1158,7 @@
             <div class="tab-bar" style="padding:0 16px;width:fit-content;">
                 <button class="tab-btn tab-active" data-admin-tab="activities" onclick="switchGameAdminTab('activities')">Aktivitaeten</button>
                 <button class="tab-btn" data-admin-tab="rules" onclick="switchGameAdminTab('rules')">Regeln</button>
-                <button class="tab-btn" data-admin-tab="modifiers" onclick="switchGameAdminTab('modifiers')">Zustaende</button>
+                <button class="tab-btn" data-admin-tab="prompt_filters" onclick="switchGameAdminTab('prompt_filters')">Zustaende</button>
                 <button class="tab-btn" data-admin-tab="items" onclick="switchGameAdminTab('items')">Items</button>
             </div>
             <!-- Tab: Aktivitaeten (3-Spalten-Layout) -->
@@ -1134,15 +1193,17 @@
                                 <option value="world">Welt-spezifisch</option>
                                 <option value="shared">Allgemein (shared)</option>
                             </select>
-                            <input type="text" id="lib-act-group" class="agent-status-input" placeholder="Gruppe" style="flex:1;">
+                            <select id="lib-act-group-select" class="agent-status-input" title="Gruppe" style="flex:1;" onchange="_onLibActGroupSelectChange()">
+                                <option value="">-- group --</option>
+                                <option value="__new__">+ new group</option>
+                            </select>
+                            <input type="text" id="lib-act-group" class="agent-status-input" placeholder="new group name" style="flex:1;display:none;">
                         </div>
-                        <input type="text" id="lib-act-id" class="agent-status-input" placeholder="ID (z.B. cocktails_trinken)">
-                        <input type="text" id="lib-act-name" class="agent-status-input" placeholder="Name (English)">
-                        <input type="text" id="lib-act-name-de" class="agent-status-input" placeholder="Name (Deutsch)">
                         <div class="form-row-inline">
-                            <input type="text" id="lib-act-description" class="agent-status-input" placeholder="Description (EN)" style="flex:1;">
-                            <input type="text" id="lib-act-description-de" class="agent-status-input" placeholder="Beschreibung (DE)" style="flex:1;">
+                            <input type="text" id="lib-act-id" class="agent-status-input" placeholder="ID (e.g. cocktails_drinking)" style="flex:1;">
+                            <input type="text" id="lib-act-name" class="agent-status-input" placeholder="Name" style="flex:1;">
                         </div>
+                        <input type="text" id="lib-act-description" class="agent-status-input" placeholder="Description">
                         <div class="form-row-inline">
                             <select id="lib-act-category" class="agent-status-input">
                                 <option value="normal">Normal</option><option value="secret">Geheim</option>
@@ -1163,13 +1224,31 @@
                         <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
                             alone, night, day, mood:&lt;wort&gt;, stamina&gt;&lt;N&gt;,
                             relationship:&lt;Name|any&gt;&gt;&lt;N&gt;, romantic:&lt;Name|any&gt;&gt;&lt;N&gt;,
-                            has_item:&lt;item_id&gt;, current_activity:&lt;id|name&gt; &mdash; AND / OR / NOT
+                            has_item:&lt;item_id&gt;, current_activity:&lt;id|name&gt;,
+                            schedule:&lt;sleeping|awake|activity&gt;,
+                            condition:&lt;tag&gt; &mdash; AND / OR / NOT
                         </div>
-                        <div class="form-row-inline">
-                            <label>Cooldown (h)</label>
-                            <input type="number" id="lib-act-cooldown" class="agent-status-input" value="0" min="0" style="width:60px;">
-                            <label>Dauer (min)</label>
-                            <input type="number" id="lib-act-duration" class="agent-status-input" value="0" min="0" style="width:60px;">
+                        <div style="display:flex;gap:10px;align-items:flex-start;margin:4px 0;">
+                            <div style="flex:1;min-width:0;">
+                                <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px;">Effect type</label>
+                                <select id="lib-act-effect-type" class="agent-status-input" style="width:100%;">
+                                    <option value="ongoing">ongoing (per hour)</option>
+                                    <option value="once">once (one-shot)</option>
+                                </select>
+                                <div style="font-size:10px;color:var(--text-muted);margin-top:3px;line-height:1.3;">
+                                    <code>once</code>: discrete one-shot effect per activity-set. <code>cooldown_minutes</code> is optional — blocks the LLM from re-setting the activity within that window.
+                                </div>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:4px;">
+                                <div class="form-row-inline" style="margin:0;">
+                                    <label style="font-size:11px;min-width:auto;">Cooldown (min)</label>
+                                    <input type="number" id="lib-act-cooldown" class="agent-status-input" value="0" min="0" step="1" style="width:60px;" title="0 = no cooldown. Otherwise minimum 1 minute.">
+                                </div>
+                                <div class="form-row-inline" style="margin:0;">
+                                    <label style="font-size:11px;min-width:auto;">Duration (min)</label>
+                                    <input type="number" id="lib-act-duration" class="agent-status-input" value="0" min="0" style="width:60px;">
+                                </div>
+                            </div>
                         </div>
                         <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
                             <span style="font-size:11px;color:var(--text-muted);min-width:78px;" title="Ueberschreibt bei dieser Aktivitaet den Raum-/Location-Dresscode">Outfit-Type:</span>
@@ -1182,7 +1261,12 @@
                             Leer = Raum-/Location-Type greift. Beispiele: <code>sunbathing</code> → pool, <code>cardio</code> → sport, <code>sleeping</code> → bed.
                         </div>
                         <div class="form-row-inline">
-                            <label><input type="checkbox" id="lib-act-interruptible" checked> Unterbrechbar</label>
+                            <label><input type="checkbox" id="lib-act-interruptible" checked> Interruptible</label>
+                            <label style="margin-left:12px;font-size:11px;color:var(--text-muted);min-width:auto;" title="Selectable: LLM can choose this activity freely. Follow-up only: only triggered as a follow-up of another activity (or via narrative trigger), never offered to the LLM as a free choice.">Availability</label>
+                            <select id="lib-act-auto-pick" class="agent-status-input" style="width:auto;">
+                                <option value="true">Selectable</option>
+                                <option value="false">Follow-up only</option>
+                            </select>
                         </div>
                         <input type="text" id="lib-act-required-roles" class="agent-status-input" placeholder="Required Roles (kommagetrennt, z.B. photographer,model)" title="Nur Charactere mit mindestens einer dieser Rollen sehen die Aktivitaet. Leer = jeder darf.">
                         <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.3;">
@@ -1253,14 +1337,16 @@
                             Nach Ausfuehrung automatisch starten (Wahrscheinlichkeit %).
                         </div>
                         <div id="lib-act-followups" style="margin-top:2px;"></div>
-                        <button class="save-btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="_addFollowUpRow('act')">+ Folge</button>
+                        <button class="save-btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="_addFollowUpRow()">+ Folge</button>
                         <!-- Kumulativer Effekt -->
                         <label style="font-size:12px;color:var(--text-muted);font-weight:600;margin-top:8px;border-top:1px solid var(--border-light);padding-top:8px;">Kumulativer Effekt</label>
                         <div class="form-row-inline" style="margin-top:4px;">
                             <label>Ab</label>
                             <input type="number" id="lib-act-cum-threshold" class="agent-status-input" value="" min="2" style="width:50px;" placeholder="X">
                             <label>x &rarr; Condition:</label>
-                            <input type="text" id="lib-act-cum-name" class="agent-status-input" placeholder="z.B. drunk" style="width:90px;">
+                            <select id="lib-act-cum-name" class="agent-status-input" style="width:140px;">
+                                <option value="">-- keine --</option>
+                            </select>
                         </div>
                         <div class="form-row-inline" style="margin-top:4px;">
                             <label>Mood:</label>
@@ -1270,10 +1356,6 @@
                         </div>
                         <label style="font-size:11px;color:var(--text-muted);margin-top:4px;">Cumulative Effects</label>
                         <textarea id="lib-act-cum-effects" class="agent-status-input" rows="2" placeholder="attention_change: -20&#10;courage_change: 15" style="font-family:monospace;font-size:12px;"></textarea>
-                        <!-- Kumulative Folge-Aktivitaeten -->
-                        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Folge-Aktivitaeten bei Kumulation</label>
-                        <div id="lib-act-cum-followups" style="margin-top:2px;"></div>
-                        <button class="save-btn" style="font-size:10px;padding:2px 8px;margin-top:2px;" onclick="_addFollowUpRow('cum')">+ Folge</button>
                         <div class="form-actions" style="margin-top:auto;padding-top:10px;">
                             <button class="save-btn" onclick="saveLibraryActivity()">Speichern</button>
                             <button class="reset-btn" onclick="cancelLibraryEdit()">Abbrechen</button>
@@ -1286,7 +1368,9 @@
                             <label>Ab</label>
                             <input type="number" id="override-cum-threshold" class="agent-status-input" value="" min="2" style="width:50px;" placeholder="X">
                             <label>x &rarr; Condition:</label>
-                            <input type="text" id="override-cum-name" class="agent-status-input" placeholder="z.B. drunk" style="width:90px;">
+                            <select id="override-cum-name" class="agent-status-input" style="width:140px;">
+                                <option value="">-- keine --</option>
+                            </select>
                         </div>
                         <input type="text" id="override-cum-modifier" class="agent-status-input" placeholder="Prompt-Modifier" style="margin-top:4px;">
                         <div class="form-row-inline" style="margin-top:4px;">
@@ -1314,14 +1398,23 @@
                 <div style="flex:1;min-width:0;">
                     <div id="rule-edit-form" style="display:none;" class="world-inline-form">
                         <input type="hidden" id="rule-edit-id">
+                        <div id="rule-edit-origin-banner" style="display:none;font-size:10px;padding:3px 6px;border-radius:3px;margin-bottom:4px;"></div>
                         <input type="text" id="rule-edit-name" class="agent-status-input" placeholder="Name der Regel">
                         <div class="form-row-inline">
                             <select id="rule-edit-type" class="agent-status-input" onchange="_toggleRuleFields()">
                                 <option value="block">Blockade</option>
                                 <option value="force">Zwang</option>
+                                <option value="discover">Entdeckung</option>
                             </select>
                             <select id="rule-edit-character" class="agent-status-input" title="Regel gilt nur fuer diesen Character. Leer = alle Characters.">
                                 <option value="">— alle Characters —</option>
+                            </select>
+                        </div>
+                        <div class="form-row-inline">
+                            <label style="font-size:11px;color:var(--text-muted);min-width:80px;">Speicherort:</label>
+                            <select id="rule-edit-target" class="agent-status-input" title="Allgemein = global fuer alle Welten. Weltspezifisch = nur diese Welt (ueberschreibt Allgemein bei gleicher ID).">
+                                <option value="world">Weltspezifisch (nur diese Welt)</option>
+                                <option value="shared">Allgemein (alle Welten)</option>
                             </select>
                         </div>
                         <div id="rule-block-fields">
@@ -1359,6 +1452,13 @@
                             <label style="font-size:11px;color:var(--text-muted);">Aktivitaet</label>
                             <select id="rule-force-activity" class="agent-status-input"></select>
                         </div>
+                        <div id="rule-discover-fields" style="display:none;">
+                            <label style="font-size:11px;color:var(--text-muted);">Entdeckungs-Wahrscheinlichkeit pro Tick (0-1)</label>
+                            <input type="number" id="rule-discover-probability" class="agent-status-input" min="0" max="1" step="0.01" value="0.05" placeholder="0.05">
+                            <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.5;">
+                                Pro Agent-Loop-Tick wird gewuerfelt. Bei Erfolg wird ein zufaelliger angrenzender, noch unbekannter Ort entdeckt (Grid-Nachbar). Skill-Checks gehen ueber die Bedingung (z.B. <code>perception&gt;50</code>).
+                            </div>
+                        </div>
                         <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Bedingung</label>
                         <input type="text" id="rule-edit-condition" class="agent-status-input" placeholder="z.B. has_item:item_a1b2c3d4 OR courage&gt;50">
                         <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.5;">
@@ -1366,8 +1466,9 @@
                             <strong>Zeit/Anwesenheit:</strong> alone, night, day<br>
                             <strong>Beziehung:</strong> relationship:Name&gt;N, romantic:Name&gt;N (Name oder "any")<br>
                             <strong>Stimmung:</strong> mood:happy<br>
-                            <strong>Zustand:</strong> condition:drunk (aktive Condition im Profil)<br>
+                            <strong>Zustand:</strong> condition:drunk (aktiver Tag im Profil)<br>
                             <strong>Aktuelle Aktivitaet:</strong> current_activity:kochen<br>
+                            <strong>Tagesablauf:</strong> schedule:sleeping (im Schlaf-Slot), schedule:awake (nicht im Schlaf-Slot), schedule:&lt;activity&gt; (spezifischer Slot)<br>
                             <strong>Item im Inventar:</strong> has_item:item_a1b2c3d4 (Character traegt Item)<br>
                             <strong>Item im Raum:</strong> room_has_item:holoprojector (Ziel-Raum enthaelt Item — nur bei scope "Jeder Raum" oder konkretem Raum)<br>
                             <strong>Geheimnis:</strong> has_secret<br>
@@ -1377,42 +1478,10 @@
                         <input type="text" id="rule-edit-message" class="agent-status-input" placeholder="z.B. Du brichst vor Erschoepfung zusammen">
                         <div class="form-actions" style="margin-top:8px;">
                             <button class="save-btn" onclick="_saveRule()">Speichern</button>
+                            <button id="rule-edit-remove-override" class="reset-btn" style="display:none;margin-left:6px;" onclick="_deleteRuleOverride()" title="World-Override entfernen — Shared-Baseline wird wieder aktiv">Override entfernen</button>
                         </div>
                     </div>
                     <div id="rule-placeholder" class="scheduler-empty">Klicke auf eine Regel oder erstelle eine neue.</div>
-                </div>
-            </div>
-            <!-- Tab: Zustaende (Prompt-Modifier) -->
-            <div id="game-admin-tab-modifiers" class="modal-body" style="display:none;gap:12px;">
-                <div style="flex:0 0 40%;overflow-y:auto;max-height:70vh;">
-                    <div class="scheduler-header" style="margin-bottom:8px;">
-                        <h3 style="font-size:13px;">Status-Zustaende</h3>
-                        <button class="save-btn" style="font-size:11px;" onclick="_newModifier()">+ Neu</button>
-                    </div>
-                    <div id="modifiers-list" class="world-list"><p class="scheduler-empty">Lade...</p></div>
-                </div>
-                <div style="flex:1;min-width:0;">
-                    <div id="modifier-edit-form" style="display:none;" class="world-inline-form">
-                        <input type="hidden" id="modifier-edit-idx" value="-1">
-                        <div class="form-row-inline">
-                            <input type="text" id="modifier-edit-label" class="agent-status-input" placeholder="Label (z.B. Muede)" style="flex:1;">
-                            <input type="text" id="modifier-edit-icon" class="agent-status-input" placeholder="Icon (🍺)" style="width:80px;">
-                        </div>
-                        <input type="text" id="modifier-edit-condition" class="agent-status-input" placeholder="Bedingung (z.B. stamina<30 oder condition:drunk)">
-                        <textarea id="modifier-edit-prompt" class="agent-status-input" rows="3" placeholder="Prompt-Modifier (z.B. You are tired and sluggish...)"></textarea>
-                        <textarea id="modifier-edit-image" class="agent-status-input" rows="2" placeholder="Image-Modifier (visuelle Hinweise fuer Bildgenerierung, z.B. 'flushed cheeks, glassy eyes')"></textarea>
-                        <div style="font-size:10px;color:var(--text-muted);line-height:1.3;">
-                            Prompt-Modifier: Verhaltensanweisung an das LLM.<br>
-                            Image-Modifier: Wird an den Expression-Prompt angehaengt.<br>
-                            Icon: Emoji/Kurztext fuer Header-Badge.<br>
-                            Reihenfolge wichtig: strengste Bedingung zuerst (nur der erste Match pro Stat greift).
-                        </div>
-                        <div class="form-actions" style="margin-top:8px;">
-                            <button class="save-btn" onclick="_saveModifier()">Speichern</button>
-                            <button class="reset-btn" onclick="_deleteModifier()">Loeschen</button>
-                        </div>
-                    </div>
-                    <div id="modifier-placeholder" class="scheduler-empty">Klicke auf einen Zustand oder erstelle einen neuen.</div>
                 </div>
             </div>
             <!-- Tab: Items -->
@@ -1432,12 +1501,12 @@
                             <option value="consumable">Verbrauchbar</option>
                             <option value="evidence">Beweis</option>
                             <option value="gift">Geschenk</option>
+                            <option value="spell">Spell / Zauber</option>
                             <option value="quest">Quest</option>
                             <option value="decoration">Deko</option>
                         </select>
                         <select id="items-filter-rarity" class="agent-status-input" style="flex:1;font-size:11px;padding:4px 6px;" onchange="_renderItemsList()">
                             <option value="">Alle Raritaeten</option>
-                            <option value="generic">Generic</option>
                             <option value="common">Common</option>
                             <option value="rare">Rare</option>
                             <option value="unique">Unique</option>
@@ -1461,18 +1530,18 @@
                             <input type="text" id="item-edit-description" class="agent-status-input" placeholder="Beschreibung" style="flex:2;">
                         </div>
                         <div class="form-row-inline">
-                            <select id="item-edit-category" class="agent-status-input">
+                            <select id="item-edit-category" class="agent-status-input" onchange="_toggleOutfitPieceSection()">
                                 <option value="outfit_piece">Outfit-Teil</option>
                                 <option value="key">Key / Schluessel</option>
                                 <option value="tool">Tool / Werkzeug</option>
                                 <option value="consumable">Consumable / Verbrauchbar</option>
                                 <option value="evidence">Evidence / Beweis</option>
                                 <option value="gift">Gift / Geschenk</option>
+                                <option value="spell">Spell / Zauber</option>
                                 <option value="quest">Quest</option>
                                 <option value="decoration">Decoration / Deko</option>
                             </select>
-                            <select id="item-edit-rarity" class="agent-status-input" title="Generic = einfaerbbar in der Garderobe; alle anderen haben feste Farbe im Prompt">
-                                <option value="generic">Generic (einfaerbbar)</option>
+                            <select id="item-edit-rarity" class="agent-status-input">
                                 <option value="common">Common</option>
                                 <option value="rare">Rare</option>
                                 <option value="unique">Unique</option>
@@ -1483,8 +1552,10 @@
                             <label style="display:inline-flex;align-items:center;gap:3px;"><input type="checkbox" id="item-edit-transferable" checked style="margin:0;"> Uebertragbar</label>
                             <label style="display:inline-flex;align-items:center;gap:3px;"><input type="checkbox" id="item-edit-consumable" style="margin:0;"> Verbrauchbar</label>
                         </div>
-                        <textarea id="item-edit-image-prompt" class="agent-status-input" rows="2" placeholder="Image Prompt (fuer Bildgenerierung, z.B. 'silver house key on wooden table, realistic')"></textarea>
-                        <textarea id="item-edit-prompt-fragment" class="agent-status-input" rows="2" placeholder="Prompt-Fragment (fuer Character-Bild, z.B. 'holding a hammer' oder 'black leather jacket, slim fit')"></textarea>
+                        <input type="text" id="item-edit-image-prompt" class="agent-status-input" placeholder="Image Prompt (fuer Bildgenerierung, z.B. 'silver house key on wooden table, realistic')">
+                        <div id="item-edit-prompt-fragment-wrap">
+                            <input type="text" id="item-edit-prompt-fragment" class="agent-status-input" placeholder="Prompt-Fragment (fuer Character-Bild, z.B. 'holding a hammer' oder 'black leather jacket, slim fit')">
+                        </div>
                         <div id="item-edit-outfit-piece-section" style="display:none;margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
                             <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Outfit-Teil</label>
                             <div style="display:flex;gap:12px;margin-top:4px;">
@@ -1520,13 +1591,76 @@
                             </div>
                             <div class="form-row-inline" style="margin-top:4px;">
                                 <label style="font-size:11px;white-space:nowrap;">Condition setzen:</label>
-                                <input type="text" id="item-edit-apply-condition" class="agent-status-input" placeholder="z.B. drunk" style="flex:1;font-size:12px;">
+                                <select id="item-edit-apply-condition" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="">-- keine --</option>
+                                </select>
                                 <label style="font-size:11px;white-space:nowrap;">Dauer (h):</label>
                                 <input type="number" id="item-edit-condition-duration" class="agent-status-input" min="1" placeholder="2" style="width:60px;font-size:12px;">
                             </div>
                             <div style="font-size:10px;color:var(--text-muted);margin:2px 0 0 0;line-height:1.3;">
-                                Optional: aktiviert eine Condition im Profil (analog kumulativer Effekt bei Aktivitaeten).
+                                Optional: aktiviert eine Condition im Profil (Quelle: <em>Game Admin → Zustaende</em>).
                             </div>
+                        </div>
+                        <div id="item-edit-magic-section" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                            <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Magie / Spell (optional)</label>
+                            <div style="font-size:10px;color:var(--text-muted);margin:2px 0 6px 0;line-height:1.4;">
+                                Wenn dieses Item ein Zauberspruch oder eine Schriftrolle ist: Beschwoerungsformel eintragen. Tool-LLM erkennt sie im Avatar-Chat und wirkt den Spruch automatisch.
+                            </div>
+                            <input type="text" id="item-edit-incantation" class="agent-status-input" placeholder="Beschwoerungsformel — z.B. 'Lunara vincula tege'" style="font-size:12px;">
+                            <div class="form-row-inline" style="margin-top:4px;gap:6px;">
+                                <label style="font-size:11px;white-space:nowrap;">Cast-Activity:</label>
+                                <select id="item-edit-cast-activity" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="">-- none --</option>
+                                </select>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin:2px 0 0 0;line-height:1.3;">
+                                Optional: beim erfolgreichen Cast wird diese Activity beim <strong>Avatar</strong> (Caster) gesetzt. Ablauf laeuft ueber die <code>duration_minutes</code> der Activity.
+                            </div>
+                            <div class="form-row-inline" style="margin-top:4px;gap:6px;">
+                                <label style="font-size:11px;white-space:nowrap;">Modus:</label>
+                                <select id="item-edit-spell-mode" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="force">force (Zauber — Effekt auf Ziel erzwingen)</option>
+                                    <option value="gift">gift (Schriftrolle/Trank — Ziel kann ablehnen)</option>
+                                </select>
+                            </div>
+                            <div class="form-row-inline" style="margin-top:4px;gap:6px;">
+                                <label style="font-size:11px;white-space:nowrap;">Effekt-Item:</label>
+                                <select id="item-edit-clone-item" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="">-- dieses Item selbst (Default) --</option>
+                                </select>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin:2px 0 0 0;line-height:1.3;">
+                                Beim Erfolg wird dieses Item ans Ziel gegeben. Default: das Spell-Item selbst (z.B. ein Trank wirkt direkt).
+                            </div>
+                            <div class="form-row-inline" style="margin-top:6px;gap:6px;align-items:center;">
+                                <label style="font-size:11px;white-space:nowrap;">Erfolgschance %:</label>
+                                <input type="number" id="item-edit-success-chance" class="agent-status-input" min="0" max="100" placeholder="100" style="width:70px;font-size:12px;">
+                                <label style="display:flex;gap:4px;align-items:center;font-size:11px;cursor:pointer;">
+                                    <input type="checkbox" id="item-edit-copy-on-give"> Item wird beim Uebergeben kopiert
+                                </label>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin:2px 0 4px 0;line-height:1.3;">
+                                An: Caster behaelt seine Instanz (gelernter Zauberspruch). Aus: Quell-Item wird beim Wirken verbraucht (Einmal-Schriftrolle/Trank).
+                            </div>
+                            <div style="display:flex;gap:10px;margin-top:4px;">
+                                <div style="flex:1;min-width:0;">
+                                    <label style="font-size:11px;color:var(--text-muted);display:block;">Erfolgs-Hinweis (Text fuer NPC-Reaktion)</label>
+                                    <textarea id="item-edit-success-text" class="agent-status-input" rows="2" placeholder="z.B. 'Eine kalte Silberkette zieht sich um deinen Geist.'" style="font-size:12px;margin-top:2px;width:100%;box-sizing:border-box;"></textarea>
+                                </div>
+                                <div style="flex:1;min-width:0;">
+                                    <label style="font-size:11px;color:var(--text-muted);display:block;">Fehlschlag-Hinweis (Text fuer NPC-Reaktion)</label>
+                                    <textarea id="item-edit-fail-text" class="agent-status-input" rows="2" placeholder="z.B. 'Ein leises Kribbeln, mehr nicht.'" style="font-size:12px;margin-top:2px;width:100%;box-sizing:border-box;"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="item-edit-tracker-section" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                            <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Tracker: reveal another character's location (optional)</label>
+                            <div class="form-row-inline" style="gap:6px;margin-top:4px;">
+                                <select id="item-edit-tracks-character" class="agent-status-input" style="flex:1;font-size:12px;">
+                                    <option value="">-- none --</option>
+                                </select>
+                            </div>
+                            <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">While the carrier holds this item, the chosen character's current location is shown to them in the agent prompt.</div>
                         </div>
                         <div id="item-edit-evidence-section" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
                             <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;display:block;">Evidence: enthuelltes Geheimnis (optional)</label>
@@ -1569,6 +1703,70 @@
                             <button class="save-btn" style="font-size:11px;padding:4px 10px;" onclick="_addItemOwner()">+ Geben</button>
                         </div>
                     </div>
+                </div>
+            </div>
+            <!-- Tab: Zustaende (state-driven prompt block dropping + UI badge + image modifier) -->
+            <div id="game-admin-tab-prompt_filters" class="modal-body" style="display:none;gap:12px;">
+                <div style="flex:0 0 35%;overflow-y:auto;max-height:70vh;display:flex;flex-direction:column;">
+                    <div class="scheduler-header" style="margin-bottom:8px;flex-shrink:0;">
+                        <h3 style="font-size:13px;">Zustaende</h3>
+                        <button class="save-btn" style="font-size:11px;" onclick="_newPromptFilter()">+ Neu</button>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px;line-height:1.4;flex-shrink:0;">
+                        Bei Match werden gewaehlte Bloecke aus dem Thought-Prompt entfernt, der Modifier-Text erscheint unter <code>effects_block</code>, das Icon im Character-Header-Badge und der Image-Modifier wird an den Bild-Prompt angehaengt.
+                        <br>Quellen: shared baseline + world overlay (world by id ueberschreibt).
+                    </div>
+                    <div id="prompt-filters-list" class="world-list" style="overflow-y:auto;flex:1;">
+                        <p class="scheduler-empty">Lade...</p>
+                    </div>
+                </div>
+                <div style="flex:1;min-width:0;overflow-y:auto;max-height:70vh;">
+                    <div id="prompt-filter-edit-form" style="display:none;" class="world-inline-form">
+                        <input type="hidden" id="pf-edit-original-id" value="">
+                        <input type="hidden" id="pf-edit-source" value="">
+                        <div class="form-row-inline">
+                            <input type="text" id="pf-edit-id" class="agent-status-input" placeholder="filter-id (a-z0-9_)" style="flex:1;font-family:monospace;">
+                            <div style="position:relative;display:inline-flex;gap:2px;align-items:stretch;">
+                                <input type="text" id="pf-edit-icon" class="agent-status-input" placeholder="Icon (🍺)" style="width:80px;">
+                                <button type="button" id="pf-edit-icon-picker-btn" onclick="_togglePfIconPicker()" title="Emoji waehlen" style="padding:2px 8px;background:var(--bg-elev);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:14px;">😀</button>
+                                <div id="pf-edit-icon-picker" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px;box-shadow:0 4px 16px rgba(0,0,0,0.4);max-width:280px;"></div>
+                            </div>
+                            <label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer;">
+                                <input type="checkbox" id="pf-edit-enabled" checked> enabled
+                            </label>
+                        </div>
+                        <input type="text" id="pf-edit-label" class="agent-status-input" placeholder="Label (z.B. 'Drunk — clouded memory')">
+                        <label style="font-size:11px;color:var(--text-muted);margin-top:6px;">Zusaetzliche Bedingung (optional)</label>
+                        <input type="text" id="pf-edit-condition" class="agent-status-input" placeholder="z.B. stamina&lt;10  (leer = nur Tag-Trigger ueber id)">
+                        <div style="font-size:10px;color:var(--text-muted);margin:-2px 0 4px 0;line-height:1.5;">
+                            Filter triggert IMMER wenn die <strong>id</strong> als Tag im Profil steht (per <code>apply_condition</code>). Diese Expression triggert ZUSAETZLICH (z.B. fuer Auto-Trigger ueber Stats).<br>
+                            <strong>Status:</strong> stamina&gt;N, courage&lt;N, stress&gt;N, lust&gt;N, ...<br>
+                            <strong>Zeit/Anwesenheit:</strong> alone, night, day<br>
+                            <strong>Beziehung:</strong> relationship:Name&gt;N, romantic:Name&gt;N (Name oder "any")<br>
+                            <strong>Stimmung:</strong> mood:happy<br>
+                            <strong>Anderer Zustand:</strong> condition:&lt;tag&gt; (anderer aktiver Tag im Profil)<br>
+                            <strong>Aktuelle Aktivitaet:</strong> current_activity:kochen<br>
+                            <strong>Tagesablauf:</strong> schedule:sleeping, schedule:awake, schedule:&lt;activity&gt;<br>
+                            <strong>Item im Inventar:</strong> has_item:item_a1b2c3d4<br>
+                            <strong>Geheimnis:</strong> has_secret<br>
+                            <strong>Verknuepfung:</strong> AND / OR / NOT
+                        </div>
+                        <div style="margin-top:6px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Drop blocks (klick zum toggle)</div>
+                        <div id="pf-edit-blocks" style="display:flex;flex-wrap:wrap;gap:4px;border:1px solid var(--border);border-radius:4px;padding:6px;max-height:180px;overflow-y:auto;margin-top:4px;"></div>
+                        <div style="margin-top:6px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Prompt Modifier (Text fuer effects_block)</div>
+                        <textarea id="pf-edit-modifier" class="agent-status-input" rows="3" placeholder="You are drunk. Recent conversations feel fuzzy …" style="margin-top:4px;"></textarea>
+                        <div style="font-size:10px;color:var(--text-muted);margin:2px 0 0 0;line-height:1.4;">
+                            Platzhalter <code>{avatar}</code> wird beim Rendern durch den aktiven Avatar-Namen ersetzt (Fallback: "the avatar").
+                        </div>
+                        <div style="margin-top:6px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">Image Modifier (visuelle Hinweise fuer Bildgenerierung)</div>
+                        <textarea id="pf-edit-image" class="agent-status-input" rows="2" placeholder="z.B. 'flushed cheeks, glassy eyes' — wird nur bei condition:X-Filtern an aktive Conditions angehaengt" style="margin-top:4px;"></textarea>
+                        <div id="pf-edit-source-info" style="font-size:11px;color:var(--text-muted);margin-top:6px;"></div>
+                        <div class="form-actions" style="margin-top:8px;">
+                            <button class="save-btn" onclick="_savePromptFilter()">Speichern</button>
+                            <button id="pf-edit-delete-btn" class="reset-btn" onclick="_deletePromptFilter()" style="display:none;">Override loeschen</button>
+                        </div>
+                    </div>
+                    <div id="prompt-filter-placeholder" class="scheduler-empty">Klicke auf einen Zustand oder erstelle einen neuen.</div>
                 </div>
             </div>
         </div>

@@ -18,7 +18,10 @@ from app.core.log import get_logger
 from app.core.expression_pose_maps import (
     DEFAULT_EXPRESSION,
     DEFAULT_POSE,
+    is_partner_activity,
+    mood_bucket,
     resolve_expression_prompt,
+    resolve_pose_key,
     resolve_pose_prompt)
 
 logger = get_logger(__name__)
@@ -140,11 +143,20 @@ def _cache_key(mood: str, activity: str,
     Store IMMER denselben Key — sonst wuerde die Trigger-Filterung
     (die activity '' speichert) am Lookup vorbeilaufen, wenn der Frontend
     die Roh-Activity '...feels suspicious...' aus dem Character-State pollt.
+
+    Activity wird vor dem Hash auf den kanonischen Pose-Preset-Key reduziert
+    (so kollabieren z.B. 'serving beer' und 'bartending' auf denselben Cache-
+    Slot). Mood wird auf einen groben Body-Language-Bucket reduziert — feinere
+    Mood-Unterschiede gehen beim FaceSwap sowieso verloren, deshalb lohnt sich
+    ein eigener Cache-Slot pro Mood-Synonym nicht. Beides senkt die Anzahl
+    generierter Variants pro Character drastisch.
     """
     act_filtered = _normalize_activity_for_trigger(activity, mood)
-    act = _normalize_activity(act_filtered)
+    act_canonical = resolve_pose_key(act_filtered) if act_filtered else ""
+    act = act_canonical or _normalize_activity(act_filtered)
+    bucket = mood_bucket(mood) if mood else ""
     eq = _equipped_signature(equipped_pieces, equipped_items, equipped_pieces_meta)
-    raw = f"{mood.strip().lower()}:{act}:{eq}"
+    raw = f"{bucket}:{act}:{eq}"
     h = hashlib.md5(raw.encode()).hexdigest()[:12]
     if character_name:
         return f"{_safe_name(character_name)}_{h}"
@@ -156,14 +168,121 @@ def get_cached_expression(character_name: str,
                           equipped_pieces: Optional[Dict[str, str]] = None,
                           equipped_items: Optional[list] = None,
                           equipped_pieces_meta: Optional[Dict[str, Dict[str, Any]]] = None) -> Optional[Path]:
-    """Check if a cached expression image exists. Returns path or None."""
+    """Check if a cached expression image exists. Returns path or None.
+
+    On a hit, updates the sidecar JSON with ``last_used_at`` (unix ts) and
+    increments ``use_count``. The LRU-Pruner uses these to decide which
+    variants to evict when a character exceeds its cap.
+    """
     expr_dir = _get_expressions_dir(character_name)
     key = _cache_key(mood, activity, character_name, equipped_pieces, equipped_items, equipped_pieces_meta)
     for ext in (".png", ".jpg", ".webp"):
         path = expr_dir / f"{key}{ext}"
         if path.exists():
+            _touch_sidecar(path.with_suffix(".json"))
             return path
     return None
+
+
+def _touch_sidecar(sidecar_path: Path) -> None:
+    """Best-effort update of last_used_at/use_count in a variant sidecar JSON.
+
+    Failures are logged at debug level only — a missing sidecar or a write
+    error must not break image-serving.
+    """
+    if not sidecar_path.exists():
+        return
+    import time as _time
+    try:
+        data = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+        data["last_used_at"] = _time.time()
+        data["use_count"] = int(data.get("use_count", 0)) + 1
+        sidecar_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.debug("touch sidecar %s failed: %s", sidecar_path.name, e)
+
+
+_VARIANTS_MAX_PER_CHAR_DEFAULT = 30
+
+
+def _get_variants_cap() -> int:
+    """Read the per-character variants cap from config, with a sensible default."""
+    try:
+        from app.core import config as _cfg
+        val = int(_cfg.get("server.variants_max_per_character")
+                  or _VARIANTS_MAX_PER_CHAR_DEFAULT)
+        return max(5, min(500, val))
+    except Exception:
+        return _VARIANTS_MAX_PER_CHAR_DEFAULT
+
+
+def prune_variants(character_name: str, max_per_char: Optional[int] = None) -> int:
+    """LRU-Eviction: keep only the N most-recently-used variants for a character.
+
+    Sort order: variants with ``last_used_at`` win over variants without
+    (legacy entries get their file mtime as a tiebreaker). Among those with
+    the field, newest wins. Excess sidecars and their PNGs are deleted in
+    pairs. Returns the number of variant pairs removed.
+    """
+    cap = max_per_char if max_per_char is not None else _get_variants_cap()
+    expr_dir = _get_expressions_dir(character_name)
+    if not expr_dir.exists():
+        return 0
+    entries = []  # (sort_key, sidecar_path, image_path or None)
+    for sidecar in expr_dir.glob("*.json"):
+        last_used = 0.0
+        try:
+            meta = json.loads(sidecar.read_text(encoding="utf-8"))
+            if isinstance(meta, dict):
+                last_used = float(meta.get("last_used_at") or 0.0)
+        except Exception:
+            pass
+        if last_used <= 0:
+            try:
+                last_used = sidecar.stat().st_mtime
+            except OSError:
+                last_used = 0.0
+        img = None
+        for ext in (".png", ".jpg", ".webp"):
+            cand = sidecar.with_suffix(ext)
+            if cand.exists():
+                img = cand
+                break
+        entries.append((last_used, sidecar, img))
+    if len(entries) <= cap:
+        return 0
+    entries.sort(key=lambda e: e[0], reverse=True)  # newest first
+    removed = 0
+    for _ts, sidecar, img in entries[cap:]:
+        try:
+            if img and img.exists():
+                img.unlink()
+            sidecar.unlink()
+            removed += 1
+        except OSError as e:
+            logger.debug("prune %s failed: %s", sidecar.name, e)
+    if removed:
+        logger.info("Variant-Pruning %s: %d Paare entfernt (cap=%d)",
+                     character_name, removed, cap)
+    return removed
+
+
+def prune_variants_all(max_per_char: Optional[int] = None) -> int:
+    """Run prune_variants for every character. Returns total pairs removed."""
+    try:
+        from app.models.character import list_available_characters
+    except Exception:
+        return 0
+    total = 0
+    for char_name in list_available_characters():
+        try:
+            total += prune_variants(char_name, max_per_char=max_per_char)
+        except Exception as e:
+            logger.debug("prune_variants_all %s: %s", char_name, e)
+    return total
 
 
 def is_generating(character_name: str, mood: str, activity: str,
@@ -306,6 +425,12 @@ _GARBAGE_ACTIVITIES = frozenset({
     "no clothing changes", "no outfit changes", "no changes",
     "unchanged", "no change", "keine aenderung", "keine aktivitaet",
     "no activity", "no action", "idle",
+    # UI-Events ohne Pose-Aussage — frueher landeten die als eigene Variants
+    # (z.B. "outfitchange" 4×, "setlocation" 1×). Sie sollen auf den Idle-
+    # Bucket kollabieren statt einen Image-Gen-Cycle zu triggern.
+    "outfitchange", "outfit_change", "outfit change",
+    "changing clothes / outfit", "changing clothes", "wechseln",
+    "setlocation", "set_location", "set location",
 })
 
 
@@ -373,6 +498,18 @@ def trigger_expression_generation(character_name: str,
             "Expression-Trigger [%s]: activity '%s' -> '%s' normalisiert (Garbage-Filter)",
             character_name, activity, _normalized)
         activity = _normalized
+
+    # Partner-Activities (kissing, embracing, ...) ueberspringen wir komplett.
+    # Der Pipeline injizieren wir nur EINEN Character, das Bildmodell dupliziert
+    # daraufhin das Subjekt um die "two people"-Implikation des Pose-Prompts zu
+    # erfuellen → "Rosi umarmt sich selbst". Statt einen kaputten Variant zu
+    # generieren bleibt das Avatar auf dem letzten guten Frame stehen. Tagged
+    # via ``"solo": false`` in pose_presets*.json — keine Heuristik.
+    if is_partner_activity(activity):
+        logger.info(
+            "Expression-Trigger [%s]: activity '%s' ist Partner-Pose (solo:false) → Skip",
+            character_name, activity)
+        return False
 
     if not coalesce:
         return _do_trigger_expression_generation(
@@ -861,6 +998,10 @@ def generate_expression_image(character_name: str,
         parts.append(pose_prompt)
         parts.append(expression_prompt)
         full_prompt = ", ".join(p for p in parts if p)
+        # force_faceswap respektiert per-Character-Opt-Out: wenn der User in
+        # Image-Skill-Config oder Character-Profil "faceswap_enabled=False"
+        # gesetzt hat, soll auch bei Variants kein MultiSwap/FaceSwap laufen.
+        _force_swap = not image_skill._character_swap_disabled(character_name)
         payload = {
             "prompt": full_prompt,
             "input": full_prompt,
@@ -869,12 +1010,12 @@ def generate_expression_image(character_name: str,
             "set_profile": False,
             "skip_gallery": True,
             "auto_enhance": False,
-            "force_faceswap": True,
+            "force_faceswap": _force_swap,
             "workflow": workflow_name,
             "backend": backend_name,
             "equipped_pieces_override": equipped_pieces or {},
         }
-        logger.info("Expression-Regen: Single-Prompt Modus (kein separated prompt)")
+        logger.info("Expression-Regen: Single-Prompt Modus (force_faceswap=%s)", _force_swap)
 
     if outfit_w:
         payload["override_width"] = outfit_w

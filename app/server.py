@@ -40,6 +40,15 @@ _load_config(_paths.get_config_path())
 from app.core.db import init_schema as _init_db_schema
 _init_db_schema()
 
+# Einmalige Migration: alte status_modifiers.json -> prompt_filters-Tabelle.
+# Idempotent: nur wenn die Datei existiert + Eintraege noch nicht in der DB
+# stehen. Datei wird danach in *.migrated umbenannt.
+try:
+    from app.core.prompt_filters import migrate_status_modifiers_once
+    migrate_status_modifiers_once()
+except Exception:
+    pass
+
 # Import routers
 from app.routes import auth, store, characters, chat, group_chat, scheduler, instagram, world, telegram, templates, story, story_dev, world_dev, tts, queue as queue_route, logs, admin, notifications, dashboard, events, relationships, assignments, diary
 from app.routes import admin_settings
@@ -48,6 +57,7 @@ from app.routes import secrets
 from app.routes import inventory
 from app.routes import account
 from app.routes import activities as activities_route
+from app.routes import state as state_route
 from app.scheduler.scheduler_manager import SchedulerManager
 from app.core.dependencies import initialize_channels, get_skill_manager
 from app.core.provider_manager import initialize_provider_manager
@@ -68,6 +78,17 @@ async def lifespan(app: FastAPI):
     clear_story_tmp()
     clear_tts_tmp()
 
+    # Log-Retention: alte Eintraege aus llm_calls.jsonl + image_prompts.jsonl
+    # entfernen (Default 5 Tage, konfigurierbar via server.log_retention_days
+    # in der Admin-Config). Verhindert Wachstum ins Unendliche.
+    try:
+        from app.utils.llm_logger import prune_logs_on_startup
+        _log_pruned = prune_logs_on_startup()
+        if _log_pruned.get("llm_calls") or _log_pruned.get("image_prompts"):
+            logger.info("Log-Retention: %s", _log_pruned)
+    except Exception as _le:
+        logger.warning("Log-Retention beim Start fehlgeschlagen: %s", _le)
+
     # Multiuser: Default-Admin bootstrappen falls noch kein User existiert
     from app.core.users import ensure_default_admin
     ensure_default_admin()
@@ -75,6 +96,12 @@ async def lifespan(app: FastAPI):
     # Migration: Persistente Location-IDs hinzufuegen, Filesystem bereinigen
     from app.models.world import migrate_location_ids
     migrate_location_ids()
+
+    # Klon-Hygiene: off-map / Duplikate / Waisen entfernen.
+    from app.models.world import cleanup_orphan_clones
+    _cleanup_stats = cleanup_orphan_clones()
+    if _cleanup_stats.get("removed"):
+        logger.info("Klon-Cleanup beim Start: %s", _cleanup_stats)
 
     # Migration: Variant-Dateinamen mit Character-Name prefixen
     from app.core.expression_regen import migrate_variant_filenames
@@ -91,6 +118,16 @@ async def lifespan(app: FastAPI):
     from app.core import config as _cfg
     _routing = _cfg.get("llm_routing", []) or []
     logger.info("llm_routing: %d Einträge", len(_routing))
+
+    # Modelle mit preload_on_startup=True asynchron warm laden, damit
+    # llama-swap & Co. das Model schon in den Speicher legen, bevor der
+    # erste echte User-Request kommt. create_task = nicht blockierend.
+    try:
+        import asyncio as _asyncio
+        from app.core.llm_router import preload_models as _preload_models
+        _asyncio.create_task(_preload_models())
+    except Exception as _pe:
+        logger.warning("LLM-Preload Task konnte nicht gestartet werden: %s", _pe)
 
     logger.info("Initialisiere Skills (Image Backends, etc.)...")
     skill_manager = get_skill_manager()
@@ -168,6 +205,15 @@ async def lifespan(app: FastAPI):
     else:
         _summary_lines.append(f"  TTS   --    Disabled")
     _summary_lines.append(f"  Tele  OK    Telegram Channel (per-agent bot tokens)")
+    from app.core.beszel import check_status as _beszel_check_status
+    _beszel = _beszel_check_status()
+    if not _beszel["configured"]:
+        _summary_lines.append(f"  Beszl --    Not configured")
+    elif _beszel["ok"]:
+        _summary_lines.append(f"  Beszl OK    GPU Monitoring ({_beszel['url']})")
+    else:
+        _summary_lines.append(
+            f"  Beszl FAIL  GPU Monitoring ({_beszel['url']}) — {_beszel['error']}")
     _summary_lines.append("-" * 80)
     logger.info("\n%s", "\n".join(_summary_lines))
 
@@ -345,6 +391,7 @@ app.include_router(secrets.router, tags=["secrets"])
 app.include_router(inventory.router, tags=["inventory"])
 app.include_router(activities_route.router, tags=["activities"])
 app.include_router(account.router)
+app.include_router(state_route.router)
 
 # Static files & templates
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -294,50 +294,188 @@ def get_state_history(character_name: str,
         return []
 
 
+# ---------------------------------------------------------------------------
+# Diary-Renderer-Registry
+# ---------------------------------------------------------------------------
+# state_history-types werden ueber Renderer-Funktionen in Diary-Eintraege
+# umgewandelt. Neue Types kommen via ``register_diary_renderer`` rein —
+# ohne Code-Aenderung in _process_state_entry.
+#
+# Ein Renderer bekommt (value, meta, ts) und liefert entweder:
+#   - dict {type, content, timestamp, [metadata]} → Eintrag landet im Tagebuch
+#   - None → Eintrag wird verworfen (z.B. Rauschen wie activity="none")
+#
+# Unbekannte Types werden via Fallback-Renderer als generischer Eintrag
+# gerendert — damit kein neues state_history-Feld stillschweigend im Tagebuch
+# verschluckt wird.
+
+DiaryRenderer = "Callable[[str, Dict[str, Any], str], Optional[Dict[str, Any]]]"
+_DIARY_RENDERERS: Dict[str, Any] = {}
+
+
+def register_diary_renderer(state_type: str, renderer) -> None:
+    """Registriert einen Renderer fuer einen state_history-Type.
+
+    Mehrfach-Registrierung ueberschreibt — der zuletzt registrierte Renderer
+    gewinnt. Fuer Plugins, Tests, oder neue Event-Types.
+    """
+    if not state_type:
+        return
+    _DIARY_RENDERERS[state_type] = renderer
+
+
+# --- Builtin Renderers ------------------------------------------------------
+
+def _render_location(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    loc_name = value
+    try:
+        from app.models.world import get_location_name
+        resolved = get_location_name(value)
+        if resolved:
+            loc_name = resolved
+    except Exception:
+        pass
+    return {"type": "location", "content": f"Ortswechsel: {loc_name}", "timestamp": ts}
+
+
+def _render_activity(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    # "none"/leere Aktivitaet als Tagebuch-Rauschen rausfiltern — passiert
+    # z.B. wenn der Scheduler eine Activity beendet (Reset auf "") oder
+    # ein Char zwischen Activities "nichts tut".
+    v_lower = (value or "").strip().lower()
+    if not v_lower or v_lower in ("none", "null"):
+        return None
+    detail = meta.get("detail", "") or ""
+    partner = meta.get("partner", "") or ""
+    display = f"{value} ({detail})" if (detail and detail.lower() != value.lower()) else value
+    if partner:
+        display = f"{display} mit {partner}"
+    entry: Dict[str, Any] = {"type": "activity", "content": f"Aktivitaet: {display}", "timestamp": ts}
+    if partner:
+        entry["metadata"] = {"partner": partner}
+    return entry
+
+
+def _render_condition(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    source = meta.get("source", "") or ""
+    duration = meta.get("duration_hours")
+    content = f"Zustand: {value}"
+    if duration:
+        content += f" ({duration}h)"
+    if source:
+        content += f" — {source}"
+    return {"type": "condition", "content": content, "timestamp": ts, "metadata": meta}
+
+
+def _render_access_denied(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    loc_name = meta.get("location_name") or value
+    reason = meta.get("reason", "") or ""
+    content = f"Wollte zu {loc_name}" + (f" — {reason}" if reason else "")
+    return {"type": "access_denied", "content": content, "timestamp": ts, "metadata": meta}
+
+
+def _render_discovery(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    if not value:
+        return None
+    rule_name = (meta.get("rule_name") or "").strip()
+    content = f"Entdeckt: {value}"
+    if rule_name:
+        content += f" — {rule_name}"
+    return {"type": "discovery", "content": content, "timestamp": ts, "metadata": meta}
+
+
+def _render_room(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    room_name = (meta.get("name") or value).strip()
+    if not room_name:
+        return None
+    return {"type": "room", "content": f"Raum: {room_name}", "timestamp": ts, "metadata": meta}
+
+
+_TRAVEL_FAILED_REASONS = {
+    "path_lost_in_transit": "Pfad waehrend der Reise verloren",
+    "no_known_path": "Ort nicht bekannt — kein Weg ueber bekannte Orte",
+    "no_path": "kein Weg verfuegbar",
+    "blocked": "Weg blockiert",
+}
+
+
+def _render_travel_failed(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    reason = (meta.get("reason") or "").strip()
+    content = f"Reise nach {value} abgebrochen"
+    if reason:
+        content += f" — {_TRAVEL_FAILED_REASONS.get(reason, reason)}"
+    return {"type": "travel_failed", "content": content, "timestamp": ts, "metadata": meta}
+
+
+def _render_effects(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    changes = meta.get("changes") or {}
+    if not changes:
+        return None
+    entry_meta: Dict[str, Any] = {"changes": changes}
+    if meta.get("elapsed_minutes"):
+        entry_meta["elapsed_minutes"] = meta["elapsed_minutes"]
+    return {"type": "effects", "content": f"Effekte ({value})", "timestamp": ts, "metadata": entry_meta}
+
+
+# Builtin-Registry — neue Types einfach hier ergaenzen oder via
+# register_diary_renderer von ausserhalb registrieren.
+register_diary_renderer("location", _render_location)
+register_diary_renderer("activity", _render_activity)
+register_diary_renderer("condition", _render_condition)
+register_diary_renderer("access_denied", _render_access_denied)
+register_diary_renderer("discovery", _render_discovery)
+register_diary_renderer("room", _render_room)
+register_diary_renderer("travel_failed", _render_travel_failed)
+register_diary_renderer("effects", _render_effects)
+
+
+def _render_unknown_fallback(state_type: str, value: str,
+                              meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
+    """Fallback fuer state-types ohne registrierten Renderer.
+
+    Statt None zu returnen (= verschwindet) bauen wir einen Generic-Eintrag,
+    damit neue Event-Types sichtbar werden — der Admin sieht im Tagebuch
+    sofort wenn ein Type nicht dokumentiert ist.
+    """
+    if not value:
+        return None
+    content = f"{state_type}: {value}"
+    if meta:
+        # Maximal ein paar Meta-Felder mit reinen — Kuerze halten.
+        meta_str = ", ".join(f"{k}={v}" for k, v in list(meta.items())[:3]
+                              if v not in (None, "", []))
+        if meta_str:
+            content += f" ({meta_str})"
+    logger.debug("Diary-Fallback fuer unbekannten state-type '%s'", state_type)
+    return {"type": state_type, "content": content, "timestamp": ts, "metadata": meta}
+
+
 def _process_state_entry(e: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Verarbeitet einen einzelnen State-History-Eintrag in einen Diary-Eintrag."""
+    """Verarbeitet einen einzelnen State-History-Eintrag in einen Diary-Eintrag.
+
+    Dispatch via ``_DIARY_RENDERERS``. Unbekannte Types werden ueber den
+    Fallback gerendert (statt verworfen), damit nichts im Tagebuch versickert.
+    """
     ts = e.get("timestamp", "")
     change_type = e.get("type", "")
     value = e.get("value", "")
     meta = e.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
 
-    if change_type == "location":
-        loc_name = value
-        try:
-            from app.models.world import get_location_name
-            resolved = get_location_name(value)
-            if resolved:
-                loc_name = resolved
-        except Exception:
-            pass
-        return {"type": "location", "content": f"Ortswechsel: {loc_name}", "timestamp": ts}
-
-    elif change_type == "activity":
-        detail = meta.get("detail", "")
-        partner = meta.get("partner", "")
-        display = f"{value} ({detail})" if (detail and detail.lower() != value.lower()) else value
-        if partner:
-            display = f"{display} mit {partner}"
-        entry: Dict[str, Any] = {"type": "activity", "content": f"Aktivitaet: {display}", "timestamp": ts}
-        if partner:
-            entry["metadata"] = {"partner": partner}
-        return entry
-
-    elif change_type == "access_denied":
-        loc_name = meta.get("location_name") or value
-        reason = meta.get("reason", "")
-        content = f"Wollte zu {loc_name}" + (f" — {reason}" if reason else "")
-        return {"type": "access_denied", "content": content, "timestamp": ts, "metadata": meta}
-
-    elif change_type == "effects":
-        changes = meta.get("changes", {})
-        if changes:
-            entry_meta: Dict[str, Any] = {"changes": changes}
-            if meta.get("elapsed_minutes"):
-                entry_meta["elapsed_minutes"] = meta["elapsed_minutes"]
-            return {"type": "effects", "content": f"Effekte ({value})", "timestamp": ts, "metadata": entry_meta}
-
-    return None
+    renderer = _DIARY_RENDERERS.get(change_type)
+    if renderer is None:
+        return _render_unknown_fallback(change_type, value, meta, ts)
+    try:
+        return renderer(value, meta, ts)
+    except Exception as ex:
+        logger.warning("Diary-Renderer fuer '%s' fehlgeschlagen: %s",
+                       change_type, ex)
+        return _render_unknown_fallback(change_type, value, meta, ts)
 
 
 def _collect_state_changes(character_name: str, date: str) -> List[Dict[str, Any]]:

@@ -33,7 +33,7 @@ from app.models.group_chat import (
     save_group_message)
 from app.models.memory import upsert_relationship_memory
 from app.models.relationship import record_interaction
-from app.models.account import get_user_profile, get_active_character, get_player_identity
+from app.models.account import get_user_profile, get_active_character
 from app.models.world import (
     get_location_name,
     resolve_location)
@@ -89,9 +89,13 @@ def _build_group_system_prompt(character_name: str,
     from app.models.relationship import get_relationship
     from app.models.character import get_character_current_activity
     from app.core.activity_engine import resolve_activity_visibility
-    user_name = get_player_identity("Player")
+    from app.models.account import get_active_character
+    # Avatar nur einbinden wenn echt aktiv — kein "Player"-Phantom in der
+    # Participant-Liste, sonst behauptet der System-Prompt eine Person, die
+    # nicht in der Welt existiert.
+    user_name = (get_active_character() or "").strip()
 
-    # Alle anwesenden Personen auflisten (NPCs + Spieler-Avatar)
+    # Alle anwesenden Personen auflisten (NPCs + ggf. aktiver Avatar)
     all_present = list(participants)
     if user_name and user_name not in all_present:
         all_present.append(user_name)
@@ -413,7 +417,9 @@ async def group_chat(request: Request):
         responders, passive = calculate_response_scores(
             user_message, participant_names, chat_context, **tt_kwargs)
 
-    user_display_name = get_player_identity("Player")
+    # Aktiver Avatar (kann leer sein — dann kein Player-Phantom in
+    # Participant-Listen, Speaker-Labels oder Relationship-Updates).
+    user_display_name = (get_active_character() or "").strip()
 
     async def generate():
         """Generate group chat responses — one character at a time."""
@@ -487,7 +493,10 @@ async def group_chat(request: Request):
                     wto = msg.get("whisper_to")
                     if not wto:
                         return msg.get("content", "")
-                    sender = user_display_name if msg.get("role") == "user" else msg.get("character", "?")
+                    if msg.get("role") == "user":
+                        sender = user_display_name or "?"
+                    else:
+                        sender = msg.get("character", "?")
                     if viewer == wto or viewer == sender:
                         # Ziel oder Sender sieht den Inhalt (mit Marker dass es geflsuestert ist)
                         return f"(whisper to {wto}) {msg.get('content', '')}"
@@ -686,8 +695,11 @@ async def group_chat(request: Request):
                         _llm_queue.register_chat_done(_final_task_id)
 
                 # --- Post-processing: strip other characters' dialogue ---
+                _strip_targets = list(participant_names)
+                if user_display_name:
+                    _strip_targets.append(user_display_name)
                 clean_response = _strip_foreign_dialogue(
-                    full_response, char_name, participant_names + [user_display_name]
+                    full_response, char_name, _strip_targets
                 )
                 # Strip meta tags
                 clean_response = re.sub(r'\n?\s*\*\*I\s+feel\s+[^*]+\*\*\s*', '', clean_response, flags=re.IGNORECASE)
@@ -763,12 +775,15 @@ async def group_chat(request: Request):
         def _background_updates():
             try:
                 for rname in responders:
-                    # Relationship with user
-                    record_interaction(
-                        char_a=rname, char_b=user_display_name,
-                        interaction_type="group_chat",
-                        summary=f"Group conversation at {loc_name}",
-                        strength_delta=1.5)
+                    # Relationship mit Avatar — nur wenn ein echter Avatar
+                    # aktiv ist; sonst kein Pseudo-Charakter ("Player") in
+                    # die Relationship-/Memory-Tabellen schreiben.
+                    if user_display_name:
+                        record_interaction(
+                            char_a=rname, char_b=user_display_name,
+                            interaction_type="group_chat",
+                            summary=f"Group conversation at {loc_name}",
+                            strength_delta=1.5)
                     # Relationships between responders
                     for other in responders:
                         if other != rname:
@@ -777,9 +792,10 @@ async def group_chat(request: Request):
                                 interaction_type="group_chat",
                                 summary=f"Group chat at {loc_name}",
                                 strength_delta=1.0)
-                    # Memory
+                    # Memory: Relationship-Memory ueber den Avatar nur
+                    # schreiben, wenn er existiert.
                     other_names = [r for r in responders if r != rname]
-                    if other_names:
+                    if other_names and user_display_name:
                         upsert_relationship_memory(
                             character_name=rname,
                             related_character=user_display_name,

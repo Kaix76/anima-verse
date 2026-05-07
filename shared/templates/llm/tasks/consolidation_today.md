@@ -1,28 +1,27 @@
 ---
 task: consolidation
-purpose: Daily roleplay summary (history_manager._create_daily_summary)
+purpose: Daily roleplay summary between two characters (history_manager._create_daily_summary)
 placeholders:
-  user_display_name: User display name
-  character_name: Character name (or "the character" if missing)
-  context_line: Optional context line or empty
+  speaker_a: Conversation partner name (the character who talked TO speaker_b today)
+  speaker_b: Memory owner name (the character whose daily summary is being written)
   lang_instruction: Optional "\nWrite the summary in <Language>." or empty
-  history_text: Today's transcript
+  history_text: Today's transcript (lines prefixed with the actual speaker name)
 ---
 ## system
 
 ## user
-{{ context_line }}Summarize what happened TODAY in this roleplay conversation in 5-8 sentences.
+Summarize what happened TODAY in this conversation between {{ speaker_a }} and {{ speaker_b }} in 5-8 sentences.
 Focus on:
 - Key events and what happened (not just topics)
-- Emotional moments and reactions of {{ character_name }} and {{ user_display_name }}
+- Emotional moments and reactions of {{ speaker_a }} and {{ speaker_b }}
 - Decisions made and their outcomes
-- Where {{ user_display_name }} and {{ character_name }} went and what they did
+- Where they went and what they did
 
-Use the actual names ({{ user_display_name }}, {{ character_name }}) in the summary, not generic labels like "User" or "Assistant".
-Write as a narrative summary in past tense.
+Use the actual names ({{ speaker_a }}, {{ speaker_b }}) — NEVER write "User", "Player", "Spieler", "the user" or "Assistant".
+Write as a narrative summary in past tense, from {{ speaker_b }}'s perspective.
 Do NOT include any tool calls, commands, image URLs or code.{{ lang_instruction }}
 
-Today's conversation:
+Today's conversation between {{ speaker_a }} and {{ speaker_b }}:
 {{ history_text }}
 
 Summary:

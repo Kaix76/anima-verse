@@ -177,10 +177,11 @@ def _load_events(location_id: str) -> str:
     return ""
 
 
-def _load_memory(character_name: str) -> str:
+def _load_memory(character_name: str, partner_name: str = "") -> str:
     try:
         from app.models.memory import build_memory_prompt_section
-        return build_memory_prompt_section(character_name, user_name="", current_message="") or ""
+        return build_memory_prompt_section(
+            character_name, partner_name=partner_name, current_message="") or ""
     except Exception as e:
         logger.debug("Memory laden fehlgeschlagen: %s", e)
     return ""
@@ -251,6 +252,71 @@ def _resolve_location_name(loc_id: str) -> str:
     return loc_id
 
 
+def _enrich_activity_events(events: list, character_name: str) -> None:
+    """Reichert Activity-Eintraege mit Kontext an (in-place).
+
+    - `SetLocation` / `Character leaves location` (und aehnliche Tool-Namen
+      ohne semantische Activity): nimmt den naechsten location-type-Eintrag
+      und haengt den Ortsnamen an.
+    - `Talking` ohne metadata.partner: schaut in chat_messages nach dem
+      letzten Partner kurz vor diesem ts.
+    """
+    _LOCATION_TOOL_VALUES = {
+        "setlocation", "set_location",
+        "character leaves location", "character_leaves_location",
+        "leave location", "leave_location",
+    }
+    n = len(events)
+    for i, e in enumerate(events):
+        if e.get("type") != "activity":
+            continue
+        val_lc = (e.get("value") or "").lower().strip()
+
+        # 1) Tool-Namen → location ankleben
+        if val_lc in _LOCATION_TOOL_VALUES:
+            for j in range(i, n):
+                future = events[j]
+                if future.get("type") == "location":
+                    loc_disp = future.get("value_display") or ""
+                    if loc_disp:
+                        e["value_display"] = f"{e['value']} → {loc_disp}"
+                    break
+
+        # 2) Talking ohne Partner → letzten chat_messages-Partner suchen
+        elif val_lc == "talking" and not e.get("partner"):
+            partner = _lookup_chat_partner(character_name, e.get("ts") or "")
+            if partner:
+                e["partner"] = partner
+
+
+def _lookup_chat_partner(character_name: str, ts: str,
+                          window_seconds: int = 120) -> str:
+    """Sucht in chat_messages den juengsten Partner um ``ts`` herum."""
+    if not character_name or not ts:
+        return ""
+    try:
+        from app.core.db import get_connection
+        from datetime import timedelta
+        try:
+            target = datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return ""
+        lower = (target - timedelta(seconds=window_seconds)).isoformat()
+        upper = (target + timedelta(seconds=window_seconds)).isoformat()
+        row = get_connection().execute(
+            "SELECT partner FROM chat_messages "
+            "WHERE character_name=? AND partner IS NOT NULL AND partner != '' "
+            "AND ts BETWEEN ? AND ? "
+            "ORDER BY ABS(julianday(ts) - julianday(?)) ASC LIMIT 1",
+            (character_name, lower, upper, ts),
+        ).fetchone()
+        if row and row[0]:
+            return str(row[0]).strip()
+    except Exception as e:
+        logger.debug("_lookup_chat_partner failed: %s", e)
+    return ""
+
+
 def build_recent_activity_section(character_name: str,
                                    hours: int = _RECENT_WINDOW_HOURS,
                                    max_entries: int = _RECENT_MAX_ENTRIES) -> str:
@@ -270,6 +336,10 @@ def build_recent_activity_section(character_name: str,
         if not rows:
             return ""
 
+        # Activity-Werte die rein technisch sind und keinen Mehrwert im
+        # Activity-Log haben — komplett rausfiltern.
+        _DROP_ACTIVITY_VALUES = {"none", "skip", "greeting"}
+
         events: list = []
         for (sj,) in rows:
             try:
@@ -282,6 +352,8 @@ def build_recent_activity_section(character_name: str,
             val = (d.get("value") or "").strip()
             if not val:
                 continue
+            if t == "activity" and val.lower() in _DROP_ACTIVITY_VALUES:
+                continue
             meta = d.get("metadata") or {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -292,6 +364,9 @@ def build_recent_activity_section(character_name: str,
                      "detail": (meta.get("detail") or "").strip()}
             if t == "location":
                 entry["value_display"] = _resolve_location_name(val)
+            elif t == "room":
+                # Name liegt in metadata.name (gespeichert von save_character_current_room)
+                entry["value_display"] = (meta.get("name") or val).strip()
             elif t == "access_denied":
                 entry["value_display"] = val
             else:
@@ -300,6 +375,9 @@ def build_recent_activity_section(character_name: str,
 
         if not events:
             return ""
+
+        # Anreicherung: Tool-Namen-Activities mit Location/Partner befuellen.
+        _enrich_activity_events(events, character_name)
 
         # Aggregation: collapse adjacent duplicates
         collapsed: list = []
@@ -327,6 +405,8 @@ def build_recent_activity_section(character_name: str,
             val = e["value_display"] or e["value"]
             if t == "location":
                 lines.append(f"• {time_str}  → {val}")
+            elif t == "room":
+                lines.append(f"• {time_str}  ↳ Raum {val}")
             elif t == "activity":
                 suffix = f" (with {e['partner']})" if e.get("partner") else ""
                 if e.get("detail"):
@@ -337,6 +417,15 @@ def build_recent_activity_section(character_name: str,
                 default_reason = reason_raw.lower() in ("", "zugang verweigert", "access denied")
                 reason = "" if default_reason else f" — {reason_raw}"
                 lines.append(f"• {time_str}  Wanted to go to {val}, access denied{reason}")
+            elif t == "travel_failed":
+                reason_raw = (e.get("reason") or "").strip()
+                human = {
+                    "path_lost_in_transit": "path lost in transit",
+                    "no_path": "no path available",
+                    "blocked": "blocked",
+                }.get(reason_raw, reason_raw)
+                suffix = f" — {human}" if human else ""
+                lines.append(f"• {time_str}  travel to {val} failed{suffix}")
             else:
                 lines.append(f"• {time_str}  {t}: {val}")
 

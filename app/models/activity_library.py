@@ -477,11 +477,24 @@ def save_library_activity(activity: Dict[str, Any], target_dir: str = "world"):
     """Speichert eine Aktivitaet in die Bibliothek.
 
     target_dir: "shared" oder "world"
+
+    Raises:
+        ValueError: wenn effect_type ungueltig ist.
     """
     act_id = activity.get("id", "")
     group = activity.get("_group", "custom")
     if not act_id:
         return
+
+    # effect_type normalisieren. Cooldown ist optional — auch fuer 'once'.
+    # Re-Fire innerhalb einer Activity-Session blockiert das In-Memory-
+    # Tracking in _scale_effects_by_time; cooldown_minutes regelt nur die
+    # Sperre fuer erneutes Setzen durch LLM/Skill.
+    effect_type = (activity.get("effect_type") or "ongoing").strip().lower()
+    if effect_type not in ("once", "ongoing"):
+        raise ValueError(
+            f"effect_type muss 'once' oder 'ongoing' sein, nicht '{effect_type}'")
+    activity["effect_type"] = effect_type
 
     if target_dir == "shared":
         base_dir = _get_shared_activities_dir()
@@ -495,7 +508,10 @@ def save_library_activity(activity: Dict[str, Any], target_dir: str = "world"):
     filepath = base_dir / filename
 
     # Aktivitaet aus ALLEN anderen Dateien entfernen (verhindert Duplikate
-    # wenn Gruppe/Dateiname sich aendert)
+    # wenn Gruppe/Dateiname sich aendert). Dateien, die dadurch leer
+    # werden, werden geloescht — sonst bleibt der alte Gruppen-Slug
+    # auf der Platte und wuerde beim erneuten Anlegen unter gleichem
+    # Namen ungewollt wiederverwendet.
     for other_file in base_dir.glob("*.json"):
         if other_file == filepath:
             continue
@@ -504,17 +520,28 @@ def save_library_activity(activity: Dict[str, Any], target_dir: str = "world"):
             other_acts = other_data.get("activities", [])
             new_acts = [a for a in other_acts if a.get("id") != act_id]
             if len(new_acts) < len(other_acts):
-                other_data["activities"] = new_acts
-                other_file.write_text(
-                    json.dumps(other_data, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
-                logger.debug("Activity '%s' aus %s entfernt (Gruppenwechsel)", act_id, other_file)
+                if not new_acts:
+                    other_file.unlink()
+                    logger.info("Leere Activity-Group-Datei geloescht: %s", other_file)
+                else:
+                    other_data["activities"] = new_acts
+                    other_file.write_text(
+                        json.dumps(other_data, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+                    logger.debug("Activity '%s' aus %s entfernt (Gruppenwechsel)", act_id, other_file)
         except Exception:
             pass
 
-    # Bestehende Datei laden oder neu
+    # Bestehende Datei laden oder neu. Den group-Header immer aktualisieren —
+    # sonst zeigt die UI veraltete Gruppen-Labels, wenn der Dateiname (Slug
+    # vom Group-Namen) zwar zur neuen Gruppe passt, der group-Header aber
+    # noch von einer frueheren Gruppe stammt (z.B. work.json mit Header
+    # "Arbeit und Buero" als Altlast). Konsequenz: alle Activities in dieser
+    # Datei rutschen unter den neuen Gruppen-Namen — gewollt, weil sie
+    # ohnehin bereits gemeinsam in einer Datei stehen.
     if filepath.exists():
         data = json.loads(filepath.read_text(encoding="utf-8"))
+        data["group"] = group
     else:
         data = {"group": group, "activities": []}
 
@@ -556,13 +583,21 @@ def delete_library_activity(activity_id: str, target_dir: str = "world") -> bool
             activities = data.get("activities", [])
             new_acts = [a for a in activities if a.get("id") != activity_id]
             if len(new_acts) < len(activities):
-                data["activities"] = new_acts
-                json_file.write_text(
-                    json.dumps(data, ensure_ascii=False, indent=2),
-                    encoding="utf-8")
+                if not new_acts:
+                    # Letzte Activity weg -> Datei (= Gruppe) komplett loeschen,
+                    # damit der Slug nicht beim naechsten Anlegen ungewollt
+                    # wiederverwendet wird.
+                    json_file.unlink()
+                    logger.info("Activity '%s' geloescht und leere Group-Datei %s entfernt",
+                                activity_id, json_file)
+                else:
+                    data["activities"] = new_acts
+                    json_file.write_text(
+                        json.dumps(data, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+                    logger.info("Activity '%s' geloescht aus %s", activity_id, json_file)
                 global _library_loaded
                 _library_loaded = False
-                logger.info("Activity '%s' geloescht aus %s", activity_id, json_file)
                 deleted = True
                 break
         except Exception:

@@ -54,6 +54,18 @@ def known_outfit_types() -> List[str]:
     return list(_load_rules().get("outfit_types", {}).keys())
 
 
+def default_outfit_type() -> str:
+    """Liefert den als ``default: true`` markierten outfit_type aus den
+    Regeln, oder ''. Wird als Fallback genutzt wenn weder Activity, Raum
+    noch Location einen Type vorgeben.
+    """
+    rules = _load_rules()
+    for name, entry in (rules.get("outfit_types") or {}).items():
+        if isinstance(entry, dict) and entry.get("default"):
+            return name
+    return ""
+
+
 def resolve_target_outfit_type(character_name: str) -> str:
     """Zentrale Aufloesung des aktuell relevanten outfit_type.
 
@@ -61,7 +73,8 @@ def resolve_target_outfit_type(character_name: str) -> str:
         1. Activity (aus Library: activity.outfit_type)
         2. Raum (room.outfit_type)
         3. Location (location.outfit_type)
-        4. '' (kein Type → Compliance laeuft nicht)
+        4. Default-Regel (outfit_rules.json Eintrag mit ``default: true``)
+        5. '' (kein Type → Compliance laeuft nicht)
 
     Activity gewinnt, weil die Taetigkeit die semantisch genaueste Aussage
     ueber passende Kleidung ist ("Sonnenbaden" → swimwear, auch wenn der
@@ -104,10 +117,13 @@ def resolve_target_outfit_type(character_name: str) -> str:
                             return t
                         break
             # 3) Location
-            return (loc.get("outfit_type") or "").strip()
+            t = (loc.get("outfit_type") or "").strip()
+            if t:
+                return t
     except Exception as e:
         logger.debug("Location/Room-outfit_type lookup fehlgeschlagen: %s", e)
-    return ""
+    # 4) Default aus den Regeln
+    return default_outfit_type()
 
 
 def resolve_required_slots(

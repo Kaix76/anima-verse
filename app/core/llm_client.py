@@ -54,7 +54,8 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         request_timeout: int = 120,
-        chat_template: Optional[str] = None):
+        chat_template: Optional[str] = None,
+        frequency_penalty: Optional[float] = None):
         self.model = model
         self.model_name = model
         self.openai_api_key = api_key
@@ -67,6 +68,10 @@ class LLMClient:
         # provider's tokenizer has no default template (e.g. some Infermatic
         # finetunes that error with "no chat template" since transformers v4.44).
         self.chat_template = chat_template or None
+        # Token-Frequency-Penalty (Anti-Repetition). None = nicht setzen
+        # (Server-Default greift). Werte z.B. 0.3 fuer leichte, 0.6 fuer
+        # staerkere Penalty.
+        self.frequency_penalty = frequency_penalty
 
         client_kwargs = {
             "api_key": api_key,
@@ -81,6 +86,8 @@ class LLMClient:
             "model": self.model,
             "temperature": self.temperature,
         }
+        if self.frequency_penalty is not None:
+            kwargs["frequency_penalty"] = float(self.frequency_penalty)
         if self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
         extra_body: Dict[str, Any] = {}

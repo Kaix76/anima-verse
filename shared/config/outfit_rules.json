@@ -8,7 +8,8 @@
         "underwear_bottom",
         "feet"
       ],
-      "description": "Alltags-Look: jeans, kurze shorts, crop-top, skinny t-shirt, mini-rock, sneakers oder heels. Sitzt eng und formt die Figur. Tief ausgeschnittene oberteile ok, bauchfrei ok, offene schultern ok. Keine business-attire, keine uniform, keine sportklamotten. Farben alltagstauglich, keine buehnenkostuem-optik."
+      "description": "Alltags-Look: jeans, kurze shorts, crop-top, skinny t-shirt, mini-rock, sneakers oder heels. Sitzt eng und formt die Figur. Tief ausgeschnittene oberteile ok, bauchfrei ok, offene schultern ok. Keine business-attire, keine uniform, keine sportklamotten. Farben alltagstauglich, keine buehnenkostuem-optik.",
+      "default": true
     },
     "formal": {
       "required": [
@@ -63,23 +64,16 @@
       "required": [],
       "description": "Badezimmer/dusche: nackt, eingewickelt in handtuch, shower cap, bademantel, nasses haar. Kein regulaeres outfit. Haut-akzentuiert, intim, privat. Ggf. nur unterwaesche oder lingerie nach dem duschen."
     },
-    "beach": {
-      "required": [
-        "top",
-        "bottom"
-      ],
-      "description": "Strand-Look: bikini (string/triangle/mikro), one-piece monokini, sarong/pareo, cover-up mesh-dress, flip-flops, sun hat, sunglasses. Barfuss ok. Haut, bronzed, oeliger body, sonnencreme-glanz. Nackter bauch, beine, schultern. Keine regulaere kleidung."
-    },
-    "pool": {
-      "required": [
-        "top",
-        "bottom"
-      ],
-      "description": "Poolside: bikini, one-piece swimsuit, micro-bikini, thong-bottom, wet-hair-look, nasse haut, barfuss. Aehnlich beach aber urbaner (hotel-pool, rooftop). Minimale stoff-abdeckung, high-cut bottoms, cheeky rueckenausschnitt."
-    },
     "intimate": {
       "required": [],
       "description": "Private indoor wear for the bedroom or behind closed doors: pyjamas, nightgown, slip dress, robe, nightshirt, oversized t-shirt. Soft fabrics, comfortable, fitted but not overly revealing. Slippers or barefoot."
+    },
+    "beach/pool": {
+      "required": [
+        "top",
+        "bottom"
+      ],
+      "description": "Strand-Look: bikini (string/triangle/mikro), one-piece monokini, sarong/pareo, cover-up mesh-dress, flip-flops, sun hat, sunglasses. Barfuss ok. Haut, bronzed, oeliger body, sonnencreme-glanz. Nackter bauch, beine, schultern. Keine regulaere kleidung.\nPoolside: bikini, one-piece swimsuit, micro-bikini, thong-bottom, wet-hair-look, nasse haut, barfuss. Aehnlich beach aber urbaner (hotel-pool, rooftop). Minimale stoff-abdeckung, high-cut bottoms, cheeky rueckenausschnitt."
     }
   }
 }

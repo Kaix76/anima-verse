@@ -1,42 +1,6 @@
 {
   "items": [
     {
-      "id": "item_c53cd0c9",
-      "name": "Bikini Bra",
-      "category": "outfit_piece",
-      "prompt_fragment": "bikini bra",
-      "created_at": "2026-04-22T22:15:12.747985",
-      "description": "",
-      "description_de": "",
-      "image": "1776888978.png",
-      "image_prompt": "",
-      "rarity": "generic",
-      "stackable": false,
-      "max_stack": 1,
-      "transferable": true,
-      "consumable": false,
-      "reveals_secret": null,
-      "properties": {
-        "enables_locations": [],
-        "enables_activities": [],
-        "stat_bonuses": {},
-        "uses": null
-      },
-      "outfit_piece": {
-        "covers": [],
-        "partially_covers": [],
-        "outfit_types": [
-          "beach",
-          "pool"
-        ],
-        "lora": {},
-        "slots": [
-          "top",
-          "underwear_top"
-        ]
-      }
-    },
-    {
       "id": "item_daffe7ca",
       "name": "Beige chinos",
       "category": "outfit_piece",
@@ -1209,5 +1173,5 @@
       }
     }
   ],
-  "last_updated": "2026-04-29T22:42:30.596778"
+  "last_updated": "2026-05-04T20:38:08.760425"
 }

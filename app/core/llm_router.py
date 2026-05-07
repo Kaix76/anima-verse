@@ -78,6 +78,7 @@ class LLMInstance:
         max_tokens = int(max_tok) if max_tok else None
         provider_timeout = self._provider.timeout if self._provider else None
         timeout = provider_timeout or int(os.environ.get("LLM_REQUEST_TIMEOUT", "120"))
+        frequency_penalty = overrides.get("frequency_penalty")
 
         if self._provider and self._provider.type == "anthropic":
             return AnthropicLLMClient(
@@ -95,7 +96,8 @@ class LLMInstance:
             temperature=temperature,
             max_tokens=max_tokens,
             request_timeout=timeout,
-            chat_template=overrides.get("chat_template") or self.chat_template)
+            chat_template=overrides.get("chat_template") or self.chat_template,
+            frequency_penalty=frequency_penalty)
 
 
 def get_llm_instance_by_name(model_name: str) -> Optional[LLMInstance]:
@@ -162,6 +164,68 @@ def _load_routing() -> List[dict]:
     """Liest llm_routing aus der Config."""
     routing = config.get("llm_routing", [])
     return routing if isinstance(routing, list) else []
+
+
+async def _warmup_one(entry: dict) -> None:
+    """Sendet einen 1-Token-Ping an einen Routing-Eintrag, damit das
+    Backend (z.B. llama-swap, vLLM) das Model in den Speicher laedt.
+    Fehler werden geloggt, aber nie geworfen — Preload darf den Start
+    nicht stoeren.
+    """
+    provider_name = (entry.get("provider") or "").strip()
+    model = (entry.get("model") or "").strip()
+    if not provider_name or not model:
+        return
+    pm = get_provider_manager()
+    provider = pm.get_provider(provider_name)
+    if not provider:
+        logger.warning("Preload skip: provider '%s' nicht gefunden", provider_name)
+        return
+    if not provider.available:
+        logger.info("Preload skip: provider '%s' nicht verfuegbar", provider_name)
+        return
+    instance = LLMInstance(
+        provider_name=provider_name,
+        model=model,
+        temperature=0.0,
+        max_tokens=1,
+        _provider=provider,
+    )
+    try:
+        client = instance.create_llm(max_tokens=1, temperature=0.0)
+    except Exception as e:
+        logger.warning("Preload %s/%s: client-init fehlgeschlagen: %s",
+                       provider_name, model, e)
+        return
+    try:
+        logger.info("Preload start: %s/%s", provider_name, model)
+        # Anthropic + OpenAI-Clients haben beide astream(); ein 1-Token-Ping
+        # ueber Streaming reicht voellig zum Laden.
+        async for _ in client.astream([{"role": "user", "content": "ping"}]):
+            break
+        logger.info("Preload OK:    %s/%s", provider_name, model)
+    except Exception as e:
+        logger.warning("Preload FAIL:  %s/%s: %s", provider_name, model, e)
+
+
+async def preload_models() -> None:
+    """Laedt alle Routing-Eintraege mit ``preload_on_startup=True`` parallel.
+    Wird in der FastAPI-Lifespan via ``asyncio.create_task`` gefeuert,
+    damit der Server-Start nicht blockiert.
+    """
+    routing = _load_routing()
+    targets = [
+        e for e in routing
+        if isinstance(e, dict)
+        and e.get("preload_on_startup") is True
+        and e.get("enabled") is not False
+    ]
+    if not targets:
+        return
+    import asyncio
+    logger.info("Preload: %d Modelle werden im Hintergrund geladen", len(targets))
+    await asyncio.gather(*(_warmup_one(e) for e in targets), return_exceptions=True)
+    logger.info("Preload: alle Warmup-Requests abgeschlossen")
 
 
 def _resolve_character_override(task: str, agent_name: str) -> Optional[LLMInstance]:
@@ -238,6 +302,10 @@ def resolve_llm(task: str, agent_name: str = "") -> Optional[LLMInstance]:
     candidates: List = []
     for entry in routing:
         if not isinstance(entry, dict):
+            continue
+        # Disabled-Eintraege ueberspringen (Admin kann LLM ausblenden ohne
+        # Task-Zuweisungen zu loeschen). Default: enabled.
+        if entry.get("enabled") is False:
             continue
         tasks = entry.get("tasks") or []
         for t in tasks:

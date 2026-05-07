@@ -1,5 +1,6 @@
 """Inventory routes - Items, Raum-Items und Character-Inventar verwalten."""
 import time
+from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import FileResponse
 from typing import Dict, Any, List
@@ -95,6 +96,17 @@ async def create_item_route(request: Request) -> Dict[str, Any]:
         prompt_fragment=body.get("prompt_fragment", ""),
         outfit_piece=body.get("outfit_piece"),
         effects=body.get("effects"))
+    # Sofort Magic-Felder via update_item nachziehen — add_item akzeptiert
+    # diese nicht direkt, update_item hat sie aber whitelisted (Anlegen-Pfad
+    # darf keine Felder verlieren).
+    _extras = {k: body[k] for k in (
+        "incantation", "spell_mode", "clone_item_id",
+        "success_chance", "copy_on_give",
+        "success_text", "fail_text", "cast_activity",
+        "tracks_character",
+    ) if k in body}
+    if _extras:
+        item = update_item(item["id"], _extras) or item
     return {"ok": True, "item": item}
 
 
@@ -192,6 +204,29 @@ def get_item_owners_route(
     return {"owners": owners, "item_id": item_id}
 
 
+def _alpha_coverage_too_low(image_path: Path, threshold_pct: float = 5.0) -> bool:
+    """True wenn weniger als threshold_pct der Pixel sichtbar (alpha > 32) sind.
+
+    Schutzschalter fuer rembg-Faelle in denen u2net das Subjekt nicht erkennt
+    und das Bild komplett transparent zurueckgibt.
+    """
+    try:
+        from PIL import Image
+        img = Image.open(image_path)
+        if img.mode != "RGBA":
+            return False  # kein Alpha-Channel — nichts geprueft
+        alpha = img.getchannel("A")
+        total = alpha.size[0] * alpha.size[1]
+        if total == 0:
+            return True
+        # Histogram: Anzahl Pixel pro Alpha-Wert (0..255)
+        hist = alpha.histogram()
+        visible = sum(hist[33:])  # alpha > 32 = sichtbar
+        return (visible / total) * 100 < threshold_pct
+    except Exception:
+        return False
+
+
 def generate_item_image_sync(item_id: str) -> bool:
     """Synchrone Item-Bild-Generierung (fuer Background-Threads).
 
@@ -206,7 +241,11 @@ def generate_item_image_sync(item_id: str) -> bool:
         base = (item.get("prompt_fragment") or "").strip()
     if not base:
         base = (item.get("name") or item_id).strip()
-    prompt_text = f"{base}, isolated object on neutral background, product photography, sharp focus, realistic"
+    # Gruener Hintergrund + Produkt-Photo-Style: kontrastreicher Hintergrund
+    # damit rembg das Subjekt sauber freistellen kann. "neutral background"
+    # liess rembg auf Objekten regelmaessig leer schlagen — bei Gruen findet
+    # u2net auch Nicht-Personen-Subjekte zuverlaessig.
+    prompt_text = f"{base}, isolated object on green background, product photography, sharp focus, realistic"
 
     from app.core.dependencies import get_skill_manager
     img_skill = None
@@ -275,10 +314,19 @@ def generate_item_image_sync(item_id: str) -> bool:
     image_name = f"{int(time.time())}.png"
     image_path = item_dir / image_name
     image_path.write_bytes(images[0])
+    # rembg-Postprocess: gruener Prompt-Hintergrund + u2net liefert bei
+    # kontrastreichem Background zuverlaessige Freistellung. Sanity-Check
+    # auf die Alpha-Coverage — wenn rembg das Subjekt mit-entfernt hat
+    # (typisch bei Nicht-Personen-Subjekten), behalten wir das Original.
     try:
         from app.models.character import postprocess_outfit_image
         processed = postprocess_outfit_image(image_path)
-        if processed.name != image_name:
+        if processed.exists() and _alpha_coverage_too_low(processed):
+            logger.warning("Item-Bild [%s]: rembg-Coverage zu gering — "
+                           "Original mit gruenem Hintergrund behalten", item_id)
+            image_path = item_dir / image_name
+            image_path.write_bytes(images[0])
+        elif processed.name != image_name:
             image_name = processed.name
     except Exception:
         pass
@@ -468,6 +516,36 @@ async def use_inventory_item_route(
     return {"ok": True, "item_name": item.get("name", item_id),
             "changes": result.get("changes", {}),
             "condition_applied": result.get("condition_applied")}
+
+
+@router.post("/characters/{character_name}/{item_id}/cast-self")
+async def cast_spell_on_self_route(
+    character_name: str,
+    item_id: str,
+    request: Request) -> Dict[str, Any]:
+    """Wirkt einen Spell aus dem Inventar des Characters auf sich selbst.
+
+    Caster und Target sind beide ``character_name``. Erfolgschance,
+    Item-Verbrauch (copy_on_give), Effekt-Item-Uebergabe (give_item) und
+    Cast-Activity laufen alle ueber spell_engine.execute_cast — gleicher
+    Pfad wie beim Chat-getriggerten Cast, nur ohne Inkantation-Detection.
+    """
+    from app.core.spell_engine import build_spell_catalog, execute_cast
+    catalog = build_spell_catalog(character_name)
+    spell = next((s for s in catalog if s["id"] == item_id), None)
+    if not spell:
+        raise HTTPException(status_code=404,
+            detail="Item ist kein Spell oder nicht im Inventar")
+    result = execute_cast(character_name, character_name, spell)
+    return {"ok": True,
+            "spell_id": spell["id"],
+            "spell_name": spell.get("name") or spell["id"],
+            "success": bool(result.get("success")),
+            "chance": int(result.get("chance") or 0),
+            "roll": int(result.get("roll") or 0),
+            "delivered_item_id": result.get("delivered_item_id") or "",
+            "delivered_item_name": result.get("delivered_item_name") or "",
+            "hint": result.get("hint") or ""}
 
 
 @router.post("/characters/{character_name}/{item_id}/give")

@@ -113,14 +113,23 @@ def _build_generation_context(character_name: str) -> str:
     except Exception:
         pass
 
-    # 3. Tagesszusammenfassungen
+    # 3. Tagesszusammenfassungen (alle Partner — partner-Label im Prefix)
     try:
         from app.utils.history_manager import get_recent_daily_summaries
         summaries = get_recent_daily_summaries(character_name, days=5)
         if summaries:
             summary_lines = []
             for s in summaries[-5:]:
-                summary_lines.append(f"- {s.get('date', '?')}: {s.get('summary', '')}")
+                date_label = s.get('date', '?')
+                partner = s.get('partner', '') or ''
+                if partner:
+                    summary_lines.append(
+                        f"- {date_label} with {partner}: {s.get('summary', '')}"
+                    )
+                else:
+                    summary_lines.append(
+                        f"- {date_label}: {s.get('summary', '')}"
+                    )
             parts.append("Recent events:\n" + "\n".join(summary_lines))
     except Exception:
         pass

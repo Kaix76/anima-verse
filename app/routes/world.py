@@ -90,6 +90,8 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
         event_settings = data.get("event_settings")
         outfit_type = data.get("outfit_type")
         knowledge_item_id = data.get("knowledge_item_id")
+        passable = data.get("passable")
+        map_z_offset = data.get("map_z_offset")
         if not location_name:
             raise HTTPException(status_code=400, detail="Name fehlt")
         if not isinstance(rooms, list):
@@ -102,7 +104,8 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
 
         # Extra-Felder direkt in der Location setzen
         _has_extra = (danger_level is not None or event_settings is not None
-                      or outfit_type is not None or knowledge_item_id is not None)
+                      or outfit_type is not None or knowledge_item_id is not None
+                      or passable is not None or map_z_offset is not None)
         if _has_extra and location:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -119,6 +122,13 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
                         _l["outfit_type"] = (outfit_type or "").strip()
                     if knowledge_item_id is not None:
                         _l["knowledge_item_id"] = (knowledge_item_id or "").strip()
+                    if passable is not None:
+                        _l["passable"] = bool(passable)
+                    if map_z_offset is not None:
+                        try:
+                            _l["map_z_offset"] = max(-10, min(10, int(map_z_offset)))
+                        except (TypeError, ValueError):
+                            pass
                     break
             _save_world_data(wdata)
             location = get_location_by_id(location["id"])
@@ -146,6 +156,8 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
         event_settings = data.get("event_settings")
         outfit_type = data.get("outfit_type")
         knowledge_item_id = data.get("knowledge_item_id")
+        passable = data.get("passable")
+        map_z_offset = data.get("map_z_offset")
 
         loc = get_location_by_id(location_id)
         if not loc:
@@ -168,7 +180,8 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
 
         # Extra-Felder (inkl. knowledge_item_id) direkt in der Location setzen
         _has_extra = (danger_level is not None or event_settings is not None
-                      or outfit_type is not None or knowledge_item_id is not None)
+                      or outfit_type is not None or knowledge_item_id is not None
+                      or passable is not None or map_z_offset is not None)
         if _has_extra:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -185,11 +198,43 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
                         _l["outfit_type"] = (outfit_type or "").strip()
                     if knowledge_item_id is not None:
                         _l["knowledge_item_id"] = (knowledge_item_id or "").strip()
+                    if passable is not None:
+                        _l["passable"] = bool(passable)
+                    if map_z_offset is not None:
+                        try:
+                            _l["map_z_offset"] = max(-10, min(10, int(map_z_offset)))
+                        except (TypeError, ValueError):
+                            pass
                     break
             _save_world_data(wdata)
 
         updated = get_location_by_id(location_id)
         return {"status": "success", "location": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/locations/{template_id}/clone")
+async def clone_location_route(template_id: str, request: Request) -> Dict[str, Any]:
+    """Erzeugt eine Klon-Instanz eines (passable) Templates an einer Grid-
+    Position. Aufgerufen vom Worldmap-Drag&Drop, wenn der User ein passable
+    Template aus dem Tray auf die Karte zieht.
+    """
+    try:
+        data = await request.json()
+        grid_x = data.get("grid_x")
+        grid_y = data.get("grid_y")
+        if grid_x is None or grid_y is None:
+            raise HTTPException(status_code=400,
+                detail="grid_x/grid_y fehlen")
+        from app.models.world import clone_location as _clone
+        clone = _clone(template_id, int(grid_x), int(grid_y))
+        if not clone:
+            raise HTTPException(status_code=404,
+                detail="Template nicht gefunden")
+        return {"status": "success", "location": clone}
     except HTTPException:
         raise
     except Exception as e:
@@ -237,6 +282,33 @@ def get_activities_route(character_name: str = Query("", alias="agent_name")
     return {"activities": list_all_activities()}
 
 
+@router.get("/conditions/list")
+def list_conditions() -> Dict[str, Any]:
+    """Liste aller Filter-IDs aus prompt_filters (shared + world overlay).
+
+    Die Filter-`id` ist gleichzeitig der kanonische Condition-Name:
+    sobald sie als Tag im Profil (active_conditions) steht, triggert der
+    zugehoerige Filter implizit. Eine zusaetzliche `condition`-Expression
+    am Filter (z.B. ``stamina<10``) wirkt als zweiter Auto-Trigger.
+
+    Returns: {"conditions": [{"name": "drunk", "label": "...", "icon": "🍺"}, ...]}
+    """
+    from app.core.prompt_filters import load_filters
+    seen: Dict[str, Dict[str, Any]] = {}
+    for f in load_filters():
+        if not f.get("enabled", True):
+            continue
+        fid = (f.get("id") or "").strip().lower()
+        if not fid or fid in seen:
+            continue
+        seen[fid] = {
+            "name": fid,
+            "label": (f.get("label") or "").strip(),
+            "icon": (f.get("icon") or "").strip(),
+        }
+    return {"conditions": sorted(seen.values(), key=lambda e: e["name"])}
+
+
 # === Hintergrundbilder ===
 
 @router.head("/locations/{location_name}/background")
@@ -273,12 +345,18 @@ def get_location_map_icon(
     if not loc_id:
         raise HTTPException(status_code=404, detail="Kein Karten-Bild vorhanden")
 
-    image_types = get_gallery_image_types(loc_id)
+    # Klone teilen das Map-Icon ihres Templates — Galerie liegt unter der
+    # Template-ID. resolve_location liefert das gemergte Dict, owner_id
+    # entscheidet wo das Bildmaterial wirklich liegt.
+    from app.models.world import _gallery_owner_id
+    owner_id = _gallery_owner_id(location_name) or loc_id
+
+    image_types = get_gallery_image_types(owner_id)
     map_images = [img for img, t in image_types.items() if t == "map"]
     if not map_images:
         raise HTTPException(status_code=404, detail="Kein Karten-Bild vorhanden")
 
-    gallery_dir = get_gallery_dir(loc_id)
+    gallery_dir = get_gallery_dir(owner_id)
     for img_name in map_images:
         img_path = gallery_dir / img_name
         if img_path.exists():
@@ -874,8 +952,12 @@ async def generate_gallery_image(location_name: str, request: Request) -> Dict[s
             # Karten-Bilder: Hintergrund entfernen (transparent)
             if prompt_type == "map":
                 try:
+                    import asyncio as _asyncio
                     from app.models.character import postprocess_outfit_image
-                    processed = postprocess_outfit_image(image_path)
+                    # rembg/ONNX-Inferenz ist CPU-bound → im Threadpool, sonst
+                    # blockiert der Event-Loop ~1s pro Map-Bild.
+                    processed = await _asyncio.to_thread(
+                        postprocess_outfit_image, image_path)
                     if processed != image_path:
                         # Dateiname hat sich geaendert (.png)
                         new_name = processed.name
@@ -1204,6 +1286,10 @@ async def generate_time_variant(
             if _resolved and _resolved != _current_model:
                 logger.info("Model-Resolve: %s -> %s (Backend: %s)", _current_model, _resolved, backend.name)
                 params[_model_key] = _resolved
+
+        # CLIP — sonst scheitert ComfyUI mit value_not_in_list bei input_clip
+        if active_wf and active_wf.clip:
+            params["clip_name"] = active_wf.clip
 
         # LoRAs
         if active_wf and active_wf.has_loras and active_wf.default_loras:

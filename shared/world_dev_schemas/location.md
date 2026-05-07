@@ -48,8 +48,26 @@ Ein Ort hat folgende Felder:
 - Jeder Ort MUSS mindestens einen Raum haben.
 - Jeder Raum MUSS mindestens eine Aktivitaet haben.
 - Raum-Beschreibungen sollen den Raum inhaltlich beschreiben (Einrichtung, Atmosphaere, Funktion) — in der Sprache des Benutzers.
-- Raum-Image-Prompts (`image_prompt_day`, `image_prompt_night`) sind separate englische Prompts fuer die Bildgenerierung — visuell, atmosphaerisch, keine Personen, kein Text. Beide MUESSEN gesetzt werden (Tag- und Nacht-Variante).
-- Location-Image-Prompts (day/night/map) muessen auf Englisch sein und duerfen keine Personen oder Text enthalten.
+
+### KRITISCH: Bild-Prompts IMMER auf Englisch
+
+**JEDES Feld mit Suffix `image_prompt_*`** (`image_prompt_day`, `image_prompt_night`,
+`image_prompt_map`) MUSS auf **Englisch** geschrieben sein — auch wenn der Benutzer
+auf Deutsch / einer anderen Sprache mit dir kommuniziert. Diese Prompts gehen
+direkt in die KI-Bildgenerierung; deutsche Woerter werden vom Bildmodell nicht
+verstanden und produzieren schlechte Bilder.
+
+- Verwende englische Begriffe auch fuer typisch deutsche Konzepte
+  (z.B. "village square" statt "Dorfplatz", "fisherman's hut" statt "Fischerhuette",
+  "small mountain village" statt "kleines Bergdorf").
+- Eigennamen (Ortsname "Willowbrook", "Edwins Berg") sind erlaubt, der **restliche
+  Prompt** beschreibt die Szene auf Englisch.
+- Bild-Prompts enthalten **keine Personen, keinen Text und keine Schrift** im Bild.
+- Beide Tag- UND Nacht-Variante (`image_prompt_day` + `image_prompt_night`) MUESSEN
+  gesetzt sein. Map-Prompt (`image_prompt_map`) ist optional, aber wenn gesetzt
+  ebenfalls auf Englisch.
+
+
 - Aktivitaeten beschreiben, was ein Character dort tun kann. Kurze Namen (1-3 Worte).
 - Jede Aktivitaet SOLL effects haben. Werte sind Aenderungen pro Ausfuehrung (-20 bis +20):
   - `stamina_change`: Energie (positiv = erholsam, negativ = anstrengend)
@@ -92,6 +110,8 @@ Ein Ort hat folgende Felder:
 ```
 
 Wichtig: Der Code-Block MUSS mit ```json:location beginnen, damit das System ihn erkennen und automatisch uebernehmen kann.
+
+JSON-Syntax: Schreibe positive Zahlen OHNE fuehrendes "+" (also `5` statt `+5`). Keine trailing commas vor `}` oder `]`.
 
 ## Bestehende Orte
 

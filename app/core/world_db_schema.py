@@ -68,7 +68,9 @@ SCHEMA_STATEMENTS = [
         drop_blocks     TEXT DEFAULT '[]',
         prompt_modifier TEXT DEFAULT '',
         enabled         INTEGER NOT NULL DEFAULT 1,
-        meta            TEXT DEFAULT '{}'
+        meta            TEXT DEFAULT '{}',
+        icon            TEXT DEFAULT '',
+        image_modifier  TEXT DEFAULT ''
     )""",
 
     # ── Characters ─────────────────────────────────────────────────────
@@ -127,9 +129,10 @@ SCHEMA_STATEMENTS = [
         character_name TEXT NOT NULL,
         kind           TEXT NOT NULL,          -- daily | weekly | history
         date_key       TEXT NOT NULL,          -- YYYY-MM-DD oder ISO-Week
+        partner        TEXT NOT NULL DEFAULT '', -- Konversationspartner (Charaktername) — leer fuer kind='history' (sliding window)
         content        TEXT NOT NULL,
         meta           TEXT DEFAULT '{}',
-        UNIQUE(character_name, kind, date_key),
+        UNIQUE(character_name, kind, date_key, partner),
         FOREIGN KEY(character_name) REFERENCES characters(name) ON DELETE CASCADE
     )""",
 
@@ -441,6 +444,16 @@ ALTER_MIGRATIONS = [
     # Zeitpunkt der letzten verarbeiteten Gedanken-Runde — alle chat_messages
     # mit role='user' und ts > last_thought_at gelten als "ungelesen".
     ("character_state", "last_thought_at", "TEXT DEFAULT ''"),
+    # prompt_filters: icon + image_modifier fuer den verschmolzenen
+    # "Zustaende"-Tab (frueher in status_modifiers.json). Icon wird im
+    # Character-Header-Badge gerendert, image_modifier landet im
+    # Bildgenerierungs-Prompt aktiver Conditions.
+    ("prompt_filters", "icon", "TEXT DEFAULT ''"),
+    ("prompt_filters", "image_modifier", "TEXT DEFAULT ''"),
+    # summaries: partner-Spalte fuer Character-vs-Character Daily-Summaries
+    # (eine Summary pro (character, partner) pro Tag statt eine pro Tag).
+    # UNIQUE-Constraint-Wechsel laeuft separat in db.py (Table-Rebuild).
+    ("summaries", "partner", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

@@ -40,6 +40,7 @@ from app.models.character import (
     get_character_image_metadata,
     get_character_profile_image,
     set_character_profile_image,
+    delete_character,
     delete_character_image,
     cleanup_orphaned_images,
     get_character_skill_config,
@@ -239,6 +240,19 @@ async def save_animate_loras(character_name: str, request: Request) -> Dict[str,
     return {"status": "success"}
 
 
+DEFAULT_NEW_CHARACTER_SKILLS = (
+    # Skill-IDs aus app/skills/skill_manager.py:SKILL_REGISTRY.
+    # Defaults fuer neu angelegte Characters — Liste entspricht den Haken
+    # im Skills-Tab fuer einen "frisch geborenen" Character (alles Wesentliche
+    # an, Spezial-/Nischen-Skills wie OutfitCreation, VideoGenerator,
+    # Retrospect, MarkdownWriter, KnowledgeExtract bleiben aus, weil sie
+    # Token-Kosten/Setup brauchen und nicht jeder NPC sie braucht).
+    "imagegen", "setlocation", "talk_to", "send_message", "notify_user",
+    "instagram_comment", "instagram_reply",
+    "consume_item", "outfit_change", "setactivity",
+)
+
+
 @router.post("/create")
 async def create_character(request: Request) -> Dict[str, Any]:
     """Erstellt einen neuen Character mit leerem Profil und zugewiesenem Template"""
@@ -260,6 +274,18 @@ async def create_character(request: Request) -> Dict[str, Any]:
             "template": template_name,
         }
         save_character_profile(character_name, initial_profile)
+
+        # Skill-Defaults schreiben — ohne diese Files greift die ALWAYS_LOAD-
+        # Filter-Logik (skill_manager._get_agent_skills) und schaltet alle
+        # Skills standardmaessig AUS. Mit der Default-Liste hat der frische
+        # Char direkt das uebliche Repertoire (chat, set_location, magic
+        # konsumieren, outfit-wechsel, ...).
+        for _sid in DEFAULT_NEW_CHARACTER_SKILLS:
+            try:
+                save_character_skill_config(character_name, _sid, {"enabled": True})
+            except Exception as _e:
+                logger.warning("create_character: skill-default '%s' nicht gesetzt: %s",
+                               _sid, _e)
 
         # Auto-assign the new character to the creator's allowed_characters list
         # so they can immediately see and use it without a separate admin step.
@@ -380,9 +406,11 @@ def get_character_current_location_route(character_name: str) -> Dict[str, Any]:
                             break
                 break
     # Detail-Beschreibung der Aktivitaet
-    from app.models.character import get_character_profile
+    from app.models.character import get_character_profile, get_movement_target
     profile = get_character_profile(character_name)
     activity_detail = profile.get("current_activity_detail", "") if activities_on else ""
+    movement_target_id = get_movement_target(character_name) if locations_on else ""
+    movement_target_name = _get_loc_name(movement_target_id) if movement_target_id else ""
     return {
         "character": character_name,
         "current_location": location_name or location_id or "",
@@ -391,6 +419,8 @@ def get_character_current_location_route(character_name: str) -> Dict[str, Any]:
         "current_activity_detail": activity_detail,
         "current_room": current_room_id or current_room or "",
         "current_room_name": current_room_name or current_room or "",
+        "movement_target_id": movement_target_id,
+        "movement_target_name": movement_target_name,
     }
 
 
@@ -462,6 +492,82 @@ async def update_character_current_location(character_name: str, request: Reques
             "status": "success",
             "character": character_name,
             "current_location": location_name_resp,
+            "reactor": room_entry_result.get("reactor", ""),
+            "silent_noticers": room_entry_result.get("silent_noticers", []),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{character_name}/place-on-map")
+async def place_character_on_map(character_name: str, request: Request) -> Dict[str, Any]:
+    """Drag&Drop-Platzierung: setzt current_location UND fuegt die Location
+    in die known_locations-Liste des Characters ein. Damit aktiviert der erste
+    Drop strict-mode (Listen-basierte Sichtbarkeit) — bis dahin ist der
+    Character auf Legacy-Verhalten (knowledge_item-Gating only).
+    """
+    try:
+        data = await request.json()
+        location = (data.get("location_id") or data.get("current_location") or "").strip()
+        room = (data.get("current_room") or "").strip()
+        if not location:
+            raise HTTPException(status_code=400, detail="location_id fehlt")
+
+        from app.models.world import resolve_location as _resolve_loc
+        from app.models.character import (
+            add_known_location, get_character_current_room,
+            save_character_current_room, save_character_current_activity)
+
+        loc_obj = _resolve_loc(location)
+        location_to_save = loc_obj["id"] if loc_obj and loc_obj.get("id") else location
+        location_name_resp = loc_obj.get("name", location) if loc_obj else location
+
+        add_known_location(character_name, location_to_save)
+
+        old_loc = get_character_current_location(character_name)
+        old_room = get_character_current_room(character_name) or ""
+        from app.models.account import get_active_character
+        _is_avatar = (get_active_character() == character_name)
+        save_character_current_location(character_name, location_to_save,
+            _skip_compliance=_is_avatar)
+        if location_to_save != old_loc:
+            save_character_current_room(character_name, room or '')
+            if not room:
+                save_character_current_activity(character_name, '')
+        elif room:
+            save_character_current_room(character_name, room)
+
+        new_room = room or ''
+        room_changed = (location_to_save != old_loc) or (new_room and new_room != old_room)
+        room_entry_result = {"reactor": "", "silent_noticers": []}
+        if _is_avatar and room_changed:
+            try:
+                from app.core.room_entry import on_avatar_room_entry
+                _room_label = ""
+                if new_room and loc_obj:
+                    from app.models.world import get_room_by_id
+                    _r = get_room_by_id(loc_obj, new_room)
+                    if _r and _r.get("name"):
+                        _room_label = _r["name"]
+                import asyncio as _asyncio
+                room_entry_result = await _asyncio.to_thread(
+                    on_avatar_room_entry,
+                    avatar_name=character_name,
+                    location_id=location_to_save,
+                    room_id=new_room,
+                    location_label=location_name_resp,
+                    room_label=_room_label,
+                ) or room_entry_result
+            except Exception as _re:
+                logger.debug("avatar_room_entry hook failed: %s", _re)
+
+        return {
+            "status": "success",
+            "character": character_name,
+            "current_location": location_name_resp,
+            "current_location_id": location_to_save,
             "reactor": room_entry_result.get("reactor", ""),
             "silent_noticers": room_entry_result.get("silent_noticers", []),
         }
@@ -1008,6 +1114,18 @@ async def add_character_outfit_route(character_name: str, request: Request) -> D
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/{character_name}")
+async def delete_character_route(character_name: str) -> Dict[str, Any]:
+    """Loescht einen Character vollstaendig (DB + Storage-Verzeichnis)."""
+    if not character_name:
+        raise HTTPException(status_code=400, detail="character_name fehlt")
+    success = delete_character(character_name)
+    if not success:
+        raise HTTPException(status_code=404,
+                            detail=f"Character '{character_name}' nicht gefunden oder geschuetzt")
+    return {"status": "success", "deleted": character_name}
+
+
 @router.delete("/{character_name}/outfits")
 async def delete_character_outfit_route(character_name: str, request: Request) -> Dict[str, Any]:
     """Loescht ein Outfit per ID."""
@@ -1253,7 +1371,9 @@ async def generate_outfit_image_route(character_name: str, outfit_id: str, reque
         shutil.move(str(src_path), str(dst_path))
 
     # Hintergrund entfernen + transparente Raender abschneiden
-    final_path = postprocess_outfit_image(dst_path)
+    # rembg/ONNX-Inferenz ist CPU-bound → Threadpool damit der Event-Loop nicht blockiert.
+    import asyncio as _asyncio
+    final_path = await _asyncio.to_thread(postprocess_outfit_image, dst_path)
     final_filename = final_path.name
 
     # Altes Outfit-Bild loeschen
@@ -1996,26 +2116,36 @@ def get_profile_route(character_name: str) -> Dict[str, Any]:
 def get_active_conditions_route(character_name: str) -> Dict[str, Any]:
     """Gibt aktive Conditions mit Icon/Label/Restdauer zurueck.
 
-    Abgelaufene Conditions werden gefiltert. Icons/Labels kommen aus
-    status_modifiers.json (Game Admin → Zustaende).
+    Abgelaufene Conditions werden gefiltert. Icons/Labels kommen aus den
+    Prompt-Filtern (Game Admin → Zustaende).
     """
     from datetime import datetime as _dt
-    from app.core.danger_system import _load_status_modifiers
+    from app.core.prompt_filters import load_filters
 
     profile = get_character_profile(character_name)
     active = profile.get("active_conditions", []) or []
 
-    # Index: condition_name (lowercased) -> {icon, label, image_modifier}
+    # Index: condition_name (lowercased) -> {icon, label, image_modifier}.
+    # Filter-`id` ist der kanonische Condition-Name (neues Modell): wenn der
+    # Tag in active_conditions auftaucht, triggert der Filter implizit. Wir
+    # bauen den Lookup primaer ueber id; legacy-Filter mit `condition:<name>`-
+    # Expression werden zusaetzlich als Alias indexiert, damit alte Daten
+    # weiter ein Icon bekommen.
     meta_by_name: Dict[str, Dict[str, str]] = {}
-    for mod in _load_status_modifiers():
-        cond_str = mod.get("condition", "") or ""
-        if cond_str.startswith("condition:"):
+    for f in load_filters():
+        meta = {
+            "icon": f.get("icon", "") or "",
+            "label": f.get("label", "") or "",
+            "image_modifier": f.get("image_modifier", "") or "",
+        }
+        fid = (f.get("id") or "").strip().lower()
+        if fid:
+            meta_by_name.setdefault(fid, dict(meta, label=meta["label"] or fid))
+        cond_str = (f.get("condition") or "").strip()
+        if cond_str.lower().startswith("condition:"):
             name = cond_str[10:].strip().lower()
-            meta_by_name[name] = {
-                "icon": mod.get("icon", "") or "",
-                "label": mod.get("label", "") or name,
-                "image_modifier": mod.get("image_modifier", "") or "",
-            }
+            if name:
+                meta_by_name.setdefault(name, dict(meta, label=meta["label"] or name))
 
     now = _dt.now()
     result = []
@@ -2478,8 +2608,8 @@ def get_available_skills_for_character(character_name: str) -> Dict[str, Any]:
 # Soul Editor — MD-Files unter characters/{Char}/soul/
 # ---------------------------------------------------------------------------
 
-# File-Default-Whitelist aus EditSelf-Skill (single source of truth)
-from app.skills.edit_self_skill import (
+# File-Default-Whitelist (single source of truth fuer Soul-Editor-UI)
+from app.core.soul_sections import (
     EDITABLE_SECTIONS as _SOUL_EDITABLE,
     LOCKED_SECTIONS as _SOUL_LOCKED,
     SECTION_FILE_MAP as _SOUL_FILE_MAP,
@@ -2547,10 +2677,14 @@ def _soul_file_meta(section_id: str) -> Dict[str, Any]:
 def _is_soul_section_enabled(character_name: str, section_id: str) -> bool:
     """Prueft ob die Soul-Section per Template-Feature aktiviert ist.
 
-    'personality' und 'tasks' sind ungated → immer.
-    Andere ueber Template-Feature: beliefs_enabled etc.
+    'personality' / 'tasks' / 'presence' sind ungated → immer.
+    Andere ueber Template-Feature. beliefs/lessons/goals sind zusaetzlich
+    an den Retrospect-Master-Switch gekoppelt — wenn der Char per UI
+    Retrospect deaktiviert hat, fallen die drei Sections aus dem Soul-Tab
+    raus, unabhaengig davon was das Template fuer beliefs/lessons/goals
+    sagt.
     """
-    if section_id in ("personality", "tasks"):
+    if section_id in ("personality", "tasks", "presence"):
         return True
     feature_map = {
         "roleplay_rules": "roleplay_rules_enabled",
@@ -2564,6 +2698,11 @@ def _is_soul_section_enabled(character_name: str, section_id: str) -> bool:
         return False
     try:
         from app.models.character_template import is_feature_enabled
+        # Retrospect-Master-Switch: schaltet die drei Output-Sections
+        # gemeinsam ab.
+        if section_id in ("beliefs", "lessons", "goals"):
+            if not is_feature_enabled(character_name, "retrospect_enabled"):
+                return False
         return is_feature_enabled(character_name, feature)
     except Exception:
         return True
@@ -2579,7 +2718,7 @@ def get_soul_files(character_name: str) -> Dict[str, Any]:
     from app.models.character import get_character_dir
     char_dir = get_character_dir(character_name)
     files = []
-    for section_id in ("personality", "tasks", "roleplay_rules",
+    for section_id in ("personality", "tasks", "presence", "roleplay_rules",
                         "beliefs", "lessons", "goals", "soul"):
         if not _is_soul_section_enabled(character_name, section_id):
             continue
@@ -3049,7 +3188,11 @@ async def enhance_image_prompt(character_name: str, request: Request) -> Dict[st
 
     agent_config = get_character_config(character_name)
     from app.skills.image_regenerate import enhance_prompt
-    enhanced = enhance_prompt(prompt, improvement_request, agent_config)
+    # enhance_prompt macht einen blocking LLM-Call → Threadpool, sonst
+    # blockiert der Event-Loop bis das Tool-LLM antwortet (~1s+).
+    import asyncio as _asyncio
+    enhanced = await _asyncio.to_thread(
+        enhance_prompt, prompt, improvement_request, agent_config)
     return {"prompt": enhanced}
 
 
@@ -3373,109 +3516,78 @@ async def animate_character_image(character_name: str, image_name: str, request:
 # Character Export / Import
 # ---------------------------------------------------------------------------
 
-EXPORT_EXCLUDE_ALWAYS = {".profile_hash"}
-
-
 @router.get("/{character_name}/export")
 def export_character(
-    character_name: str, include_chats: bool = Query(False, description="Chat-Historie einschliessen"),
-    include_stories: bool = Query(False, description="Story-Fortschritte einschliessen")) -> StreamingResponse:
-    """Exportiert einen Character als ZIP-Datei."""
+    character_name: str,
+    include_chats: bool = Query(False, description="Include chat history"),
+    include_stories: bool = Query(False, description="Include story progress"),
+) -> StreamingResponse:
+    """Exports a character as a ZIP bundle (DB rows + filesystem dir).
+
+    The ZIP carries a manifest.json plus `files/` (char dir contents) and
+    `db/<table>.json` slices for every table the character owns rows in
+    (profile/config, state, memories, summaries, knowledge, inventory,
+    outfits, schedule, secrets, relationships, image metadata, ...).
+    """
+    from app.core.character_io import export_character_to_zip
+    from app.core.db import get_connection
+
     char_dir = get_character_dir(character_name)
-    if not char_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Character '{character_name}' nicht gefunden")
+    conn = get_connection()
+    db_row = conn.execute(
+        "SELECT 1 FROM characters WHERE name=?", (character_name,)
+    ).fetchone()
+    if not char_dir.exists() and not db_row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Character '{character_name}' not found",
+        )
 
-    skip_dirs = set()
-    if not include_chats:
-        skip_dirs.add("chats")
-    if not include_stories:
-        skip_dirs.add("stories")
+    try:
+        zip_bytes = export_character_to_zip(
+            character_name,
+            include_chats=include_chats,
+            include_stories=include_stories,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Export failed for %s", character_name)
+        raise HTTPException(status_code=500, detail=f"Export failed: {e}")
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file_path in sorted(char_dir.rglob("*")):
-            if not file_path.is_file():
-                continue
-            rel = file_path.relative_to(char_dir)
-            # Skip excluded directories
-            if rel.parts[0] in skip_dirs:
-                continue
-            # Skip temp files
-            if rel.name in EXPORT_EXCLUDE_ALWAYS:
-                continue
-            zf.write(file_path, str(rel))
-
-    buf.seek(0)
     filename = f"{character_name}_export.zip"
     return StreamingResponse(
-        buf,
+        io.BytesIO(zip_bytes),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/import")
-async def import_character(file: UploadFile = File(...),
-    overwrite: bool = Query(False, description="Existierenden Character ueberschreiben")) -> Dict[str, Any]:
-    """Importiert einen Character aus einer ZIP-Datei.
+async def import_character(
+    file: UploadFile = File(...),
+    overwrite: bool = Query(False, description="Replace existing character"),
+) -> Dict[str, Any]:
+    """Imports a character ZIP produced by the export endpoint.
 
-    Die ZIP muss die Character-Dateien im Root enthalten (character_profile.json etc.),
-    so wie sie vom Export erzeugt wird.
+    Restores both the filesystem char dir and all owned DB rows. With
+    overwrite=true, existing DB rows and the char dir are wiped first.
     """
-    if not file.filename or not file.filename.endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Nur ZIP-Dateien erlaubt")
+    from app.core.character_io import import_character_from_zip
+
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only ZIP files are allowed")
 
     content = await file.read()
     try:
-        zf = zipfile.ZipFile(io.BytesIO(content))
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Ungueltige ZIP-Datei")
-
-    # Character-Name aus character_profile.json lesen
-    if "character_profile.json" not in zf.namelist():
-        raise HTTPException(status_code=400, detail="character_profile.json fehlt in der ZIP")
-
-    import json
-    profile = json.loads(zf.read("character_profile.json"))
-    character_name = profile.get("character_name", "").strip()
-    if not character_name:
-        raise HTTPException(status_code=400, detail="character_name fehlt im Profil")
-
-    # Sicherheitscheck
-    if ".." in character_name or "/" in character_name:
-        raise HTTPException(status_code=400, detail="Ungueltiger Character-Name")
-
-    char_dir = get_character_dir(character_name)
-    if char_dir.exists() and not overwrite:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Character '{character_name}' existiert bereits. "
-                   f"Verwende ?overwrite=true zum Ueberschreiben."
-        )
-
-    # Dateien extrahieren
-    char_dir.mkdir(parents=True, exist_ok=True)
-    imported_files = 0
-    for member in zf.namelist():
-        # Sicherheit: keine absoluten Pfade, kein Path-Traversal
-        if member.startswith("/") or ".." in member:
-            continue
-        if member.endswith("/"):
-            continue
-
-        target = char_dir / member
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(zf.read(member))
-        imported_files += 1
-
-    zf.close()
-    logger.info("Import: %s (%d Dateien) fuer User %s", character_name, imported_files)
-
-    return {
-        "status": "success",
-        "character": character_name,
-        "files_imported": imported_files,
-        "overwritten": char_dir.exists() and overwrite,
-    }
+        return import_character_from_zip(content, overwrite=overwrite)
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Import failed")
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}")
 
 
 # --- ComfyUI Workflow Endpoints ---

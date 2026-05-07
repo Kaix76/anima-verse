@@ -545,9 +545,47 @@ def track_room_activity(location_id: str,
     return False
 
 
+def _resolve_clones(locations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merged passable Klone mit ihrem Template.
+
+    Klone speichern minimal: id, template_location_id, grid_x, grid_y und
+    optional name. Beim Lesen werden alle uebrigen Felder vom Template
+    geerbt, sodass Aenderungen am Template automatisch fuer alle Klone gelten.
+    Behaelt template_location_id im Output, damit das Frontend sie aus dem
+    Welt-Tree filtern kann.
+    """
+    by_id = {l.get("id"): l for l in locations if l.get("id")}
+    resolved: List[Dict[str, Any]] = []
+    for loc in locations:
+        tmpl_id = (loc.get("template_location_id") or "").strip()
+        if not tmpl_id:
+            resolved.append(loc)
+            continue
+        tmpl = by_id.get(tmpl_id)
+        if not tmpl:
+            # Template geloescht — Klon wird zur Waise; spaeter beim
+            # naechsten Save aufraeumen lassen, jetzt aber rendern.
+            resolved.append(loc)
+            continue
+        merged = {**tmpl, **{
+            k: v for k, v in loc.items()
+            if k in ("id", "grid_x", "grid_y", "template_location_id")
+            or v not in (None, "", [], {})
+        }}
+        # Template-Identitaet vergessen, sonst nimmt der Klon die ID des
+        # Templates an. Override mit dem ECHTEN Klon-Identifier:
+        merged["id"] = loc.get("id")
+        merged["template_location_id"] = tmpl_id
+        merged["grid_x"] = loc.get("grid_x")
+        merged["grid_y"] = loc.get("grid_y")
+        resolved.append(merged)
+    return resolved
+
+
 def list_locations() -> List[Dict[str, Any]]:
-    """Gibt alle Orte eines Users zurueck."""
-    return _load_world_data().get("locations", [])
+    """Gibt alle Orte eines Users zurueck (Klone gemerged mit Template)."""
+    raw = _load_world_data().get("locations", [])
+    return _resolve_clones(raw)
 
 
 def resolve_location(identifier: str) -> Optional[Dict[str, Any]]:
@@ -604,16 +642,49 @@ def _character_has_item(character_name: str, item_id: str) -> bool:
     return False
 
 
+def _character_known_locations(character_name: str):
+    """Liefert die explizit gesetzte known_locations-Liste oder None.
+
+    None bedeutet: Feld nicht gesetzt → Legacy-Verhalten (keine Restriktion).
+    Eine Liste (auch leer) bedeutet: strict — nur enthaltene Location-IDs sind
+    sichtbar. Wird ueber Drag&Drop im Worldmap-Panel populiert.
+    """
+    if not character_name:
+        return None
+    try:
+        from app.models.character import get_character_config
+        cfg = get_character_config(character_name) or {}
+    except Exception:
+        return None
+    if "known_locations" not in cfg:
+        return None
+    val = cfg.get("known_locations")
+    if isinstance(val, list):
+        return [str(v) for v in val if v]
+    return None
+
+
 def location_visible_to_character(character_name: str,
                                     location: Dict[str, Any]) -> bool:
     """True wenn der Character das Wissens-Item der Location besitzt
-    (oder keins gesetzt ist)."""
+    (oder keins gesetzt ist) UND die Location in seiner known_locations-Liste
+    steht (falls die Liste explizit gesetzt ist).
+
+    known_locations: optionale Liste von Location-IDs. Wenn das Feld fehlt
+    (Legacy), gilt keine Listen-Restriktion. Wenn es gesetzt ist (auch leer),
+    gilt strict membership — die Liste wird ueber Drag&Drop populiert.
+    """
     if not isinstance(location, dict):
         return False
     iid = (location.get("knowledge_item_id") or "").strip()
-    if not iid:
-        return True
-    return _character_has_item(character_name, iid)
+    if iid and not _character_has_item(character_name, iid):
+        return False
+    known = _character_known_locations(character_name)
+    if known is not None:
+        loc_id = location.get("id") or ""
+        if loc_id not in known:
+            return False
+    return True
 
 
 def room_visible_to_character(character_name: str,
@@ -821,6 +892,74 @@ def get_neighbor_location_ids(location_id: str) -> List[str]:
     return neighbors
 
 
+def find_path_through_known(start_id: str, target_id: str,
+                             known_ids: List[str]) -> Optional[List[str]]:
+    """BFS ueber das Grid, traversiert nur ``known_ids``-Locations.
+
+    Returns die Pfad-Liste (inkl. Start und Target) oder None wenn nicht
+    erreichbar. Start muss nicht in known_ids sein (Character steht dort);
+    Alle Zwischenstationen muessen in known_ids sein.
+
+    Direkte Grid-Nachbarn des Starts duerfen auch dann betreten werden, wenn
+    sie nicht in known_ids stehen — ein Character sieht das Nachbardorf vom
+    eigenen Standort aus und kann es ohne formelle "Discovery" erreichen
+    (Discovery wird beim Ankommen automatisch nachgezogen).
+    """
+    if not start_id or not target_id:
+        return None
+    if start_id == target_id:
+        return [start_id]
+    walkable = set(known_ids or [])
+    walkable.add(start_id)
+    # Direkte Grid-Nachbarn vom Start dazunehmen — egal ob known oder nicht.
+    # So bleiben Multi-Hop-Strecken durch Unbekanntes blockiert, aber der
+    # naechste Ort um die Ecke ist immer erreichbar.
+    direct_neighbors = set(get_neighbor_location_ids(start_id))
+    walkable.update(direct_neighbors)
+    if target_id not in walkable:
+        return None
+
+    from collections import deque
+    queue = deque([start_id])
+    parents: Dict[str, str] = {start_id: ""}
+    while queue:
+        node = queue.popleft()
+        if node == target_id:
+            # Pfad rekonstruieren
+            path = [node]
+            while parents.get(path[-1]):
+                path.append(parents[path[-1]])
+            path.reverse()
+            return path
+        for nb in get_neighbor_location_ids(node):
+            if nb in parents or nb not in walkable:
+                continue
+            parents[nb] = node
+            queue.append(nb)
+    return None
+
+
+def next_step_toward(character_name: str, target_id: str) -> Optional[str]:
+    """Liefert die Location-ID des naechsten Schritts vom aktuellen Standort
+    Richtung Ziel. Pfad nur ueber known_locations.
+
+    Returns:
+        - None wenn kein Pfad existiert oder Character bereits am Ziel
+        - sonst die Nachbar-Location-ID, auf die als Naechstes gewechselt
+          werden soll
+    """
+    from app.models.character import (
+        get_character_current_location, get_known_locations)
+    current = get_character_current_location(character_name) or ""
+    if not current or current == target_id:
+        return None
+    known = get_known_locations(character_name) or []
+    path = find_path_through_known(current, target_id, known)
+    if not path or len(path) < 2:
+        return None
+    return path[1]
+
+
 def update_location_position(location_id: str, grid_x: int, grid_y: int) -> Optional[Dict[str, Any]]:
     """Setzt die Raster-Position eines Ortes. grid_x/grid_y < 0 entfernt die Position."""
     data = _load_world_data()
@@ -837,15 +976,159 @@ def update_location_position(location_id: str, grid_x: int, grid_y: int) -> Opti
     return None
 
 
-def delete_location(identifier: str) -> bool:
-    """Loescht einen Ort per ID oder Name."""
+def cleanup_orphan_clones() -> Dict[str, int]:
+    """Bereinigt Klon-Datensaetze:
+
+    - Klone ohne Grid-Position (off-map) -> loeschen.
+    - Klone mit nicht-existierendem template_location_id -> loeschen.
+    - Mehrere Klone an derselben Grid-Zelle (gleiches Template) -> nur den
+      ersten behalten, Rest loeschen.
+
+    Idempotent. Returns Stats-Dict.
+    """
     data = _load_world_data()
     locations = data.get("locations", [])
-    new_locations = [
-        loc for loc in locations
-        if loc.get("id") != identifier and loc.get("name") != identifier
-    ]
+    existing_ids = {l.get("id") for l in locations if l.get("id")}
 
+    delete_ids: set = set()
+    seen_cells: set = set()  # (template_id, grid_x, grid_y)
+
+    # Erste Schleife: Off-Map und Waisen markieren
+    for loc in locations:
+        tid = (loc.get("template_location_id") or "").strip()
+        if not tid:
+            continue
+        # Waise: Template existiert nicht mehr
+        if tid not in existing_ids:
+            delete_ids.add(loc.get("id"))
+            continue
+        gx = loc.get("grid_x")
+        gy = loc.get("grid_y")
+        # Off-Map: kein Grid oder negativ
+        if gx is None or gy is None or gx < 0 or gy < 0:
+            delete_ids.add(loc.get("id"))
+            continue
+
+    # Zweite Schleife: Duplikate pro (Template, Grid-Zelle)
+    for loc in locations:
+        tid = (loc.get("template_location_id") or "").strip()
+        if not tid or loc.get("id") in delete_ids:
+            continue
+        gx = loc.get("grid_x")
+        gy = loc.get("grid_y")
+        cell = (tid, gx, gy)
+        if cell in seen_cells:
+            delete_ids.add(loc.get("id"))
+        else:
+            seen_cells.add(cell)
+
+    if not delete_ids:
+        return {"removed": 0, "off_map": 0, "duplicates": 0,
+                "orphan_template": 0, "kept": len(locations)}
+
+    new_locations = [l for l in locations if l.get("id") not in delete_ids]
+    data["locations"] = new_locations
+    _save_world_data(data)
+
+    # Stats unterscheiden
+    off_map = duplicates = orphan = 0
+    for loc in locations:
+        if loc.get("id") not in delete_ids:
+            continue
+        tid = (loc.get("template_location_id") or "").strip()
+        gx, gy = loc.get("grid_x"), loc.get("grid_y")
+        if tid not in existing_ids:
+            orphan += 1
+        elif gx is None or gy is None or gx < 0 or gy < 0:
+            off_map += 1
+        else:
+            duplicates += 1
+
+    logger.info("cleanup_orphan_clones: removed=%d (off_map=%d, duplicates=%d, orphan=%d)",
+                len(delete_ids), off_map, duplicates, orphan)
+    return {"removed": len(delete_ids),
+            "off_map": off_map,
+            "duplicates": duplicates,
+            "orphan_template": orphan,
+            "kept": len(new_locations)}
+
+
+def clone_location(template_id: str, grid_x: int, grid_y: int) -> Optional[Dict[str, Any]]:
+    """Erzeugt eine neue Klon-Instanz von einem (passable) Template.
+
+    Klon speichert minimal: id, template_location_id, grid_x, grid_y. Alle
+    sonstigen Felder werden zur Lesezeit aus dem Template gemerged.
+    Returns das resolved-Dict des Klons oder None bei Fehler.
+    """
+    if not template_id:
+        return None
+    # Garde: Klone ohne gueltige Grid-Position landen nicht in der DB.
+    try:
+        gx = int(grid_x)
+        gy = int(grid_y)
+    except (TypeError, ValueError):
+        return None
+    if gx < 0 or gy < 0:
+        return None
+    data = _load_world_data()
+    template = None
+    for loc in data.get("locations", []):
+        if loc.get("id") == template_id:
+            template = loc
+            break
+    if not template:
+        return None
+    # Doppelte Klone derselben Template-Zelle vermeiden — der erste Klon
+    # gewinnt, weitere Drops auf dieselbe Zelle werden verworfen.
+    for loc in data.get("locations", []):
+        if (loc.get("template_location_id") or "") == template_id \
+                and loc.get("grid_x") == gx and loc.get("grid_y") == gy:
+            logger.info("clone_location: existierender Klon an (%d,%d) fuer "
+                        "Template %s, kein neuer Eintrag", gx, gy, template_id)
+            return loc
+    new_id = _generate_location_id()
+    clone = {
+        "id": new_id,
+        "template_location_id": template_id,
+        "grid_x": gx,
+        "grid_y": gy,
+        "rooms": [],
+    }
+    data["locations"].append(clone)
+    _save_world_data(data)
+    # Resolved zurueckgeben — Frontend bekommt die merge-fertige Instanz.
+    for loc in _resolve_clones(data["locations"]):
+        if loc.get("id") == new_id:
+            return loc
+    return clone
+
+
+def delete_location(identifier: str) -> bool:
+    """Loescht einen Ort per ID oder Name. Wenn ein Template geloescht wird,
+    werden alle Klone (Locations mit template_location_id == template_id)
+    kaskadierend mitentfernt.
+    """
+    data = _load_world_data()
+    locations = data.get("locations", [])
+    # Ziel-IDs ermitteln: das Original und ggf. abhaengige Klone
+    target_ids = set()
+    for loc in locations:
+        if loc.get("id") == identifier or loc.get("name") == identifier:
+            target_ids.add(loc.get("id"))
+    if not target_ids:
+        return False
+    # Cascade: alle Klone deren template in target_ids ist
+    cascade = True
+    while cascade:
+        cascade = False
+        for loc in locations:
+            tid = (loc.get("template_location_id") or "").strip()
+            lid = loc.get("id")
+            if tid and tid in target_ids and lid and lid not in target_ids:
+                target_ids.add(lid)
+                cascade = True
+
+    new_locations = [loc for loc in locations if loc.get("id") not in target_ids]
     if len(new_locations) < len(locations):
         data["locations"] = new_locations
         _save_world_data(data)
@@ -870,17 +1153,22 @@ def get_activity(activity_name: str) -> Optional[Dict[str, str]]:
 # === Hintergrundbilder ===
 
 def get_background_path(location_identifier: str, room: str = "",
-                        hour: int = -1) -> Optional[Path]:
+                        hour: int = -1, strict_room: bool = False) -> Optional[Path]:
     """Gibt den Pfad zu einem zufaellig gewaehlten Hintergrundbild zurueck.
 
     Regeln:
     - Raum gesetzt UND Raum hat Bilder → eines der Raum-Bilder (Tag/Nacht bevorzugt)
     - Raum nicht gesetzt ODER Raum hat keine Bilder → eines der Location-Bilder
-      (nicht raum-zugeordnet, Tag/Nacht bevorzugt)
+      (nicht raum-zugeordnet, Tag/Nacht bevorzugt) — ausser ``strict_room=True``
     - Location nicht gesetzt ODER Location hat keine Bilder → None
 
     Args:
         hour: Aktuelle Stunde (0-23). -1 = keine Tageszeit-Filterung.
+        strict_room: Wenn True und ``room`` gesetzt: KEIN Fallback auf
+            Location-Default. Liefert None wenn der Raum keine dedizierten
+            Bilder hat. Verwendet vom Regenerate-Pfad, damit ein expliziter
+            Raumwechsel im Dialog nicht stillschweigend dieselbe Default-
+            Datei zurueckgibt (User wuerde den Wechsel nie bemerken).
     """
     loc = resolve_location(location_identifier)
     if not loc:
@@ -896,15 +1184,18 @@ def get_background_path(location_identifier: str, room: str = "",
     if not bg_images:
         return None
 
-    gallery_base = get_storage_dir() / "world_gallery" / loc_id
+    # Klone teilen das Bildmaterial des Templates — Lookups laufen ueber
+    # die Owner-ID (Template-ID bei Klonen, sonst eigene ID).
+    owner_id = _gallery_owner_id(location_identifier) or loc_id
+    gallery_base = get_storage_dir() / "world_gallery" / owner_id
 
     # Nur existierende Bilder beruecksichtigen
     valid = [img for img in bg_images if (gallery_base / img).exists()]
     if not valid:
         return None
 
-    image_rooms = get_gallery_image_rooms(loc_id)
-    image_types = get_gallery_image_types(loc_id)
+    image_rooms = get_gallery_image_rooms(owner_id)
+    image_types = get_gallery_image_types(owner_id)
 
     def _not_map(img: str) -> bool:
         return image_types.get(img, "") != "map"
@@ -915,6 +1206,9 @@ def get_background_path(location_identifier: str, room: str = "",
     candidates: List[str] = []
     if room:
         candidates = [img for img in valid if image_rooms.get(img, "") == room and _not_map(img)]
+        if not candidates and strict_room:
+            # Strikter Modus: User hat den Raum bewusst gewaehlt — KEIN Fallback.
+            return None
     if not candidates:
         candidates = [img for img in valid if image_rooms.get(img, "") == "" and _not_map(img)]
     if not candidates:
@@ -991,14 +1285,33 @@ def remove_background_image(location_id: str, image_name: str) -> None:
                 _save_world_data(data)
 
 
+def _gallery_owner_id(location_identifier: str) -> str:
+    """Liefert die ID, unter der die Galerie-Bilder eines Ortes liegen.
+
+    Fuer Klone (template_location_id gesetzt) gibt sie die Template-ID
+    zurueck — Klone teilen sich das Bildmaterial mit ihrem Template.
+    Fuer eigenstaendige Locations die eigene ID. Wird von Galerie- und
+    Hintergrund-Lookups genutzt.
+    """
+    loc = resolve_location(location_identifier)
+    if not loc:
+        return ""
+    tmpl_id = (loc.get("template_location_id") or "").strip()
+    if tmpl_id:
+        return tmpl_id
+    return loc.get("id", "") or ""
+
+
 def get_gallery_dir(location_identifier: str) -> Path:
     """Gibt den Pfad zum Galerie-Verzeichnis eines Ortes zurueck.
 
-    Akzeptiert ID oder Name. Verwendet die Location-ID fuer den Dateipfad.
+    Akzeptiert ID oder Name. Verwendet die Location-ID fuer den Dateipfad
+    — Klone werden auf ihre Template-ID umgeleitet, damit alle Klone das
+    gleiche Bildmaterial sehen.
     """
-    loc = resolve_location(location_identifier)
-    if loc and loc.get("id"):
-        dir_name = loc["id"]
+    owner_id = _gallery_owner_id(location_identifier)
+    if owner_id:
+        dir_name = owner_id
     else:
         dir_name = re.sub(r'[^\w\-]', '_', location_identifier)
     return get_storage_dir() / "world_gallery" / dir_name

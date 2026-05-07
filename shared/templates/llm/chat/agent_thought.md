@@ -23,6 +23,8 @@
      available_activities_block — activities possible at current location
      daily_schedule_block      — typical-rhythm hint for current hour
      known_locations_block     — visibility-filtered list of places to go
+     travel_block              — active journey info (target + remaining steps)
+     tracker_block             — carried tracker-items revealing target locations
      arc_block                 — Low: active story arc context
      retrospective_block       — Low (with boost): "time to reflect"
      tools_hint                — tool-format hint for single-mode tool use
@@ -102,6 +104,16 @@ Use SetActivity if you want to switch to one of these.
 === Instagram (recent) ===
 {{ instagram_pending_block }}
 You may use InstagramComment to react if you want.
+{% endif %}
+{% if travel_block %}
+
+=== On the road ===
+{{ travel_block }}
+{% endif %}
+{% if tracker_block %}
+
+=== Tracker ===
+{{ tracker_block }}
 {% endif %}
 {% if known_locations_block %}
 

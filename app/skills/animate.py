@@ -110,7 +110,7 @@ class ComfyAnimateService(AnimateService):
         self.enabled = _env("ANIMATE_COMFY_ENABLED", "COMFY_ANIMATE_ENABLED", "true").lower() in ("true", "1", "yes")
         self.workflow_file = _env(
             "ANIMATE_COMFY_WORKFLOW_FILE", "COMFY_ANIMATE_WORKFLOW_FILE",
-            os.path.join(os.path.dirname(__file__), "..", "..", "workflows", "img2video_workflow_api.json"))
+            os.path.join(os.path.dirname(__file__), "..", "..", "workflows", "img2video_workflow_lowram_api.json"))
         self.backend_name = _env("ANIMATE_COMFY_BACKEND", "COMFY_ANIMATE_BACKEND")
         self.unet_low = _env("ANIMATE_COMFY_UNET_LOW", "COMFY_ANIMATE_UNET_LOW")
         self.unet_high = _env("ANIMATE_COMFY_UNET_HIGH", "COMFY_ANIMATE_UNET_HIGH")
