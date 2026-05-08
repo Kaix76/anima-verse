@@ -135,12 +135,19 @@ def record_access_denied(character_name: str,
     location_id: str,
     location_name: str,
     reason: str,
-    rule_name: str = "") -> None:
-    """Protokolliert einen verweigerten Ortswechsel fuers Tagebuch."""
+    rule_name: str = "",
+    action: str = "enter") -> None:
+    """Protokolliert einen verweigerten Ortswechsel fuers Tagebuch.
+
+    ``action`` unterscheidet Eintritts- ("enter") und Verlassens-Blockaden
+    ("leave"). Wird ins Metadata-Dict geschrieben, damit Diary-Renderer und
+    Recent-Activity die Richtung anzeigen koennen.
+    """
     metadata = {
         "location_id": location_id,
         "location_name": location_name,
         "reason": reason,
+        "action": action,
     }
     if rule_name:
         metadata["rule_name"] = rule_name
@@ -410,16 +417,47 @@ _RESERVED_NAMES = {"user", "admin", "system", "default", "player", "",
                    "undefined", "null", "none", "nan"}
 
 
-def save_character_profile(character_name: str, profile: Dict[str, Any]):
+def save_character_profile(character_name: str, profile: Dict[str, Any],
+                           create_new: bool = False):
     """Speichert das Profil eines Characters in der DB.
 
     Stellt sicher dass die Soul-MD-Dateien gemaess Template existieren
     (legt fehlende aus shared/templates/soul/ an).
+
+    ``create_new``: nur die explizite Charakter-Erstellung (POST /characters/create)
+    darf neue Charaktere anlegen. Alle anderen Callsites sind Updates fuer
+    BESTEHENDE Charaktere — wenn der Name unbekannt ist, wird das als Bug
+    behandelt (z.B. ein LLM hat "Lirien" statt "Lirien Edwinsdottir"
+    durchgereicht) und das Schreiben verworfen.
     """
     if character_name.lower() in _RESERVED_NAMES:
         logger.warning("save_character_profile: reservierter Name '%s' uebersprungen",
                        character_name)
         return
+
+    # Existenz-Check — wenn nicht create_new, muss Character bereits existieren
+    if not create_new:
+        _exists = False
+        try:
+            conn = get_connection()
+            _row = conn.execute(
+                "SELECT 1 FROM characters WHERE name=? LIMIT 1",
+                (character_name,)).fetchone()
+            _exists = bool(_row)
+        except Exception:
+            pass
+        if not _exists:
+            try:
+                _exists = (get_user_characters_dir() / character_name).is_dir()
+            except Exception:
+                pass
+        if not _exists:
+            logger.warning(
+                "save_character_profile: Character '%s' existiert nicht — "
+                "kein Save (Geister-Character verhindert). Wenn das ein "
+                "neuer Charakter sein soll, ueber POST /characters/create "
+                "anlegen.", character_name)
+            return
 
     character_dir = get_character_dir(character_name, create=True)
     profile_path = character_dir / "character_profile.json"
@@ -2803,7 +2841,34 @@ def get_character_skill_config(character_name: str, skill_name: str) -> Dict[str
 
 
 def save_character_skill_config(character_name: str, skill_name: str, config: Dict[str, Any]):
-    """Speichert die character-spezifische Skill-Konfiguration"""
+    """Speichert die character-spezifische Skill-Konfiguration.
+
+    Skill-Configs gehoeren zu BESTEHENDEN Characters — ein unbekannter Name
+    wird als Bug behandelt (z.B. LLM-Output mit Vornamen statt Vollnamen)
+    und der Write verworfen, statt ein Geister-Verzeichnis anzulegen.
+    """
+    if character_name.lower() in _RESERVED_NAMES:
+        logger.warning("save_character_skill_config: reservierter Name '%s' uebersprungen",
+                       character_name)
+        return
+    _exists = False
+    try:
+        conn = get_connection()
+        _row = conn.execute(
+            "SELECT 1 FROM characters WHERE name=? LIMIT 1",
+            (character_name,)).fetchone()
+        _exists = bool(_row)
+    except Exception:
+        pass
+    if not _exists:
+        try:
+            _exists = (get_user_characters_dir() / character_name).is_dir()
+        except Exception:
+            pass
+    if not _exists:
+        logger.warning("save_character_skill_config: Character '%s' existiert nicht — "
+                       "kein Skill-Config-Save", character_name)
+        return
     skills_dir = get_character_skills_dir(character_name)
     config_path = skills_dir / f"{skill_name}.json"
     config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2))

@@ -279,7 +279,9 @@ async def create_character(request: Request) -> Dict[str, Any]:
             "character_name": character_name,
             "template": template_name,
         }
-        save_character_profile(character_name, initial_profile)
+        # Explizite Erstellung — save_character_profile blockiert sonst
+        # unbekannte Namen (Schutz gegen Geister-Characters aus LLM-Output).
+        save_character_profile(character_name, initial_profile, create_new=True)
 
         # Skill-Defaults schreiben — ohne diese Files greift die ALWAYS_LOAD-
         # Filter-Logik (skill_manager._get_agent_skills) und schaltet alle
@@ -4224,46 +4226,7 @@ def memory_today(character_name: str) -> Dict[str, Any]:
             "tags": m.get("tags", []),
         })
 
-    # --- Bekannte Orte ---
-    # known_locations: None = unrestricted (Character darf alles sehen),
-    # Liste = strict. Wir zaehlen pro Ort die Besuche aus state_history.
-    known_ids = get_known_locations(character_name)
-    visit_rows = conn.execute(
-        "SELECT json_extract(state_json,'$.value') AS loc_id, COUNT(*) AS n, "
-        "MAX(ts) AS last_ts "
-        "FROM state_history WHERE character_name=? "
-        "AND json_extract(state_json,'$.type')='location' "
-        "GROUP BY loc_id",
-        (character_name,),
-    ).fetchall()
-    visit_by_id = {r[0]: {"count": r[1], "last": r[2]} for r in visit_rows if r[0]}
-
-    if known_ids is None:
-        # Legacy/unrestricted: alle Welt-Orte sichtbar (via list_locations,
-        # das den richtigen Resolve fuer Klone liefert)
-        from app.models.world import list_locations as _list_locs
-        all_locs = _list_locs() or []
-        known_entries = [
-            {"id": loc.get("id", ""), "name": loc.get("name", "")}
-            for loc in all_locs if loc.get("id")
-        ]
-        known_unrestricted = True
-    else:
-        known_entries = [
-            {"id": lid, "name": get_location_name(lid) or lid}
-            for lid in known_ids
-        ]
-        known_unrestricted = False
-
-    for ke in known_entries:
-        v = visit_by_id.get(ke["id"], {})
-        ke["visit_count"] = v.get("count", 0)
-        ke["last_visit"] = v.get("last")
-        ke["is_current"] = (ke["id"] == current_location_id)
-    # Sortiere: aktueller Ort zuerst, dann nach Besuchen desc, dann Name
-    known_entries.sort(
-        key=lambda e: (not e["is_current"], -e["visit_count"], e["name"].lower())
-    )
+    # known_locations sind jetzt im eigenen Tab via /memory/locations.
 
     since_activity = (_last_change_ts(activity_lane, current_activity)
                       or _since_fallback("activity", current_activity))
@@ -4290,10 +4253,6 @@ def memory_today(character_name: str) -> Dict[str, Any]:
             },
             "last_warning": last_warning,
         },
-        "known_locations": {
-            "unrestricted": known_unrestricted,
-            "items": known_entries,
-        },
         "lanes_24h": {
             "activity": _bucket_state_lane(activity_lane),
             "location": _bucket_state_lane(location_lane),
@@ -4303,6 +4262,63 @@ def memory_today(character_name: str) -> Dict[str, Any]:
             "effects": _bucket_state_lane(effects_lane),
         },
         "active_memories": top,
+    }
+
+
+@router.get("/{character_name}/memory/locations")
+def memory_locations(character_name: str) -> Dict[str, Any]:
+    """Tab "Bekannte Orte": Karte mit allen Welt-Orten + bekannt/aktuell/Besuchszahlen.
+
+    Liefert sowohl alle Welt-Orte (fuer Layout-Kontext) als auch die
+    Auswahl, die der Character laut `known_locations` kennt. Frontend
+    entscheidet, ob es nur die bekannten oder alles zeigt.
+    """
+    from app.models.character import get_character_profile, get_known_locations
+    from app.models.world import list_locations
+    from app.core.db import get_connection
+
+    profile = get_character_profile(character_name)
+    current_id = profile.get("current_location") or ""
+    known_ids = get_known_locations(character_name)
+    unrestricted = known_ids is None
+    known_set = set(known_ids or [])
+
+    # Visit-Counts aus state_history (Ringbuffer ~200 Eintraege)
+    conn = get_connection()
+    visits: Dict[str, Dict[str, Any]] = {}
+    for loc_id, n, last_ts in conn.execute(
+        "SELECT json_extract(state_json,'$.value') AS loc_id, COUNT(*) AS n, "
+        "MAX(ts) AS last_ts FROM state_history WHERE character_name=? "
+        "AND json_extract(state_json,'$.type')='location' GROUP BY loc_id",
+        (character_name,),
+    ).fetchall():
+        if loc_id:
+            visits[loc_id] = {"count": n, "last": last_ts}
+
+    items: List[Dict[str, Any]] = []
+    for loc in list_locations() or []:
+        lid = loc.get("id", "")
+        if not lid:
+            continue
+        is_known = unrestricted or (lid in known_set)
+        v = visits.get(lid, {})
+        items.append({
+            "id": lid,
+            "name": loc.get("name", ""),
+            "grid_x": loc.get("grid_x"),
+            "grid_y": loc.get("grid_y"),
+            "passable": bool(loc.get("passable")),
+            "danger_level": loc.get("danger_level"),
+            "is_known": is_known,
+            "is_current": (lid == current_id),
+            "visit_count": v.get("count", 0),
+            "last_visit": v.get("last"),
+        })
+    return {
+        "character": character_name,
+        "unrestricted": unrestricted,
+        "current_location_id": current_id,
+        "items": items,
     }
 
 
