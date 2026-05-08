@@ -24695,28 +24695,42 @@ async function _loadGroupCharacterScene(charName, imgEl) {
             }
         } catch (_) { /* fallthrough — equipped optional */ }
 
+        // 1. Versuch: Default-Pose-Variant (override=1 + equipped, kein Mood)
+        //    Wenn der Server liefert UND es keine Profilbild-Fallback-Antwort
+        //    ist, nehmen wir das.
         const params = `mood=&activity=&override=1`
             + `&pieces=${encodeURIComponent(pieces)}`
             + `&items=${encodeURIComponent(items)}`
             + `&piece_colors=${encodeURIComponent(piece_colors)}`
             + `&t=${Date.now()}`;
-        // KEIN fallback=default hier — der wuerde das Profilbild liefern,
-        // genau das wollen wir vermeiden (User-Wunsch).
         const exprUrl = `/characters/${encodeURIComponent(charName)}/outfit-expression?${params}`;
-        const exprResp = await fetch(exprUrl);
-        if (exprResp.status === 200) {
-            // Sicherheits-Check: wenn das Backend doch ein Profilbild
-            // als Platzhalter geliefert hat (X-Variant-Status fallback-*),
-            // ueberspringen — der Outfit-Fallback unten ist passender.
-            const _vs = (exprResp.headers.get('X-Variant-Status') || '').toLowerCase();
-            if (!_vs.startsWith('fallback-')) {
-                const blob = await exprResp.blob();
+        try {
+            const exprResp = await fetch(exprUrl);
+            if (exprResp.status === 200) {
+                const _vs = (exprResp.headers.get('X-Variant-Status') || '').toLowerCase();
+                if (!_vs.startsWith('fallback-')) {
+                    const blob = await exprResp.blob();
+                    imgEl.src = URL.createObjectURL(blob);
+                    return;
+                }
+            }
+        } catch (_) { /* fallthrough */ }
+
+        // 2. Versuch: aktuelle Mood/Activity-Variant — die ist haeufiger
+        //    gecacht. fallback=default lassen wir hier ZU, damit der Server
+        //    notfalls das Profilbild als Platzhalter schickt — besser als
+        //    bunter Initialen-Avatar.
+        try {
+            const fbUrl = `/characters/${encodeURIComponent(charName)}/outfit-expression?fallback=default&t=${Date.now()}`;
+            const fbResp = await fetch(fbUrl);
+            if (fbResp.status === 200) {
+                const blob = await fbResp.blob();
                 imgEl.src = URL.createObjectURL(blob);
                 return;
             }
-        }
+        } catch (_) { /* fallthrough */ }
 
-        // Fallback 1: Outfit-Basisbild (gleiche Pose wie aufgenommen, kein Mood)
+        // 3. Fallback: Outfit-Basisbild
         const outfitsRes = await fetch(`/characters/${encodeURIComponent(charName)}/outfits`);
         const outfits = outfitsRes.ok ? (await outfitsRes.json()).outfits || [] : [];
         const target = outfits.find(o => o.image);
