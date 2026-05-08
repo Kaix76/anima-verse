@@ -26,6 +26,77 @@ from app.models.world import (
 router = APIRouter(prefix="/world", tags=["world"])
 
 
+# === Avatar-Movement (Direction-Pad) ===
+
+@router.post("/avatar/step")
+async def avatar_step_route(request: Request) -> Dict[str, Any]:
+    """Bewegt den Avatar um einen Grid-Schritt in die angegebene Richtung.
+
+    Body: { "direction": "north"|"south"|"east"|"west" }
+
+    Sucht die Nachbar-Location anhand der Grid-Koordinaten der aktuellen
+    Avatar-Position. Gibt 404 zurueck wenn dort keine Location liegt.
+    """
+    data = await request.json()
+    direction = (data.get("direction") or "").strip().lower()
+    deltas = {
+        "north": (0, -1),  # screen-up = decreasing grid_y
+        "south": (0, 1),
+        "east": (1, 0),
+        "west": (-1, 0),
+    }
+    if direction not in deltas:
+        raise HTTPException(status_code=400, detail="invalid direction")
+
+    from app.models.account import get_active_character
+    from app.models.character import (
+        get_character_current_location,
+        save_character_current_location,
+        save_character_current_room,
+    )
+    avatar = (get_active_character() or "").strip()
+    if not avatar:
+        raise HTTPException(status_code=400, detail="no active avatar")
+
+    cur_loc_id = (get_character_current_location(avatar) or "").strip()
+    if not cur_loc_id:
+        raise HTTPException(status_code=400, detail="avatar has no current location")
+
+    cur = get_location_by_id(cur_loc_id)
+    if not cur:
+        raise HTTPException(status_code=404, detail="current location not found")
+    cur_x = int(cur.get("grid_x") or 0)
+    cur_y = int(cur.get("grid_y") or 0)
+    dx, dy = deltas[direction]
+    target_x, target_y = cur_x + dx, cur_y + dy
+
+    # Nachbar-Location suchen
+    target = None
+    for loc in list_locations():
+        if int(loc.get("grid_x") or 0) == target_x and int(loc.get("grid_y") or 0) == target_y:
+            target = loc
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="no location in that direction")
+
+    target_id = target.get("id") or ""
+    save_character_current_location(avatar, target_id)
+    rooms = target.get("rooms") or []
+    first_room_id = ""
+    if rooms:
+        first_room_id = (rooms[0].get("id") or "").strip()
+        if first_room_id:
+            save_character_current_room(avatar, first_room_id)
+
+    return {
+        "ok": True,
+        "direction": direction,
+        "location_id": target_id,
+        "location_name": target.get("name", ""),
+        "room_id": first_room_id,
+    }
+
+
 # === Orte ===
 
 @router.get("/locations")

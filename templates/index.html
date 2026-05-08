@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,21 +7,20 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/themes/base.css?v={{ range(1, 99999) | random }}">
     <link rel="stylesheet" href="/static/themes/light.css?v={{ range(1, 99999) | random }}" id="theme-stylesheet">
-    <!-- Marked.js für Markdown-Rendering (lokal, kein CDN nötig) -->
+    <!-- Marked.js for markdown rendering (local, no CDN needed) -->
     <script src="/static/marked.min.js"></script>
-    <script src="/static/vis-network.min.js"></script>
 </head>
 <body>
     <div class="chat-container">
         <!-- Settings bar above header (language + theme) -->
         <div class="settings-bar">
             <div class="settings-bar-right">
-                <label for="language-select">Sprache:</label>
+                <label for="language-select" data-i18n="Language">Language</label>
                 <select id="language-select"></select>
-                <label for="theme-select">Theme:</label>
+                <label for="theme-select" data-i18n="Theme">Theme</label>
                 <select id="theme-select">
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
+                    <option value="light" data-i18n="Light">Light</option>
+                    <option value="dark" data-i18n="Dark">Dark</option>
                 </select>
             </div>
         </div>
@@ -35,19 +34,19 @@
                     <div class="profile-image-wrapper" id="profile-image-wrapper-single">
                         <img id="agent-profile-image" class="agent-profile-image" src="" alt="Agent Avatar" style="display: none;">
                         <video id="agent-profile-video" class="agent-profile-image" src="" autoplay loop muted playsinline style="display: none;"></video>
-                        <span id="header-mood-display" class="mood-overlay" title="Aktuelle Stimmung" style="display:none;">—</span>
+                        <span id="header-mood-display" class="mood-overlay" title="Current mood" data-i18n-title="Current mood" style="display:none;">—</span>
                         <div id="agent-condition-badges" class="condition-badges"></div>
-                        <button id="btn-generate-profile-image" class="profile-gen-btn" title="Neues Profilbild generieren" style="display:none;">📷</button>
+                        <button id="btn-generate-profile-image" class="profile-gen-btn" title="Generate new profile image" data-i18n-title="Generate new profile image" style="display:none;">📷</button>
                         <div id="status-effects-bars" class="status-effects-bars" style="display:none;"></div>
                     </div>
                     <!-- Group Chat: Kachel-Grid aller Teilnehmer -->
                     <div id="group-portraits" class="group-portraits" style="display:none;"></div>
                     <div class="header-image-buttons">
                         <div class="header-btn-row">
-                            <button id="btn-edit-agent" class="reset-btn" title="Edit current character profile">⚙️</button>
+                            <button id="btn-edit-agent" class="reset-btn" title="Edit current character profile" data-i18n-title="Edit current character profile">⚙️</button>
                         </div>
-                        <button id="btn-knowledge" class="reset-btn" title="Wissen des Characters">🧠</button>
-                        <div id="header-activity-display" title="Aktuelle Aktivitaet">
+                        <button id="btn-knowledge" class="reset-btn" title="Character knowledge" data-i18n-title="Character knowledge">🧠</button>
+                        <div id="header-activity-display" title="Current activity" data-i18n-title="Current activity">
                             <div id="header-room-line"></div>
                             <div id="header-activity-line"></div>
                             <div id="header-mood-line"></div>
@@ -60,8 +59,8 @@
                 <div class="header-player">
                     <div class="player-info-col">
                         <div class="player-btn-col">
-                            <button id="btn-player-edit" class="reset-btn" title="Character Profil">⚙️</button>
-                            <button id="btn-knowledge-player" class="reset-btn" title="Wissen">🧠</button>
+                            <button id="btn-player-edit" class="reset-btn" title="Character profile" data-i18n-title="Character profile">⚙️</button>
+                            <button id="btn-knowledge-player" class="reset-btn" title="Knowledge" data-i18n-title="Knowledge">🧠</button>
                         </div>
                         <div class="player-activity-display" id="player-activity-display">
                             <div id="player-room-line"></div>
@@ -74,77 +73,84 @@
                             <img id="player-profile-image" class="player-profile-image" src="" alt="Player Avatar" style="display: none;">
                             <div id="player-condition-badges" class="condition-badges"></div>
                             <div id="player-status-bars" class="player-status-bars" style="display:none;"></div>
-                            <button id="btn-player-gen-image" class="player-gen-btn" title="Profilbild generieren" style="display:none;">📷</button>
+                            <button id="btn-player-gen-image" class="player-gen-btn" title="Generate profile image" data-i18n-title="Generate profile image" style="display:none;">📷</button>
                         </div>
-                        <select id="active-character-select" class="active-character-select" title="Charakter wechseln" style="display:none;"></select>
+                        <select id="active-character-select" class="active-character-select" title="Switch character" data-i18n-title="Switch character" style="display:none;"></select>
                     </div>
                     <div class="player-btn-col player-btn-col-secondary">
-                        <button id="btn-new-character" class="header-action-btn" title="Create a new character">➕</button>
-                        <button id="btn-logout" class="header-action-btn" title="Abmelden">🚪</button>
-                        <button id="btn-game-admin" class="header-action-btn" title="Game Admin" onclick="openGameAdminModal()" data-admin-only="1">🎮</button>
-                        <a id="btn-admin-settings" class="header-action-btn" href="/admin/settings" target="_blank" title="Admin-Webseite" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">⚙️</a>
+                        <button id="btn-new-character" class="header-action-btn" title="Create a new character" data-i18n-title="Create a new character">➕</button>
+                        <button id="btn-logout" class="header-action-btn" title="Log out" data-i18n-title="Log out">🚪</button>
+                        <a id="btn-game-admin" class="header-action-btn" href="/game-admin" title="Game Admin" data-i18n-title="Game Admin" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">🎮</a>
+                        <a id="btn-admin-settings" class="header-action-btn" href="/admin/settings" target="_blank" title="Admin site" data-i18n-title="Admin site" data-admin-only="1" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">⚙️</a>
                     </div>
                 </div>
             </div>
         </div>
-        <!-- Tab Bar -->
-        <div class="tab-bar">
-            <button class="tab-btn tab-active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
-            <button class="tab-btn" data-tab="relations" onclick="switchTab('relations')">Relations</button>
-            <button class="tab-btn" data-tab="story" onclick="switchTab('story')" style="display:none">Story</button>
-            <button class="tab-btn" data-tab="storydev" onclick="switchTab('storydev')" style="display:none">Story Dev</button>
-            <span class="tab-spacer"></span>
-            <button class="tab-btn tab-btn-worlddev" data-tab="worlddev" onclick="switchTab('worlddev')" style="display:none" data-admin-only="1">World Dev</button>
-        </div>
+        <!-- Tab Bar — Chat is the default view. Story / Story Dev are temporarily
+             disabled. World Dev lives in /game-admin#/world-dev. The bar is kept
+             empty for layout stability and future tabs. -->
+        <div class="tab-bar"></div>
         <!-- Tab: Chat -->
         <div class="tab-content tab-content-active" id="tab-chat">
             <div class="chat-messages" id="chat-messages">
-                <!-- Nachrichten werden hier dynamisch eingefügt -->
+                <!-- Messages are inserted dynamically -->
             </div>
-            <div id="sleep-warning" class="sleep-warning" style="display:none;">
-                Dieser Character schlaeft gerade. Eine Nachricht weckt ihn auf.
+            <div id="sleep-warning" class="sleep-warning" style="display:none;" data-i18n="This character is sleeping. A message will wake them up.">
+                This character is sleeping. A message will wake them up.
             </div>
             <!-- Group Chat Settings Bar (nur im Gruppenmodus sichtbar) -->
             <div id="group-chat-bar" class="group-chat-bar" style="display:none;">
-                <span class="gcb-label">Antworten:</span>
-                <input type="range" id="gcb-min" class="gcb-range" min="1" max="6" step="1" value="1" title="Min Antworten">
+                <span class="gcb-label" data-i18n="Replies:">Replies:</span>
+                <input type="range" id="gcb-min" class="gcb-range" min="1" max="6" step="1" value="1" title="Min replies" data-i18n-title="Min replies">
                 <span class="gcb-value" id="gcb-min-val">1</span>
                 <span class="gcb-sep">–</span>
-                <input type="range" id="gcb-max" class="gcb-range" min="1" max="6" step="1" value="3" title="Max Antworten">
+                <input type="range" id="gcb-max" class="gcb-range" min="1" max="6" step="1" value="3" title="Max replies" data-i18n-title="Max replies">
                 <span class="gcb-value" id="gcb-max-val">3</span>
                 <span class="gcb-divider"></span>
                 <span class="gcb-label">🤫</span>
-                <select id="gcb-whisper-to" class="gcb-whisper-select" title="Fluestern an (leer = alle hoeren)">
-                    <option value="">-- an alle --</option>
+                <select id="gcb-whisper-to" class="gcb-whisper-select" title="Whisper to (empty = everyone hears)" data-i18n-title="Whisper to (empty = everyone hears)">
+                    <option value="" data-i18n="-- to everyone --">-- to everyone --</option>
                 </select>
                 <span class="gcb-divider"></span>
-                <button id="gcb-reset" class="gcb-reset-btn" title="Neuer Gruppenchat (History loeschen)">&#x21bb; Neu</button>
+                <button id="gcb-reset" class="gcb-reset-btn" title="New group chat (clears history)" data-i18n-title="New group chat (clears history)">&#x21bb; <span data-i18n="New">New</span></button>
             </div>
             <!-- Image attachment preview -->
             <div id="chat-image-preview" class="chat-image-preview" style="display:none;">
-                <img id="chat-image-preview-img" src="" alt="Vorschau">
+                <img id="chat-image-preview-img" src="" alt="Preview" data-i18n-alt="Preview">
                 <span id="chat-image-preview-name" class="chat-image-preview-name"></span>
-                <button id="chat-image-preview-remove" class="chat-image-preview-remove" title="Bild entfernen">&times;</button>
+                <button id="chat-image-preview-remove" class="chat-image-preview-remove" title="Remove image" data-i18n-title="Remove image">&times;</button>
             </div>
             <div class="chat-input">
                 <textarea
                     id="user-input"
                     rows="3"
-                    placeholder="Nachricht eingeben … Enter senden, Shift+Enter Zeilenumbruch"
+                    placeholder="Type a message … Enter to send, Shift+Enter for newline"
+                    data-i18n-placeholder="Type a message … Enter to send, Shift+Enter for newline"
                     autocomplete="off"
                 ></textarea>
-                <div class="chat-input-buttons">
-                    <button id="btn-gift-item" class="btn-attach-image" title="Item an Chat-Partner verschenken" onclick="_openChatGiftPicker()">🎁</button>
-                    <input type="file" id="chat-image-upload" accept="image/*" style="display:none;">
-                    <button id="btn-attach-image" class="btn-attach-image" title="Bild hochladen">📎</button>
-                    <button id="btn-link-image" class="btn-attach-image" title="Bild aus Bibliothek">🖼️</button>
+                <!-- Direction-Pad: bewegt den Avatar um eine Grid-Position auf der Karte -->
+                <div class="chat-dpad" title="Avatar bewegen">
+                    <button class="chat-dpad-btn dpad-n" data-dir="north" title="Norden">▲</button>
+                    <button class="chat-dpad-btn dpad-w" data-dir="west" title="Westen">◀</button>
+                    <span class="chat-dpad-center"></span>
+                    <button class="chat-dpad-btn dpad-e" data-dir="east" title="Osten">▶</button>
+                    <button class="chat-dpad-btn dpad-s" data-dir="south" title="Sueden">▼</button>
                 </div>
-                <button id="send-button">Senden</button>
+                <!-- Action-Spalte: Attach-Buttons oberhalb, Send-Button unten -->
+                <div class="chat-input-actions">
+                    <div class="chat-input-buttons">
+                        <button id="btn-gift-item" class="btn-attach-image" title="Give item to chat partner" data-i18n-title="Give item to chat partner" onclick="_openChatGiftPicker()">🎁</button>
+                        <input type="file" id="chat-image-upload" accept="image/*" style="display:none;">
+                        <button id="btn-attach-image" class="btn-attach-image" title="Upload image" data-i18n-title="Upload image">📎</button>
+                        <button id="btn-link-image" class="btn-attach-image" title="Image from library" data-i18n-title="Image from library">🖼️</button>
+                    </div>
+                    <button id="send-button" data-i18n="Send">Send</button>
+                </div>
             </div>
             <!-- Geschenk-Item-Picker (Avatar-Inventar → Chat-Partner) -->
             <div id="chat-gift-picker" style="display:none;position:absolute;bottom:60px;right:8px;z-index:60;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px;box-shadow:0 4px 16px rgba(0,0,0,0.4);max-height:50vh;width:320px;overflow-y:auto;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                    <strong style="font-size:12px;">Item verschenken</strong>
+                    <strong style="font-size:12px;" data-i18n="Give item">Give item</strong>
                     <button onclick="_closeChatGiftPicker()" class="reset-btn" style="font-size:11px;padding:2px 8px;">×</button>
                 </div>
                 <div id="chat-gift-picker-body" style="font-size:12px;"></div>
@@ -153,7 +159,7 @@
             <div id="image-library-modal" class="image-library-modal" style="display:none;">
                 <div class="image-library-content">
                     <div class="image-library-header">
-                        <h3>Bild aus Bibliothek wählen</h3>
+                        <h3 data-i18n="Choose image from library">Choose image from library</h3>
                         <button id="image-library-close" class="image-library-close">&times;</button>
                     </div>
                     <div id="image-library-grid" class="image-library-grid"></div>
@@ -166,7 +172,7 @@
                 <!-- Story List View -->
                 <div id="story-list-view">
                     <div class="story-list-header">
-                        <h2>Geschichten</h2>
+                        <h2 data-i18n="Stories">Stories</h2>
                         <span id="story-character-name" class="story-char-badge"></span>
                     </div>
                     <div id="story-cards" class="story-cards"></div>
@@ -174,9 +180,9 @@
                 <!-- Story Play View -->
                 <div id="story-play-view" style="display:none;">
                     <div class="story-play-header">
-                        <button class="story-back-btn" onclick="exitStory()">&#8592; Zurueck</button>
+                        <button class="story-back-btn" onclick="exitStory()">&#8592; <span data-i18n="Back">Back</span></button>
                         <h3 id="story-play-title"></h3>
-                        <button class="reset-btn" onclick="restartStory()">Neustart</button>
+                        <button class="reset-btn" onclick="restartStory()" data-i18n="Restart">Restart</button>
                     </div>
                     <div id="story-scene-content" class="story-scene"></div>
                     <div id="story-scene-image" class="story-scene-image"></div>
@@ -189,137 +195,75 @@
             <div class="storydev-container">
                 <!-- Config Panel -->
                 <div class="storydev-config" id="storydev-config">
-                    <h3>Story Entwicklung</h3>
+                    <h3 data-i18n="Story development">Story development</h3>
                     <div class="form-group">
-                        <label for="storydev-model-select">LLM Modell</label>
+                        <label for="storydev-model-select" data-i18n="LLM model">LLM model</label>
                         <select id="storydev-model-select" class="auth-input">
-                            <option value="">-- Modell waehlen --</option>
+                            <option value="" data-i18n="-- Select model --">-- Select model --</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="storydev-thema">Thema</label>
-                        <input type="text" id="storydev-thema" class="auth-input" placeholder="z.B. Ein Tag am Strand, Abenteuer im Wald">
+                        <label for="storydev-thema" data-i18n="Topic">Topic</label>
+                        <input type="text" id="storydev-thema" class="auth-input" placeholder="e.g. A day at the beach, adventure in the forest" data-i18n-placeholder="e.g. A day at the beach, adventure in the forest">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="storydev-laenge">Groesse</label>
+                            <label for="storydev-laenge" data-i18n="Size">Size</label>
                             <select id="storydev-laenge" class="auth-input">
-                                <option value="small">Klein (5-8 Szenen)</option>
-                                <option value="medium" selected>Mittel (8-15 Szenen)</option>
-                                <option value="large">Gross (15-25 Szenen)</option>
+                                <option value="small" data-i18n="Small (5-8 scenes)">Small (5-8 scenes)</option>
+                                <option value="medium" selected data-i18n="Medium (8-15 scenes)">Medium (8-15 scenes)</option>
+                                <option value="large" data-i18n="Large (15-25 scenes)">Large (15-25 scenes)</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="storydev-verzweigungen">Verzweigungen</label>
+                            <label for="storydev-verzweigungen" data-i18n="Branches">Branches</label>
                             <input type="number" id="storydev-verzweigungen" class="auth-input" value="3" min="2" max="10">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="storydev-ton">Ton</label>
+                            <label for="storydev-ton" data-i18n="Tone">Tone</label>
                             <select id="storydev-ton" class="auth-input">
-                                <option value="lustig">Lustig</option>
-                                <option value="ernst">Ernst</option>
-                                <option value="romantisch">Romantisch</option>
-                                <option value="spannend" selected>Spannend</option>
-                                <option value="alltaeglich">Alltaeglich</option>
+                                <option value="lustig" data-i18n="Funny">Funny</option>
+                                <option value="ernst" data-i18n="Serious">Serious</option>
+                                <option value="romantisch" data-i18n="Romantic">Romantic</option>
+                                <option value="spannend" selected data-i18n="Suspenseful">Suspenseful</option>
+                                <option value="alltaeglich" data-i18n="Everyday">Everyday</option>
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="storydev-max-antwort">Max. Antwortlaenge</label>
+                            <label for="storydev-max-antwort" data-i18n="Max response length">Max response length</label>
                             <input type="number" id="storydev-max-antwort" class="auth-input" value="800" min="200" max="2000" step="100">
                         </div>
                     </div>
                     <div class="storydev-actions">
-                        <button id="storydev-generate-btn" class="save-btn" onclick="storyDevGenerate()">Story generieren</button>
+                        <button id="storydev-generate-btn" class="save-btn" onclick="storyDevGenerate()" data-i18n="Generate story">Generate story</button>
                     </div>
                 </div>
                 <!-- Result Panel -->
                 <div class="storydev-result" id="storydev-result" style="display: none;">
                     <div class="storydev-result-header">
-                        <h3 id="storydev-result-title">Generierte Story</h3>
+                        <h3 id="storydev-result-title" data-i18n="Generated story">Generated story</h3>
                         <div class="storydev-result-btns">
-                            <button id="storydev-overwrite-btn" class="save-btn" onclick="storyDevSave(true)" style="display:none">Ueberschreiben</button>
-                            <button class="save-btn" onclick="storyDevSave(false)">Als neu speichern</button>
-                            <button class="reset-btn" onclick="storyDevReset()">Neue Story</button>
+                            <button id="storydev-overwrite-btn" class="save-btn" onclick="storyDevSave(true)" style="display:none" data-i18n="Overwrite">Overwrite</button>
+                            <button class="save-btn" onclick="storyDevSave(false)" data-i18n="Save as new">Save as new</button>
+                            <button class="reset-btn" onclick="storyDevReset()" data-i18n="New story">New story</button>
                         </div>
                     </div>
                     <div id="storydev-result-content" class="storydev-result-content"></div>
                     <div class="storydev-refine">
-                        <input type="text" id="storydev-refine-text" class="auth-input" placeholder="Verbesserungsanweisung eingeben..." autocomplete="off">
-                        <button id="storydev-refine-btn" class="save-btn" onclick="storyDevRefine()">Verbessern</button>
+                        <input type="text" id="storydev-refine-text" class="auth-input" placeholder="Enter refinement instruction…" data-i18n-placeholder="Enter refinement instruction…" autocomplete="off">
+                        <button id="storydev-refine-btn" class="save-btn" onclick="storyDevRefine()" data-i18n="Refine">Refine</button>
                     </div>
                 </div>
             </div>
         </div>
         <!-- Tab: World Dev -->
-        <!-- Tab: Relations (Social Graph) -->
-        <div class="tab-content" id="tab-relations" style="display: none;">
-            <div class="relations-container">
-                <div class="relations-toolbar">
-                    <button class="reset-btn" onclick="relationsRefresh()" title="Graph neu laden">&#x21bb; Aktualisieren</button>
-                </div>
-                <div id="relations-graph" class="relations-graph"></div>
-                <div id="relations-detail" class="relations-detail" style="display:none;">
-                    <div class="relations-detail-header">
-                        <span id="rel-detail-title"></span>
-                        <button class="modal-close" onclick="relationsCloseDetail()">&times;</button>
-                    </div>
-                    <div class="relations-detail-body">
-                        <div class="rel-detail-row">
-                            <label>Typ:</label>
-                            <select id="rel-detail-type" onchange="relationsTypeChanged()">
-                                <option value="neutral">Neutral</option>
-                                <option value="acquaintance">Bekannt</option>
-                                <option value="friend">Freund</option>
-                                <option value="romantic">Romantisch</option>
-                                <option value="rival">Rivale</option>
-                                <option value="enemy">Feind</option>
-                            </select>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label>Staerke:</label>
-                            <div class="rel-strength-bar-wrap">
-                                <div id="rel-strength-bar" class="rel-strength-bar"></div>
-                            </div>
-                            <span id="rel-strength-val"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label>Romantik:</label>
-                            <div class="rel-strength-bar-wrap">
-                                <div id="rel-romantic-bar" class="rel-strength-bar romantic"></div>
-                            </div>
-                            <span id="rel-romantic-val"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label>Potenzial:</label>
-                            <span id="rel-romantic-potential"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label id="rel-sent-a-label">A &rarr; B:</label>
-                            <span id="rel-sent-a-val"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label id="rel-sent-b-label">B &rarr; A:</label>
-                            <span id="rel-sent-b-val"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label>Interaktionen:</label>
-                            <span id="rel-interaction-count"></span>
-                        </div>
-                        <div class="rel-detail-row">
-                            <label>Letzte:</label>
-                            <span id="rel-last-interaction"></span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
         <div class="tab-content" id="tab-worlddev" style="display: none;">
             <div class="worlddev-container">
                 <!-- Exit-Button: zurueck zum Chat (Chat-Tab kann ausgeblendet sein wenn kein Agent gewaehlt) -->
                 <div style="display:flex;justify-content:flex-end;padding:6px 8px 0 0;">
-                    <button class="reset-btn" onclick="switchTab('chat')" title="Zurueck zum Chat">← Zurueck zum Chat</button>
+                    <button class="reset-btn" onclick="switchTab('chat')" title="Back to chat" data-i18n-title="Back to chat">← <span data-i18n="Back to chat">Back to chat</span></button>
                 </div>
                 <!-- Pause-Button moved to /admin/agent-loop -->
 
@@ -327,50 +271,50 @@
                 <table class="worlddev-topbar-table">
                     <tr>
                         <td class="worlddev-col-llm">
-                            <label for="worlddev-model-select">LLM Modell</label>
+                            <label for="worlddev-model-select" data-i18n="LLM model">LLM model</label>
                             <select id="worlddev-model-select" class="auth-input">
-                                <option value="">-- Modell waehlen --</option>
+                                <option value="" data-i18n="-- Select model --">-- Select model --</option>
                             </select>
-                            <button class="reset-btn worlddev-new-btn" onclick="worldDevNewSession()">Neues Gespraech</button>
-                            <button class="reset-btn worlddev-new-btn" onclick="worldDevOpenJsonImport()" title="Manually paste a character/location/outfit/soul/profile-patch JSON and apply it">JSON Import</button>
-                            <span id="worlddev-cost" class="worlddev-cost" style="display:none" title="Geschaetzte Kosten dieser Session"></span>
+                            <button class="reset-btn worlddev-new-btn" onclick="worldDevNewSession()" data-i18n="New conversation">New conversation</button>
+                            <button class="reset-btn worlddev-new-btn" onclick="worldDevOpenJsonImport()" title="Manually paste a character/location/outfit/soul/profile-patch JSON and apply it" data-i18n-title="Manually paste a character/location/outfit/soul/profile-patch JSON and apply it">JSON Import</button>
+                            <span id="worlddev-cost" class="worlddev-cost" style="display:none" title="Estimated cost of this session" data-i18n-title="Estimated cost of this session"></span>
                         </td>
                         <td class="worlddev-col-mode">
-                            <label for="worlddev-mode-select">Modus</label>
+                            <label for="worlddev-mode-select" data-i18n="Mode">Mode</label>
                             <select id="worlddev-mode-select" class="auth-input" onchange="worldDevModeChanged()">
-                                <option value="new">Neu erstellen</option>
-                                <option value="edit">Bearbeiten</option>
+                                <option value="new" data-i18n="Create new">Create new</option>
+                                <option value="edit" data-i18n="Edit">Edit</option>
                             </select>
                         </td>
                         <td class="worlddev-col-options">
                             <!-- Neu: Typ -->
                             <div id="worlddev-schema-group">
-                                <label for="worlddev-schema-select">Typ</label>
+                                <label for="worlddev-schema-select" data-i18n="Type">Type</label>
                                 <select id="worlddev-schema-select" class="auth-input" onchange="worldDevSchemaChanged()">
-                                    <option value="location">Ort / Location</option>
+                                    <option value="location" data-i18n="Place / Location">Place / Location</option>
                                 </select>
                             </div>
                             <!-- Neu + Character: Template -->
                             <div id="worlddev-template-group" style="display:none">
-                                <label for="worlddev-template-select">Template</label>
+                                <label for="worlddev-template-select" data-i18n="Template">Template</label>
                                 <select id="worlddev-template-select" class="auth-input">
                                     <option value="human-roleplay">Human (Roleplay)</option>
-                                    <option value="human-default">Human Standard</option>
+                                    <option value="human-default" data-i18n="Human Standard">Human Standard</option>
                                     <option value="animal-default">Animal</option>
                                 </select>
                             </div>
                             <!-- Bearbeiten: Ort -->
                             <div id="worlddev-edit-location-group" style="display:none">
-                                <label for="worlddev-location-select">Ort</label>
+                                <label for="worlddev-location-select" data-i18n="Location">Location</label>
                                 <select id="worlddev-location-select" class="auth-input" onchange="worldDevEditLocation()">
-                                    <option value="">-- waehlen --</option>
+                                    <option value="" data-i18n="-- choose --">-- choose --</option>
                                 </select>
                             </div>
                             <!-- Bearbeiten: Character -->
                             <div id="worlddev-edit-character-group" style="display:none">
-                                <label for="worlddev-character-select">Character</label>
+                                <label for="worlddev-character-select" data-i18n="Character">Character</label>
                                 <select id="worlddev-character-select" class="auth-input" onchange="worldDevEditCharacter()">
-                                    <option value="">-- waehlen --</option>
+                                    <option value="" data-i18n="-- choose --">-- choose --</option>
                                 </select>
                             </div>
                         </td>
@@ -378,20 +322,20 @@
                 </table>
                 <!-- Context Selection -->
                 <div class="worlddev-context-bar">
-                    <span class="worlddev-context-label">Kontext:</span>
+                    <span class="worlddev-context-label" data-i18n="Context:">Context:</span>
                     <div class="worlddev-context-group">
-                        <span class="worlddev-context-grouplabel">Orte</span>
+                        <span class="worlddev-context-grouplabel" data-i18n="Locations">Locations</span>
                         <div id="worlddev-context-locations" class="worlddev-context-checks"></div>
                     </div>
                     <div class="worlddev-context-group">
-                        <span class="worlddev-context-grouplabel">Characters</span>
+                        <span class="worlddev-context-grouplabel" data-i18n="Characters">Characters</span>
                         <div id="worlddev-context-characters" class="worlddev-context-checks"></div>
                     </div>
                 </div>
                 <!-- Chat Area -->
                 <div class="worlddev-chat" id="worlddev-chat-messages">
                     <div class="worlddev-welcome">
-                        <p>Waehle ein Modell und beschreibe, welchen Ort du erstellen moechtest.</p>
+                        <p data-i18n="Choose a model and describe the place you want to create.">Choose a model and describe the place you want to create.</p>
                     </div>
                 </div>
                 <!-- Input Area -->
@@ -399,10 +343,11 @@
                     <textarea
                         id="worlddev-user-input"
                         rows="3"
-                        placeholder="Beschreibe den Ort, den du erstellen moechtest... Enter senden, Shift+Enter Zeilenumbruch"
+                        placeholder="Describe the place you want to create… Enter to send, Shift+Enter for newline"
+                        data-i18n-placeholder="Describe the place you want to create… Enter to send, Shift+Enter for newline"
                         autocomplete="off"
                     ></textarea>
-                    <button id="worlddev-send-btn" class="save-btn" onclick="worldDevSend()">Senden</button>
+                    <button id="worlddev-send-btn" class="save-btn" onclick="worldDevSend()" data-i18n="Send">Send</button>
                 </div>
             </div>
         </div>
@@ -455,13 +400,13 @@
     <div id="auth-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-narrow">
             <div class="modal-header">
-                <h2 id="auth-modal-title">Anmelden</h2>
+                <h2 id="auth-modal-title" data-i18n="Sign in">Sign in</h2>
             </div>
             <div class="modal-body">
                 <div class="modal-section">
-                    <input type="text" id="login-username" class="auth-input" placeholder="Benutzername" autocomplete="username">
-                    <input type="password" id="login-password" class="auth-input" placeholder="Passwort" style="margin-top: 10px;" autocomplete="current-password">
-                    <button id="btn-login" class="auth-button">Anmelden</button>
+                    <input type="text" id="login-username" class="auth-input" placeholder="Username" data-i18n-placeholder="Username" autocomplete="username">
+                    <input type="password" id="login-password" class="auth-input" placeholder="Password" data-i18n-placeholder="Password" style="margin-top: 10px;" autocomplete="current-password">
+                    <button id="btn-login" class="auth-button" data-i18n="Sign in">Sign in</button>
                     <div id="login-error" class="auth-error" style="display: none;"></div>
                 </div>
             </div>
@@ -472,11 +417,11 @@
     <div id="character-select-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-narrow">
             <div class="modal-header">
-                <h2>Charakter wählen</h2>
+                <h2 data-i18n="Choose character">Choose character</h2>
             </div>
             <div class="modal-body">
                 <div class="modal-section">
-                    <p style="margin-bottom: 12px; opacity: 0.8;">Welchen Charakter möchtest du steuern?</p>
+                    <p style="margin-bottom: 12px; opacity: 0.8;" data-i18n="Which character do you want to control?">Which character do you want to control?</p>
                     <div id="character-select-list" class="character-select-grid">
                         <!-- Filled dynamically -->
                     </div>
@@ -489,28 +434,28 @@
     <div id="agent-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
-                <h2>Character Editor: <span id="modal-agent-name">—</span></h2>
+                <h2><span data-i18n="Character Editor">Character Editor</span>: <span id="modal-agent-name">—</span></h2>
                 <div class="editor-header-actions">
                     <div id="editor-readiness-badges" class="readiness-badges"></div>
-                    <button id="btn-save-editor" class="save-btn" onclick="saveCharacterEditor()">Alle Felder speichern</button>
-                    <button class="export-btn" onclick="exportCharacter()">Export</button>
-                    <label class="import-btn">Import<input type="file" accept=".zip" onchange="importCharacter(event)" hidden></label>
-                    <button class="export-btn" style="background:#a33;border-color:#a33;color:#fff;" onclick="deleteCharacterFromEditor()" title="Delete character permanently">Delete</button>
+                    <button id="btn-save-editor" class="save-btn" onclick="saveCharacterEditor()" data-i18n="Save all fields">Save all fields</button>
+                    <button class="export-btn" onclick="exportCharacter()" data-i18n="Export">Export</button>
+                    <label class="import-btn"><span data-i18n="Import">Import</span><input type="file" accept=".zip" onchange="importCharacter(event)" hidden></label>
+                    <button class="export-btn" style="background:#a33;border-color:#a33;color:#fff;" onclick="deleteCharacterFromEditor()" title="Delete character permanently" data-i18n-title="Delete character permanently" data-i18n="Delete">Delete</button>
                     <button class="modal-close" onclick="closeCharacterModal()">&times;</button>
                 </div>
             </div>
             <div class="modal-body">
                 <!-- Tab bar -->
                 <div class="scheduler-tabs">
-                    <button class="tab-btn agent-editor-tab-btn tab-active" data-agent-editor-tab="profil" onclick="switchAgentEditorTab('profil')">Profil</button>
-                    <button class="tab-btn agent-editor-tab-btn" data-agent-editor-tab="tagesablauf" onclick="switchAgentEditorTab('tagesablauf')">Tagesablauf</button>
+                    <button class="tab-btn agent-editor-tab-btn tab-active" data-agent-editor-tab="profil" onclick="switchAgentEditorTab('profil')" data-i18n="Profile">Profile</button>
+                    <button class="tab-btn agent-editor-tab-btn" data-agent-editor-tab="tagesablauf" onclick="switchAgentEditorTab('tagesablauf')" data-i18n="Daily schedule">Daily schedule</button>
                 </div>
 
                 <!-- Tab 1: Profil -->
                 <div id="agent-editor-tab-profil" class="agent-editor-tab-content">
                     <div id="editor-sections">
                         <!-- Sections are rendered dynamically from template -->
-                        <p class="scheduler-empty">Lade Template...</p>
+                        <p class="scheduler-empty" data-i18n="Loading template…">Loading template…</p>
                     </div>
                 </div>
 
@@ -518,19 +463,19 @@
                 <div id="agent-editor-tab-tagesablauf" class="agent-editor-tab-content" style="display: none;">
                     <div class="tagesablauf-header">
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <h3 style="margin: 0;">Tagesablauf</h3>
+                            <h3 style="margin: 0;" data-i18n="Daily schedule">Daily schedule</h3>
                             <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
                                 <input type="checkbox" id="tagesablauf-enabled" checked>
-                                Aktiv
+                                <span data-i18n="Active">Active</span>
                             </label>
                         </div>
-                        <button class="save-btn" onclick="saveDailySchedule()">Speichern</button>
+                        <button class="save-btn" onclick="saveDailySchedule()" data-i18n="Save">Save</button>
                     </div>
-                    <p class="field-hint" style="margin: 6px 0 12px 0; color: #888;">
-                        Grobe Richtung pro Stunde — der Charakter bekommt Ort &amp; Rolle als Hint zum Agent-Loop, entscheidet aber selbst. Leere Stunden = KI wählt frei. Schlafen ist ebenfalls nur ein Hint; das tatsächliche Schlafen hängt am Energie-Level.
+                    <p class="field-hint" style="margin: 6px 0 12px 0; color: #888;" data-i18n="Rough direction per hour — the character gets place &amp; role as a hint to the agent loop, but decides on their own. Empty hours = AI picks freely. Sleeping is also only a hint; actual sleeping depends on the energy level.">
+                        Rough direction per hour — the character gets place &amp; role as a hint to the agent loop, but decides on their own. Empty hours = AI picks freely. Sleeping is also only a hint; actual sleeping depends on the energy level.
                     </p>
                     <div id="tagesablauf-grid" class="tagesablauf-grid">
-                        <p class="scheduler-empty">Lade Tagesablauf...</p>
+                        <p class="scheduler-empty" data-i18n="Loading daily schedule…">Loading daily schedule…</p>
                     </div>
                 </div>
             </div>
@@ -545,7 +490,7 @@
     <div id="knowledge-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
-                <h2>🧠 Gedaechtnis: <span id="knowledge-char-name"></span></h2>
+                <h2>🧠 <span data-i18n="Memory">Memory</span>: <span id="knowledge-char-name"></span></h2>
                 <div class="editor-header-actions">
                     <button class="modal-close" onclick="closeKnowledgeModal()">&times;</button>
                 </div>
@@ -553,73 +498,81 @@
             <div class="modal-body">
                 <!-- Tab Navigation -->
                 <div class="memory-tabs">
-                    <button class="memory-tab active" data-tab="today" onclick="switchMemoryTab('today')">Heute</button>
-                    <button class="memory-tab" data-tab="memories" onclick="switchMemoryTab('memories')">Erinnerungen</button>
-                    <button class="memory-tab" data-tab="relationships" onclick="switchMemoryTab('relationships')">Beziehungen</button>
-                    <button class="memory-tab" data-tab="history" onclick="switchMemoryTab('history')">Verlauf</button>
+                    <button class="memory-tab active" data-tab="today" onclick="switchMemoryTab('today')" data-i18n="Today">Today</button>
+                    <button class="memory-tab" data-tab="locations" onclick="switchMemoryTab('locations')" data-i18n="Known places">Known places</button>
+                    <button class="memory-tab" data-tab="memories" onclick="switchMemoryTab('memories')" data-i18n="Memories">Memories</button>
+                    <button class="memory-tab" data-tab="relationships" onclick="switchMemoryTab('relationships')" data-i18n="Relationships">Relationships</button>
+                    <button class="memory-tab" data-tab="history" onclick="switchMemoryTab('history')" data-i18n="History">History</button>
                 </div>
 
                 <!-- Tab: Heute -->
                 <div id="tab-today" class="memory-tab-content active">
                     <div id="today-status" class="memory-status-card">
-                        <p class="scheduler-empty">Lade Status...</p>
+                        <p class="scheduler-empty" data-i18n="Loading status…">Loading status…</p>
                     </div>
                     <div class="memory-section">
-                        <h3 class="memory-section-title">Bekannte Orte</h3>
-                        <div id="today-known-locations" class="known-locations-grid"></div>
-                    </div>
-                    <div class="memory-section">
-                        <h3 class="memory-section-title">Letzte 24 Stunden</h3>
+                        <h3 class="memory-section-title" data-i18n="Last 24 hours">Last 24 hours</h3>
                         <div class="lanes-container">
                             <canvas id="today-lanes-canvas" width="700" height="220"></canvas>
                             <div id="today-lanes-tooltip" class="lanes-tooltip"></div>
                         </div>
                         <div id="today-lanes-list" class="lanes-list"></div>
-                        <div id="today-lanes-empty" class="scheduler-empty" style="display:none;">Keine Aktivitaet in den letzten 24h</div>
+                        <div id="today-lanes-empty" class="scheduler-empty" style="display:none;" data-i18n="No activity in the last 24h">No activity in the last 24h</div>
                     </div>
                     <div class="memory-section">
-                        <h3 class="memory-section-title">Im Prompt aktiv <span class="section-hint admin-only">(Top 12 nach Score)</span></h3>
+                        <h3 class="memory-section-title"><span data-i18n="Active in prompt">Active in prompt</span> <span class="section-hint admin-only" data-i18n="(Top 12 by score)">(Top 12 by score)</span></h3>
                         <div id="today-active-memories" class="active-memories-list"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Known places -->
+                <div id="tab-locations" class="memory-tab-content" style="display:none;">
+                    <div id="locations-toolbar" class="locations-toolbar">
+                        <span id="locations-count" class="knowledge-count-label"></span>
+                        <label class="memlist-checkbox"><input type="checkbox" id="locations-show-all"> <span data-i18n="show all (incl. unknown)">show all (incl. unknown)</span></label>
+                    </div>
+                    <div id="locations-map" class="location-map">
+                        <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                     </div>
                 </div>
 
                 <!-- Tab: Erinnerungen -->
                 <div id="tab-memories" class="memory-tab-content" style="display:none;">
                     <div class="knowledge-toolbar memory-list-toolbar">
-                        <input type="search" id="memlist-q" placeholder="Suche..." class="memlist-input"/>
+                        <input type="search" id="memlist-q" placeholder="Search…" data-i18n-placeholder="Search…" class="memlist-input"/>
                         <select id="memlist-tier" class="memlist-select">
-                            <option value="">Alle Typen</option>
-                            <option value="semantic">Fakten</option>
-                            <option value="episodic">Erlebnisse</option>
-                            <option value="commitment">Versprechen</option>
+                            <option value="" data-i18n="All types">All types</option>
+                            <option value="semantic" data-i18n="Facts">Facts</option>
+                            <option value="episodic" data-i18n="Experiences">Experiences</option>
+                            <option value="commitment" data-i18n="Promises">Promises</option>
                         </select>
                         <select id="memlist-imp" class="memlist-select">
-                            <option value="0">Alle Wichtigkeit</option>
-                            <option value="3" selected>Wichtigkeit ≥3</option>
-                            <option value="4">Wichtigkeit ≥4</option>
-                            <option value="5">Wichtigkeit =5</option>
+                            <option value="0" data-i18n="All importance">All importance</option>
+                            <option value="3" selected data-i18n="Importance ≥3">Importance ≥3</option>
+                            <option value="4" data-i18n="Importance ≥4">Importance ≥4</option>
+                            <option value="5" data-i18n="Importance =5">Importance =5</option>
                         </select>
                         <select id="memlist-related" class="memlist-select">
-                            <option value="">Alle Bezuege</option>
+                            <option value="" data-i18n="All references">All references</option>
                         </select>
                         <select id="memlist-source" class="memlist-select admin-only">
-                            <option value="">Alle Quellen</option>
+                            <option value="" data-i18n="All sources">All sources</option>
                             <option value="extraction">Extraction</option>
                             <option value="thought">Thought</option>
                             <option value="intent">Intent</option>
                         </select>
                         <select id="memlist-sort" class="memlist-select">
-                            <option value="recent">Neueste</option>
-                            <option value="importance">Wichtigste</option>
-                            <option value="access">Meist abgerufen</option>
-                            <option value="score">Relevanz (Score)</option>
+                            <option value="recent" data-i18n="Newest">Newest</option>
+                            <option value="importance" data-i18n="Most important">Most important</option>
+                            <option value="access" data-i18n="Most accessed">Most accessed</option>
+                            <option value="score" data-i18n="Relevance (score)">Relevance (score)</option>
                         </select>
-                        <label class="memlist-checkbox"><input type="checkbox" id="memlist-completed"> erledigte zeigen</label>
+                        <label class="memlist-checkbox"><input type="checkbox" id="memlist-completed"> <span data-i18n="show completed">show completed</span></label>
                         <span id="memlist-count" class="knowledge-count-label"></span>
-                        <button class="reset-btn knowledge-clear-btn admin-only" onclick="clearAllKnowledge()">Alles loeschen</button>
+                        <button class="reset-btn knowledge-clear-btn admin-only" onclick="clearAllKnowledge()" data-i18n="Delete all">Delete all</button>
                     </div>
                     <div id="memory-list" class="knowledge-list">
-                        <p class="scheduler-empty">Lade...</p>
+                        <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                     </div>
                     <div id="memlist-pagination" class="memlist-pagination"></div>
                 </div>
@@ -627,22 +580,22 @@
                 <!-- Tab: Beziehungen -->
                 <div id="tab-relationships" class="memory-tab-content" style="display:none;">
                     <div id="relationships-list" class="relationships-grid">
-                        <p class="scheduler-empty">Lade...</p>
+                        <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                     </div>
                 </div>
 
                 <!-- Tab: Verlauf -->
                 <div id="tab-history" class="memory-tab-content" style="display:none;">
                     <div class="history-subtabs">
-                        <button class="history-subtab active" data-kind="daily" onclick="switchHistorySubtab('daily')">Tage</button>
-                        <button class="history-subtab" data-kind="weekly" onclick="switchHistorySubtab('weekly')">Wochen</button>
-                        <button class="history-subtab" data-kind="monthly" onclick="switchHistorySubtab('monthly')">Monate</button>
-                        <button class="history-subtab" data-kind="history" onclick="switchHistorySubtab('history')">Chat-Summary</button>
-                        <button class="history-subtab" data-kind="diary" onclick="switchHistorySubtab('diary')">Tagebuch</button>
-                        <button class="history-subtab admin-only" data-kind="evolution" onclick="switchHistorySubtab('evolution')">Selbstbild</button>
+                        <button class="history-subtab active" data-kind="daily" onclick="switchHistorySubtab('daily')" data-i18n="Days">Days</button>
+                        <button class="history-subtab" data-kind="weekly" onclick="switchHistorySubtab('weekly')" data-i18n="Weeks">Weeks</button>
+                        <button class="history-subtab" data-kind="monthly" onclick="switchHistorySubtab('monthly')" data-i18n="Months">Months</button>
+                        <button class="history-subtab" data-kind="history" onclick="switchHistorySubtab('history')" data-i18n="Chat summary">Chat summary</button>
+                        <button class="history-subtab" data-kind="diary" onclick="switchHistorySubtab('diary')" data-i18n="Diary">Diary</button>
+                        <button class="history-subtab admin-only" data-kind="evolution" onclick="switchHistorySubtab('evolution')" data-i18n="Self-image">Self-image</button>
                     </div>
                     <div id="history-content" class="knowledge-list">
-                        <p class="scheduler-empty">Lade...</p>
+                        <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                     </div>
                 </div>
             </div>
@@ -650,110 +603,110 @@
     </div>
 
     <!-- Queue Button (schwebend links vom Chat-Container) -->
-    <button id="btn-queue" class="queue-toggle-btn" title="Aufgaben" onclick="toggleQueuePanel()">📋</button>
+    <button id="btn-queue" class="queue-toggle-btn" title="Tasks" data-i18n-title="Tasks" onclick="toggleQueuePanel()">📋</button>
 
     <!-- Queue Panel (Drawer von links) -->
     <div id="queue-panel" class="queue-panel" style="display: none;">
         <div class="panel-resize-handle handle-left" data-panel="queue-panel" data-side="right"></div>
         <div class="queue-header">
             <div class="queue-header-top">
-                <h2>📋 Aufgaben</h2>
+                <h2>📋 <span data-i18n="Tasks">Tasks</span></h2>
                 <button class="queue-close" onclick="toggleQueuePanel()">&times;</button>
             </div>
         </div>
         <div id="queue-content" class="queue-content">
-            <p class="queue-empty">Keine aktiven Tasks</p>
+            <p class="queue-empty" data-i18n="No active tasks">No active tasks</p>
         </div>
     </div>
 
     <!-- Story Arc Button -->
-    <button id="btn-storyarc" class="storyarc-toggle-btn" title="Story Arcs" onclick="toggleStoryArcPanel()">📖</button>
+    <button id="btn-storyarc" class="storyarc-toggle-btn" title="Story Arcs" data-i18n-title="Story Arcs" onclick="toggleStoryArcPanel()">📖</button>
 
     <!-- Story Arc Panel (Drawer von links) -->
     <div id="storyarc-panel" class="storyarc-panel" style="display: none;">
         <div class="panel-resize-handle handle-left" data-panel="storyarc-panel" data-side="right"></div>
         <div class="storyarc-header">
             <div class="storyarc-header-top">
-                <h2>📖 Story Arcs</h2>
+                <h2>📖 <span data-i18n="Story Arcs">Story Arcs</span></h2>
                 <div class="storyarc-header-btns">
-                    <button class="storyarc-generate-btn" onclick="generateStoryArc()" title="Neuen Arc generieren">+</button>
+                    <button class="storyarc-generate-btn" onclick="generateStoryArc()" title="Generate new arc" data-i18n-title="Generate new arc">+</button>
                     <button class="storyarc-close" onclick="toggleStoryArcPanel()">&times;</button>
                 </div>
             </div>
         </div>
         <div id="storyarc-content" class="storyarc-content">
-            <p class="storyarc-empty">Keine Story Arcs</p>
+            <p class="storyarc-empty" data-i18n="No story arcs">No story arcs</p>
         </div>
     </div>
 
     <!-- Events Button -->
-    <button id="btn-events" class="events-toggle-btn" title="Ereignisse &amp; Aufgaben" onclick="toggleEventsPanel()">📌</button>
+    <button id="btn-events" class="events-toggle-btn" title="Events &amp; assignments" data-i18n-title="Events &amp; assignments" onclick="toggleEventsPanel()">📌</button>
 
     <!-- Events + Assignments Panel (Drawer von rechts) -->
     <div id="events-panel" class="events-panel" style="display: none;">
         <div class="panel-resize-handle handle-left" data-panel="events-panel" data-side="right"></div>
         <div class="events-header">
             <div class="events-header-top">
-                <h2 id="events-panel-title">📌 Ereignisse</h2>
+                <h2 id="events-panel-title">📌 <span data-i18n="Events">Events</span></h2>
                 <button class="events-close" onclick="toggleEventsPanel()">&times;</button>
             </div>
             <!-- Tab-Umschalter -->
             <div class="events-tabs">
-                <button class="events-tab active" data-tab="events" onclick="switchEventsTab('events')">Ereignisse</button>
-                <button class="events-tab" data-tab="assignments" onclick="switchEventsTab('assignments')">Aufgaben</button>
+                <button class="events-tab active" data-tab="events" onclick="switchEventsTab('events')" data-i18n="Events">Events</button>
+                <button class="events-tab" data-tab="assignments" onclick="switchEventsTab('assignments')" data-i18n="Assignments">Assignments</button>
             </div>
             <!-- Events-Formular -->
             <div id="events-form-events" class="events-add-form">
-                <textarea id="events-text" class="events-input" placeholder="Was ist passiert?" rows="2"></textarea>
+                <textarea id="events-text" class="events-input" placeholder="What happened?" data-i18n-placeholder="What happened?" rows="2"></textarea>
                 <div class="events-add-row">
                     <select id="events-location" class="events-select">
-                        <option value="">Alle Orte (global)</option>
+                        <option value="" data-i18n="All locations (global)">All locations (global)</option>
                     </select>
-                    <select id="events-ttl" class="events-select" title="Ablaufzeit">
-                        <option value="1">1 Stunde</option>
-                        <option value="6">6 Stunden</option>
-                        <option value="24" selected>24 Stunden</option>
-                        <option value="48">2 Tage</option>
-                        <option value="168">7 Tage</option>
-                        <option value="0">Kein Ablauf</option>
+                    <select id="events-ttl" class="events-select" title="Expiry time" data-i18n-title="Expiry time">
+                        <option value="1" data-i18n="1 hour">1 hour</option>
+                        <option value="6" data-i18n="6 hours">6 hours</option>
+                        <option value="24" selected data-i18n="24 hours">24 hours</option>
+                        <option value="48" data-i18n="2 days">2 days</option>
+                        <option value="168" data-i18n="7 days">7 days</option>
+                        <option value="0" data-i18n="Never expires">Never expires</option>
                     </select>
                     <button class="events-add-btn" onclick="addEvent()">+</button>
                 </div>
             </div>
             <!-- Assignments-Formular -->
             <div id="events-form-assignments" class="events-add-form" style="display:none;">
-                <input id="assignment-title" class="events-input" placeholder="Aufgabe (Titel)" />
-                <textarea id="assignment-desc" class="events-input" placeholder="Beschreibung (was genau soll passieren?)" rows="2"></textarea>
-                <input id="assignment-outfit" class="events-input" placeholder="Outfit / Kleidung (optional, z.B. 'rotes Abendkleid')" />
+                <input id="assignment-title" class="events-input" placeholder="Task (title)" data-i18n-placeholder="Task (title)" />
+                <textarea id="assignment-desc" class="events-input" placeholder="Description (what exactly should happen?)" data-i18n-placeholder="Description (what exactly should happen?)" rows="2"></textarea>
+                <input id="assignment-outfit" class="events-input" placeholder="Outfit / clothing (optional, e.g. 'red evening gown')" data-i18n-placeholder="Outfit / clothing (optional, e.g. 'red evening gown')" />
                 <div id="assignment-participants" class="assignment-participants"></div>
                 <div class="events-add-row">
-                    <select id="assignment-location" class="events-select" title="Ort (optional)">
-                        <option value="">Kein Ort</option>
+                    <select id="assignment-location" class="events-select" title="Location (optional)" data-i18n-title="Location (optional)">
+                        <option value="" data-i18n="No location">No location</option>
                     </select>
-                    <select id="assignment-priority" class="events-select" title="Prioritaet">
-                        <option value="1">Dringend</option>
-                        <option value="2">Hoch</option>
-                        <option value="3" selected>Normal</option>
-                        <option value="4">Niedrig</option>
-                        <option value="5">Hintergrund</option>
+                    <select id="assignment-priority" class="events-select" title="Priority" data-i18n-title="Priority">
+                        <option value="1" data-i18n="Urgent">Urgent</option>
+                        <option value="2" data-i18n="High">High</option>
+                        <option value="3" selected data-i18n="Normal">Normal</option>
+                        <option value="4" data-i18n="Low">Low</option>
+                        <option value="5" data-i18n="Background">Background</option>
                     </select>
                 </div>
                 <div class="events-add-row">
-                    <select id="assignment-duration" class="events-select" title="Dauer">
-                        <option value="60">1 Stunde</option>
-                        <option value="120" selected>2 Stunden</option>
-                        <option value="480">8 Stunden</option>
-                        <option value="1440">1 Tag</option>
-                        <option value="4320">3 Tage</option>
-                        <option value="10080">7 Tage</option>
-                        <option value="0">Kein Ablauf</option>
+                    <select id="assignment-duration" class="events-select" title="Duration" data-i18n-title="Duration">
+                        <option value="60" data-i18n="1 hour">1 hour</option>
+                        <option value="120" selected data-i18n="2 hours">2 hours</option>
+                        <option value="480" data-i18n="8 hours">8 hours</option>
+                        <option value="1440" data-i18n="1 day">1 day</option>
+                        <option value="4320" data-i18n="3 days">3 days</option>
+                        <option value="10080" data-i18n="7 days">7 days</option>
+                        <option value="0" data-i18n="Never expires">Never expires</option>
                     </select>
                     <button class="events-add-btn" onclick="addAssignment()">+</button>
                 </div>
             </div>
         </div>
         <div id="events-content" class="events-content">
-            <p class="events-empty">Keine Ereignisse</p>
+            <p class="events-empty" data-i18n="No events">No events</p>
         </div>
     </div>
 
@@ -761,53 +714,53 @@
     <div id="wardrobe-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
-                <h2>🎒 Inventar: <span id="wardrobe-char-name">—</span></h2>
+                <h2>🎒 <span data-i18n="Inventory">Inventory</span>: <span id="wardrobe-char-name">—</span></h2>
                 <div class="editor-header-actions">
                     <button class="modal-close" onclick="closeWardrobeModal()">&times;</button>
                 </div>
             </div>
             <div class="modal-body">
                 <div class="memory-tabs">
-                    <button class="memory-tab active" data-wtab="studio" onclick="switchWardrobeTab('studio')">Outfit zusammenstellen</button>
-                    <button class="memory-tab" data-wtab="pieces" onclick="switchWardrobeTab('pieces')">Outfit-Teile</button>
-                    <button class="memory-tab" data-wtab="inventory" onclick="switchWardrobeTab('inventory')">Inventar</button>
-                    <button class="memory-tab" data-wtab="rules" onclick="switchWardrobeTab('rules')">Regeln</button>
+                    <button class="memory-tab active" data-wtab="studio" onclick="switchWardrobeTab('studio')" data-i18n="Compose outfit">Compose outfit</button>
+                    <button class="memory-tab" data-wtab="pieces" onclick="switchWardrobeTab('pieces')" data-i18n="Outfit pieces">Outfit pieces</button>
+                    <button class="memory-tab" data-wtab="inventory" onclick="switchWardrobeTab('inventory')" data-i18n="Inventory">Inventory</button>
+                    <button class="memory-tab" data-wtab="rules" onclick="switchWardrobeTab('rules')" data-i18n="Rules">Rules</button>
                 </div>
 
                 <!-- Tab 1: Studio -->
                 <div id="wardrobe-tab-studio" class="memory-tab-content active">
                     <div class="wardrobe-studio-grid">
                         <div class="wardrobe-col wardrobe-col-preview">
-                            <h3 class="wardrobe-col-title">Vorschau</h3>
+                            <h3 class="wardrobe-col-title" data-i18n="Preview">Preview</h3>
                             <div id="wardrobe-preview" class="wardrobe-preview">
-                                <p class="scheduler-empty">Lade Vorschau...</p>
+                                <p class="scheduler-empty" data-i18n="Loading preview…">Loading preview…</p>
                             </div>
                             <div id="wardrobe-preview-label" class="wardrobe-preview-label"></div>
                         </div>
                         <div class="wardrobe-col wardrobe-col-equipped">
                             <div class="wardrobe-set-row" style="margin-bottom:6px;gap:4px;">
-                                <select id="wardrobe-set-select" class="agent-status-input" title="Set auswaehlen" style="flex:1;">
-                                    <option value="">— Set auswaehlen —</option>
+                                <select id="wardrobe-set-select" class="agent-status-input" title="Choose set" data-i18n-title="Choose set" style="flex:1;">
+                                    <option value="" data-i18n="— Choose set —">— Choose set —</option>
                                 </select>
-                                <button class="save-btn" id="wardrobe-set-save" title="Speichern unter..." style="padding:4px 8px;font-size:11px;">💾 Speichern unter</button>
-                                <button class="reset-btn" id="wardrobe-set-delete" title="Set loeschen" style="padding:4px 8px;font-size:11px;">🗑️</button>
+                                <button class="save-btn" id="wardrobe-set-save" title="Save as…" data-i18n-title="Save as…" style="padding:4px 8px;font-size:11px;">💾 <span data-i18n="Save as">Save as</span></button>
+                                <button class="reset-btn" id="wardrobe-set-delete" title="Delete set" data-i18n-title="Delete set" style="padding:4px 8px;font-size:11px;">🗑️</button>
                             </div>
-                            <h3 class="wardrobe-col-title">Angelegt</h3>
+                            <h3 class="wardrobe-col-title" data-i18n="Equipped">Equipped</h3>
                             <div id="wardrobe-equipped" class="wardrobe-slot-list">
-                                <p class="scheduler-empty">Lade...</p>
+                                <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                             </div>
                             <div class="wardrobe-equipped-actions">
-                                <button class="save-btn" id="wardrobe-equipped-apply" title="Spalte 2 aufs Profil uebertragen — uebernimmt Pieces und Remove-Markierungen">👕 Anziehen</button>
-                                <button class="reset-btn" id="wardrobe-set-preview" title="Vorschau-Bild fuer Spalte 2 erzwingen (neu generieren)">🖼️ Vorschau</button>
-                                <button class="reset-btn" id="wardrobe-preview-refresh" title="Vorschau-Bild aktualisieren (Cache pruefen)">🔄</button>
-                                <button class="reset-btn" id="wardrobe-variants-clear" title="Alle generierten Expression/Variant-Bilder dieses Characters loeschen — beim naechsten Aufruf werden sie neu generiert">🧹 Variants</button>
+                                <button class="save-btn" id="wardrobe-equipped-apply" title="Apply column 2 to profile — adopts pieces and remove markers" data-i18n-title="Apply column 2 to profile — adopts pieces and remove markers">👕 <span data-i18n="Wear">Wear</span></button>
+                                <button class="reset-btn" id="wardrobe-set-preview" title="Force preview image for column 2 (regenerate)" data-i18n-title="Force preview image for column 2 (regenerate)">🖼️ <span data-i18n="Preview">Preview</span></button>
+                                <button class="reset-btn" id="wardrobe-preview-refresh" title="Refresh preview image (check cache)" data-i18n-title="Refresh preview image (check cache)">🔄</button>
+                                <button class="reset-btn" id="wardrobe-variants-clear" title="Delete all generated expression/variant images of this character — they will be regenerated on next call" data-i18n-title="Delete all generated expression/variant images of this character — they will be regenerated on next call">🧹 Variants</button>
                             </div>
                         </div>
                         <div class="wardrobe-col wardrobe-col-inventory">
-                            <h3 class="wardrobe-col-title">Im Inventar</h3>
+                            <h3 class="wardrobe-col-title" data-i18n="In inventory">In inventory</h3>
                             <div id="wardrobe-available-filter" class="wardrobe-available-filter"></div>
                             <div id="wardrobe-available" class="wardrobe-piece-list">
-                                <p class="scheduler-empty">Lade...</p>
+                                <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                             </div>
                         </div>
                     </div>
@@ -816,17 +769,17 @@
                 <!-- Tab 4: Regeln (Outfit-Consistency) -->
                 <div id="wardrobe-tab-rules" class="memory-tab-content" style="display:none;padding:12px;">
                     <div id="wardrobe-rules-compliance" style="margin-bottom:16px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-alt);">
-                        <p class="scheduler-empty">Lade aktuellen Status...</p>
+                        <p class="scheduler-empty" data-i18n="Loading current status…">Loading current status…</p>
                     </div>
-                    <h3 style="margin:8px 0;font-size:14px;color:var(--text);">Ausnahmen — diese Slots werden bei den gewaehlten outfit_types NICHT verlangt</h3>
-                    <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">
-                        Setze Haken fuer Slots, die der Character bei einem bestimmten outfit_type nicht anziehen muss.
+                    <h3 style="margin:8px 0;font-size:14px;color:var(--text);" data-i18n="Exceptions — these slots are NOT required for the selected outfit_types">Exceptions — these slots are NOT required for the selected outfit_types</h3>
+                    <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;" data-i18n="Tick slots the character does not need to wear for a given outfit_type.">
+                        Tick slots the character does not need to wear for a given outfit_type.
                     </p>
                     <div id="wardrobe-rules-exceptions" style="overflow-x:auto;">
-                        <p class="scheduler-empty">Lade Regeln...</p>
+                        <p class="scheduler-empty" data-i18n="Loading rules…">Loading rules…</p>
                     </div>
                     <div style="margin-top:12px;">
-                        <button class="save-btn" onclick="saveWardrobeExceptions()">Speichern</button>
+                        <button class="save-btn" onclick="saveWardrobeExceptions()" data-i18n="Save">Save</button>
                         <span id="wardrobe-rules-status" style="margin-left:10px;font-size:12px;color:var(--text-muted);"></span>
                     </div>
                 </div>
@@ -837,97 +790,97 @@
                         <!-- Spalte 1: Liste -->
                         <div class="wardrobe-col wardrobe-col-pieces-list">
                             <div class="wardrobe-col-title-row">
-                                <h3 class="wardrobe-col-title" style="margin:0;">Outfit-Teile im Inventar</h3>
-                                <button class="reset-btn" id="wpc-new-btn" title="Neues Teil anlegen">+ Neu</button>
+                                <h3 class="wardrobe-col-title" style="margin:0;" data-i18n="Outfit pieces in inventory">Outfit pieces in inventory</h3>
+                                <button class="reset-btn" id="wpc-new-btn" title="Create new piece" data-i18n-title="Create new piece">+ <span data-i18n="New">New</span></button>
                             </div>
                             <div id="wardrobe-add-existing" style="margin-bottom:8px;">
                                 <div style="display:flex;gap:4px;">
                                     <input type="text" id="wardrobe-add-search" class="agent-status-input"
-                                        placeholder="Item suchen + hinzufuegen..." style="flex:1;font-size:12px;padding:4px 8px;">
-                                    <button class="save-btn" id="wardrobe-add-btn" style="padding:4px 10px;font-size:11px;white-space:nowrap;" title="Ausgewaehltes Item zum Character-Inventar hinzufuegen">+ Inventar</button>
+                                        placeholder="Search and add item…" data-i18n-placeholder="Search and add item…" style="flex:1;font-size:12px;padding:4px 8px;">
+                                    <button class="save-btn" id="wardrobe-add-btn" style="padding:4px 10px;font-size:11px;white-space:nowrap;" title="Add selected item to character inventory" data-i18n-title="Add selected item to character inventory">+ <span data-i18n="Inventory">Inventory</span></button>
                                 </div>
                                 <div id="wardrobe-add-results" style="display:none;max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;margin-top:4px;background:var(--bg);"></div>
                             </div>
                             <div id="wardrobe-inv-list" class="wardrobe-piece-list">
-                                <p class="scheduler-empty">Lade...</p>
+                                <p class="scheduler-empty" data-i18n="Loading…">Loading…</p>
                             </div>
                         </div>
                         <!-- Spalte 2: Bearbeiten / Anlegen -->
                         <div class="wardrobe-col wardrobe-col-create">
-                            <h3 class="wardrobe-col-title" id="wpc-form-title">Outfit-Teil bearbeiten</h3>
+                            <h3 class="wardrobe-col-title" id="wpc-form-title" data-i18n="Edit outfit piece">Edit outfit piece</h3>
                             <div class="wardrobe-create-form">
                                 <input type="hidden" id="wpc-edit-id" value="">
-                                <label class="wardrobe-form-label">Name</label>
-                                <input type="text" id="wpc-name" class="agent-status-input" placeholder="z.B. Schwarze Lederjacke">
+                                <label class="wardrobe-form-label" data-i18n="Name">Name</label>
+                                <input type="text" id="wpc-name" class="agent-status-input" placeholder="e.g. Black leather jacket" data-i18n-placeholder="e.g. Black leather jacket">
                                 <div style="display:flex;gap:10px;align-items:flex-start;">
                                     <div style="flex:1;min-width:0;">
-                                        <label class="wardrobe-form-label" title="Slots, die das Teil physisch belegt. Single-Slot wie Bluse: nur einen Slot setzen. Multi-Slot wie Kleid (top+bottom), Jumpsuit (top+bottom+legs) oder thigh-highs (legs+feet): mehrere Slots gleichzeitig auswaehlen.">Slot(s)</label>
+                                        <label class="wardrobe-form-label" title="Slots the piece physically occupies. Single-slot like a blouse: one slot. Multi-slot like a dress (top+bottom), jumpsuit (top+bottom+legs) or thigh-highs (legs+feet): pick multiple slots." data-i18n-title="Slots the piece physically occupies. Single-slot like a blouse: one slot. Multi-slot like a dress (top+bottom), jumpsuit (top+bottom+legs) or thigh-highs (legs+feet): pick multiple slots." data-i18n="Slot(s)">Slot(s)</label>
                                         <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;border:1px solid var(--border);border-radius:4px;padding:4px;min-height:30px;">
                                             <div id="wpc-slots-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
                                             <select id="wpc-slots-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
-                                                <option value="">+ hinzufuegen</option>
+                                                <option value="" data-i18n="+ add">+ add</option>
                                             </select>
                                         </div>
                                     </div>
                                     <div style="flex:1;min-width:0;">
-                                        <label class="wardrobe-form-label">Outfit-Typen</label>
+                                        <label class="wardrobe-form-label" data-i18n="Outfit types">Outfit types</label>
                                         <div class="outfit-type-picker">
                                             <select id="wpc-outfit-type-select" class="agent-status-input" style="width:100%;">
-                                                <option value="">— auswaehlen —</option>
+                                                <option value="" data-i18n="— choose —">— choose —</option>
                                             </select>
                                             <input type="text" id="wpc-outfit-type-new" class="agent-status-input"
-                                                placeholder="Neuer Typ (Enter zum Hinzufuegen)..." style="display:none;">
+                                                placeholder="New type (Enter to add)…" data-i18n-placeholder="New type (Enter to add)…" style="display:none;">
                                         </div>
                                         <div id="wpc-outfit-type-tags" class="outfit-type-tags"></div>
                                     </div>
                                 </div>
-                                <label class="wardrobe-form-label">Prompt-Fragment (Bild-Beschreibung im Outfit)</label>
+                                <label class="wardrobe-form-label" data-i18n="Prompt fragment (image description in outfit)">Prompt fragment (image description in outfit)</label>
                                 <textarea id="wpc-prompt-fragment" class="agent-status-input" rows="2"
                                     placeholder="black leather jacket, slim fit, silver zippers"></textarea>
                                 <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
-                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots komplett verdeckt — fallen aus dem Prompt raus">Verdeckt:</span>
+                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots fully covered — drop out of the prompt" data-i18n-title="Slots fully covered — drop out of the prompt" data-i18n="Covered:">Covered:</span>
                                     <div id="wpc-covers-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
                                     <select id="wpc-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
-                                        <option value="">+ hinzufuegen</option>
+                                        <option value="" data-i18n="+ add">+ add</option>
                                     </select>
                                 </div>
                                 <div class="wpc-tag-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:4px 0;">
-                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots teilweise sichtbar — '{Fragment} underneath {dieses Teil}'">Teilw.:</span>
+                                    <span style="font-size:11px;color:var(--text-muted);min-width:64px;" title="Slots partially visible — '{fragment} underneath {this piece}'" data-i18n-title="Slots partially visible — '{fragment} underneath {this piece}'" data-i18n="Partial:">Partial:</span>
                                     <div id="wpc-partially-covers-tags" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
                                     <select id="wpc-partially-covers-add" class="agent-status-input" style="font-size:11px;padding:2px 6px;width:auto;background:var(--bg);color:var(--text);">
-                                        <option value="">+ hinzufuegen</option>
+                                        <option value="" data-i18n="+ add">+ add</option>
                                     </select>
                                 </div>
                                 <label class="wardrobe-form-label">
-                                    LoRA fuer dieses Teil
+                                    <span data-i18n="LoRA for this piece">LoRA for this piece</span>
                                     <span id="wpc-lora-filter-info" style="font-size:10px;color:var(--text-muted);font-weight:normal;"></span>
                                 </label>
                                 <div id="wpc-lora-row" style="display:flex;gap:4px;align-items:center;margin-bottom:8px;">
-                                    <select id="wpc-lora-name" class="agent-status-input" style="flex:1;font-size:12px;padding:4px 8px;" title="LoRA aus dem Cache, gefiltert nach Outfit-Image-Workflow des Characters">
-                                        <option value="None">— keins —</option>
+                                    <select id="wpc-lora-name" class="agent-status-input" style="flex:1;font-size:12px;padding:4px 8px;" title="LoRA from the cache, filtered by character outfit-image workflow" data-i18n-title="LoRA from the cache, filtered by character outfit-image workflow">
+                                        <option value="None" data-i18n="— none —">— none —</option>
                                     </select>
-                                    <input type="number" id="wpc-lora-strength" step="0.05" min="-2" max="2" value="1.0" class="agent-status-input" style="width:70px;font-size:12px;padding:4px 6px;" title="Strength">
+                                    <input type="number" id="wpc-lora-strength" step="0.05" min="-2" max="2" value="1.0" class="agent-status-input" style="width:70px;font-size:12px;padding:4px 6px;" title="Strength" data-i18n-title="Strength">
                                 </div>
-                                <label class="wardrobe-form-label">Beschreibung (optional)</label>
+                                <label class="wardrobe-form-label" data-i18n="Description (optional)">Description (optional)</label>
                                 <textarea id="wpc-description" class="agent-status-input" rows="2"
-                                    placeholder="Lederjacke aus den 80ern, Erbstueck"></textarea>
-                                <label class="wardrobe-form-label">Image-Prompt (fuer das Item-Bild)</label>
+                                    placeholder="Leather jacket from the 80s, heirloom" data-i18n-placeholder="Leather jacket from the 80s, heirloom"></textarea>
+                                <label class="wardrobe-form-label" data-i18n="Image prompt (for the item image)">Image prompt (for the item image)</label>
                                 <textarea id="wpc-image-prompt" class="agent-status-input" rows="2"
                                     placeholder="black leather jacket on white background, product photo"></textarea>
                                 <div class="wardrobe-form-actions">
-                                    <button class="save-btn" id="wpc-save-btn" onclick="saveWardrobePiece()">Anlegen + ins Inventar</button>
+                                    <button class="save-btn" id="wpc-save-btn" onclick="saveWardrobePiece()" data-i18n="Create + add to inventory">Create + add to inventory</button>
                                 </div>
                                 <div id="wpc-status" class="wardrobe-form-status"></div>
                             </div>
                         </div>
                         <!-- Spalte 3: Bild -->
                         <div class="wardrobe-col wardrobe-col-piece-preview">
-                            <h3 class="wardrobe-col-title">Outfit-Teil Bild</h3>
+                            <h3 class="wardrobe-col-title" data-i18n="Outfit-piece image">Outfit-piece image</h3>
                             <div id="wardrobe-piece-preview" class="wardrobe-preview">
-                                <p class="scheduler-empty">Waehle links ein Teil oder lege ein neues an.</p>
+                                <p class="scheduler-empty" data-i18n="Pick a piece on the left or create a new one.">Pick a piece on the left or create a new one.</p>
                             </div>
                             <div class="wardrobe-preview-actions" id="wardrobe-piece-preview-actions" style="display:none;">
-                                <button class="save-btn" id="wardrobe-piece-gen-btn">📷 Bild erzeugen</button>
+                                <button class="save-btn" id="wardrobe-piece-gen-btn">📷 <span data-i18n="Generate image">Generate image</span></button>
                             </div>
                             <div id="wardrobe-piece-preview-meta" class="wardrobe-form-status"></div>
                         </div>
@@ -939,32 +892,32 @@
                     <div class="editor-grid" style="grid-template-columns: 3fr 2fr;">
                         <div class="modal-section editor-section">
                             <div class="scheduler-header">
-                                <h3>Inventar</h3>
-                                <button class="save-btn" onclick="toggleEditorInventoryForm()">+ Item hinzufuegen</button>
+                                <h3 data-i18n="Inventory">Inventory</h3>
+                                <button class="save-btn" onclick="toggleEditorInventoryForm()">+ <span data-i18n="Add item">Add item</span></button>
                             </div>
                             <div id="editor-inventory-list" class="world-list">
-                                <p class="scheduler-empty">Inventar ist leer</p>
+                                <p class="scheduler-empty" data-i18n="Inventory is empty">Inventory is empty</p>
                             </div>
                         </div>
                         <div class="modal-section editor-section">
                             <div id="editor-inventory-form" class="world-inline-form" style="display:none;">
-                                <h3 id="editor-inventory-form-title">Item zum Inventar hinzufuegen</h3>
+                                <h3 id="editor-inventory-form-title" data-i18n="Add item to inventory">Add item to inventory</h3>
                                 <select id="editor-inventory-item-select" class="agent-status-input">
-                                    <option value="">-- Item auswaehlen --</option>
+                                    <option value="" data-i18n="-- Choose item --">-- Choose item --</option>
                                 </select>
                                 <div id="editor-inventory-item-preview" class="scheduler-empty" style="font-size:12px;"></div>
                                 <div class="form-row-inline">
-                                    <label>Anzahl</label>
+                                    <label data-i18n="Quantity">Quantity</label>
                                     <input type="number" id="editor-inventory-quantity" class="agent-status-input" value="1" min="1" max="99" style="width:80px;">
                                 </div>
                                 <div class="form-actions">
-                                    <button class="save-btn" onclick="saveEditorInventoryItem()">Hinzufuegen</button>
-                                    <button class="reset-btn" onclick="toggleEditorInventoryForm()">Abbrechen</button>
+                                    <button class="save-btn" onclick="saveEditorInventoryItem()" data-i18n="Add">Add</button>
+                                    <button class="reset-btn" onclick="toggleEditorInventoryForm()" data-i18n="Cancel">Cancel</button>
                                 </div>
                             </div>
-                            <div id="editor-inventory-placeholder" class="scheduler-empty">Klicke auf + um Items aus der Bibliothek hinzuzufuegen</div>
-                            <div style="margin-top:16px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11px;color:var(--text-muted);">
-                                Item-Bibliothek verwalten: Game Admin (🎮) → Tab "Items"
+                            <div id="editor-inventory-placeholder" class="scheduler-empty" data-i18n="Click + to add items from the library">Click + to add items from the library</div>
+                            <div style="margin-top:16px;padding:10px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:11px;color:var(--text-muted);" data-i18n="Manage item library: Game Admin (🎮) → tab &quot;Items&quot;">
+                                Manage item library: Game Admin (🎮) → tab "Items"
                             </div>
                         </div>
                     </div>
@@ -974,15 +927,15 @@
     </div>
 
     <!-- World Map Button (schwebend rechts, unter Queue) -->
-    <button id="btn-worldmap" class="worldmap-toggle-btn" title="Weltkarte" onclick="toggleWorldPanel()">🗺️</button>
+    <button id="btn-worldmap" class="worldmap-toggle-btn" title="World map" data-i18n-title="World map" onclick="toggleWorldPanel()">🗺️</button>
 
     <!-- Character Scene (links vom Chat, zeigt NPC mit Outfit) -->
     <div id="character-scene" class="character-scene">
         <img id="character-scene-img" class="character-scene-img" src="" alt="" style="display:none;">
         <div id="character-scene-outfit" class="character-scene-outfit" style="display:none;"></div>
-        <button id="character-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('agent')" title="Inventar oeffnen">🎒</button>
-        <button id="character-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('agent')" title="Outfit zusammenstellen">🧥</button>
-        <button id="character-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('agent')" title="Outfit sperren">🔓</button>
+        <button id="character-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('agent')" title="Open inventory" data-i18n-title="Open inventory">🎒</button>
+        <button id="character-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('agent')" title="Compose outfit" data-i18n-title="Compose outfit">🧥</button>
+        <button id="character-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('agent')" title="Lock outfit" data-i18n-title="Lock outfit">🔓</button>
         <!-- Group Chat: Mehrere Character-Bilder nebeneinander -->
         <div id="group-scene" class="group-scene" style="display:none;"></div>
     </div>
@@ -991,9 +944,9 @@
     <div id="player-scene" class="player-scene">
         <img id="player-scene-img" class="player-scene-img" src="" alt="" style="display:none;">
         <div id="player-scene-outfit" class="player-scene-outfit" style="display:none;"></div>
-        <button id="player-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('avatar')" title="Inventar oeffnen">🎒</button>
-        <button id="player-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('avatar')" title="Outfit zusammenstellen">🧥</button>
-        <button id="player-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('avatar')" title="Outfit sperren">🔓</button>
+        <button id="player-scene-inventory" class="scene-inventory-btn" style="display:none;" onclick="openInventoryFromScene('avatar')" title="Open inventory" data-i18n-title="Open inventory">🎒</button>
+        <button id="player-scene-wardrobe" class="scene-wardrobe-btn" style="display:none;" onclick="openWardrobeFromScene('avatar')" title="Compose outfit" data-i18n-title="Compose outfit">🧥</button>
+        <button id="player-scene-lock" class="scene-lock-btn" style="display:none;" onclick="toggleOutfitLock('avatar')" title="Lock outfit" data-i18n-title="Lock outfit">🔓</button>
     </div>
 
     <!-- Character Sidebar (rechts, unter Weltkarte) -->
@@ -1015,31 +968,31 @@
         <div class="modal-content worldmap-modal-content">
             <div class="worldmap-header">
                 <div class="worldmap-header-top">
-                    <h2>🗺️ Weltkarte</h2>
+                    <h2>🗺️ <span data-i18n="World map">World map</span></h2>
                     <div class="worldmap-header-btns">
                         <button class="modal-close" onclick="toggleWorldPanel()">&times;</button>
                     </div>
                 </div>
-                <div id="worldmap-current-loc" class="worldmap-current-location">Kein Ort gewaehlt</div>
+                <div id="worldmap-current-loc" class="worldmap-current-location" data-i18n="No location selected">No location selected</div>
             </div>
             <div id="worldmap-content" class="worldmap-content">
-                <p class="queue-empty">Lade Weltkarte...</p>
+                <p class="queue-empty" data-i18n="Loading world map…">Loading world map…</p>
             </div>
         </div>
     </div>
 
     <!-- Gallery Button (schwebend am Chat-Container rechts, ueber Instagram) -->
-    <button id="btn-gallery" class="gallery-toggle-btn" title="Bildergalerie" onclick="toggleGalleryPanel()">🖼️</button>
+    <button id="btn-gallery" class="gallery-toggle-btn" title="Image gallery" data-i18n-title="Image gallery" onclick="toggleGalleryPanel()">🖼️</button>
 
     <!-- Gallery Panel (Drawer von links) -->
     <div id="gallery-panel" class="gallery-panel" style="display: none;">
         <div class="panel-resize-handle handle-right" data-panel="gallery-panel" data-side="left"></div>
         <div class="gallery-header">
             <div class="gallery-header-top">
-                <h2>Galerie</h2>
+                <h2 data-i18n="Gallery">Gallery</h2>
                 <div class="gallery-view-toggle">
-                    <button class="gallery-view-btn active" data-view="grid" onclick="setGalleryView('grid')" title="Grid">&#8862;</button>
-                    <button class="gallery-view-btn" data-view="list" onclick="setGalleryView('list')" title="Liste">&#9776;</button>
+                    <button class="gallery-view-btn active" data-view="grid" onclick="setGalleryView('grid')" title="Grid" data-i18n-title="Grid">&#8862;</button>
+                    <button class="gallery-view-btn" data-view="list" onclick="setGalleryView('list')" title="List" data-i18n-title="List">&#9776;</button>
                 </div>
                 <button class="gallery-close" onclick="toggleGalleryPanel()">&times;</button>
             </div>
@@ -1047,16 +1000,16 @@
             <div id="gallery-tabs" class="gallery-tabs"></div>
         </div>
         <div class="gallery-upload-bar">
-            <label for="gallery-image-upload" class="upload-label">Bild hochladen</label>
+            <label for="gallery-image-upload" class="upload-label" data-i18n="Upload image">Upload image</label>
             <input type="file" id="gallery-image-upload" accept="image/*" style="display: none;">
         </div>
         <div id="gallery-images" class="gallery-feed"></div>
     </div>
 
     <!-- Instagram Button (schwebend am Chat-Container rechts) -->
-    <button id="btn-instagram" class="instagram-toggle-btn" title="Instagram Feed" onclick="toggleInstagramPanel()">📷</button>
+    <button id="btn-instagram" class="instagram-toggle-btn" title="Instagram feed" data-i18n-title="Instagram feed" onclick="toggleInstagramPanel()">📷</button>
     <!-- Phone Button (Phone-Chat mit beliebigem Character starten) -->
-    <button id="btn-phone-chat" class="phone-toggle-btn" title="Phone-Chat mit Character starten" onclick="openPhoneChatPicker()">📞</button>
+    <button id="btn-phone-chat" class="phone-toggle-btn" title="Start phone chat with a character" data-i18n-title="Start phone chat with a character" onclick="openPhoneChatPicker()">📞</button>
 
     <!-- Instagram Panel (Drawer von rechts) -->
     <div id="instagram-panel" class="instagram-panel" style="display: none;">
@@ -1065,33 +1018,33 @@
             <div class="instagram-header-top">
                 <h2>📷 Instagram</h2>
                 <div style="display:flex;align-items:center;gap:6px;">
-                    <button class="instagram-settings-btn" title="Instagram Einstellungen" onclick="toggleInstagramSettings()">⚙️</button>
+                    <button class="instagram-settings-btn" title="Instagram settings" data-i18n-title="Instagram settings" onclick="toggleInstagramSettings()">⚙️</button>
                     <button class="instagram-close" onclick="toggleInstagramPanel()">&times;</button>
                 </div>
             </div>
             <div id="instagram-settings" class="instagram-settings" style="display:none;">
-                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Bildgenerierung Workflow:</label>
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;" data-i18n="Image-generation workflow:">Image-generation workflow:</label>
                 <select id="instagram-workflow-select" class="instagram-workflow-select" onchange="saveInstagramWorkflow(this.value)">
-                    <option value="">Character-Default</option>
+                    <option value="" data-i18n="Character default">Character default</option>
                 </select>
             </div>
         </div>
         <div id="instagram-feed" class="instagram-feed">
-            <p class="instagram-empty">Noch keine Posts vorhanden.</p>
+            <p class="instagram-empty" data-i18n="No posts yet.">No posts yet.</p>
         </div>
     </div>
 
     <!-- Diary Button (schwebend rechts, unter Events) -->
-    <button id="btn-diary" class="diary-toggle-btn" title="Tagebuch / Timeline" onclick="toggleDiaryPanel()">📔</button>
+    <button id="btn-diary" class="diary-toggle-btn" title="Diary / timeline" data-i18n-title="Diary / timeline" onclick="toggleDiaryPanel()">📔</button>
 
     <!-- Diary Panel (Drawer von rechts) -->
     <div id="diary-panel" class="diary-panel" style="display: none;">
         <div class="panel-resize-handle handle-left" data-panel="diary-panel" data-side="right"></div>
         <div class="diary-header">
             <div class="diary-header-top">
-                <h2>📔 Tagebuch</h2>
+                <h2>📔 <span data-i18n="Diary">Diary</span></h2>
                 <div class="diary-header-btns">
-                    <button class="diary-summary-btn" onclick="generateDiarySummary()" title="Tagesrueckblick generieren — fasst alle Ereignisse des Tages als persoenlichen Tagebucheintrag zusammen">✦</button>
+                    <button class="diary-summary-btn" onclick="generateDiarySummary()" title="Generate daily recap — summarizes all events of the day as a personal diary entry" data-i18n-title="Generate daily recap — summarizes all events of the day as a personal diary entry">✦</button>
                     <button class="diary-close" onclick="toggleDiaryPanel()">&times;</button>
                 </div>
             </div>
@@ -1099,18 +1052,18 @@
                 <div id="diary-character" style="flex-shrink:0;"></div>
                 <select id="diary-date" class="diary-select" onchange="loadDiary()"></select>
                 <select id="diary-filter" class="diary-select" onchange="loadDiary()">
-                    <option value="">Alle Typen</option>
+                    <option value="" data-i18n="All types">All types</option>
                 </select>
-                <input type="text" id="diary-search" class="diary-select" placeholder="🔍 Suche im Inhalt..." oninput="_onDiarySearchInput()" style="flex:1;min-width:120px;">
+                <input type="text" id="diary-search" class="diary-select" placeholder="🔍 Search content…" data-i18n-placeholder="🔍 Search content…" oninput="_onDiarySearchInput()" style="flex:1;min-width:120px;">
             </div>
         </div>
         <div id="diary-content" class="diary-content">
-            <p class="diary-empty">Keine Eintraege</p>
+            <p class="diary-empty" data-i18n="No entries">No entries</p>
         </div>
     </div>
 
     <!-- Notification Button (schwebend links, unter Instagram) -->
-    <button id="btn-notifications" class="notifications-toggle-btn" title="Nachrichten" onclick="toggleNotificationsPanel()">
+    <button id="btn-notifications" class="notifications-toggle-btn" title="Messages" data-i18n-title="Messages" onclick="toggleNotificationsPanel()">
         💬
         <span id="notifications-badge" class="notifications-badge" style="display:none;"></span>
     </button>
@@ -1119,16 +1072,16 @@
     <div id="game-admin-modal" class="modal" style="display: none;">
         <div class="modal-content modal-content-wide" style="height: calc(100vh - 40px); display: flex; flex-direction: column;">
             <div class="modal-header">
-                <h2>Game Admin</h2>
+                <h2 data-i18n="Game Admin">Game Admin</h2>
                 <button class="modal-close" onclick="closeGameAdminModal()">&times;</button>
             </div>
             <!-- Admin Tabs -->
             <div class="tab-bar" style="padding:0 16px;width:fit-content;">
-                <button class="tab-btn tab-active" data-admin-tab="activities" onclick="switchGameAdminTab('activities')">Aktivitaeten</button>
-                <button class="tab-btn" data-admin-tab="rules" onclick="switchGameAdminTab('rules')">Regeln</button>
-                <button class="tab-btn" data-admin-tab="prompt_filters" onclick="switchGameAdminTab('prompt_filters')">Zustaende</button>
+                <button class="tab-btn tab-active" data-admin-tab="activities" onclick="switchGameAdminTab('activities')" data-i18n="Activities">Activities</button>
+                <button class="tab-btn" data-admin-tab="rules" onclick="switchGameAdminTab('rules')" data-i18n="Rules">Rules</button>
+                <button class="tab-btn" data-admin-tab="prompt_filters" onclick="switchGameAdminTab('prompt_filters')" data-i18n="States">States</button>
                 <button class="tab-btn" data-admin-tab="items" onclick="switchGameAdminTab('items')">Items</button>
-                <button class="tab-btn" data-admin-tab="world" onclick="switchGameAdminTab('world')">🌍 Welt</button>
+                <button class="tab-btn" data-admin-tab="world" onclick="switchGameAdminTab('world')">🌍 <span data-i18n="World">World</span></button>
             </div>
             <!-- Tab: Welt (Orte & Aktivitaeten) -->
             <div id="game-admin-tab-world" class="modal-body" style="display:none;">

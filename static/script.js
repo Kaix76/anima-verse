@@ -4379,6 +4379,161 @@ document.getElementById('btn-knowledge-player')?.addEventListener('click', () =>
     if (c) openKnowledgeModal(c);
 });
 
+// --- Announcement Mode (one-way broadcast) ---
+// chatMode === 'announce' takes over the chat panel: the input field is
+// repurposed for the announcement text, the regular send button posts to
+// /announce, and the message area shows past announcements (sent + heard).
+
+let _announceScope = 'here';
+
+function _renderAnnouncementBubble(senderName, text, scope, recipients) {
+    if (!chatMessages) return;
+    const msgDiv = document.createElement('div');
+    msgDiv.classList.add('message', 'announcement-message');
+    const scopeLabel = scope === 'location'
+        ? t('to everyone at this location')
+        : t('to everyone in this room');
+    const heardLabel = (recipients && recipients.length)
+        ? `${t('Heard by')}: ${recipients.map(escapeHtml).join(', ')}`
+        : t('Nobody around to hear it.');
+    msgDiv.innerHTML = `
+        <div class="announcement-header">
+            <span class="announcement-icon">📢</span>
+            <span class="announcement-sender">${escapeHtml(senderName)}</span>
+            <span class="announcement-scope">${escapeHtml(scopeLabel)}</span>
+        </div>
+        <div class="announcement-content">${escapeHtml(text)}</div>
+        <div class="announcement-meta">${heardLabel}</div>
+    `;
+    chatMessages.appendChild(msgDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function _renderAnnouncementHistoryEntry(entry) {
+    if (!chatMessages) return;
+    const div = document.createElement('div');
+    div.classList.add('message', 'announcement-message', 'announcement-history');
+    const isSent = entry.kind === 'sent';
+    const icon = isSent ? '📢' : '👂';
+    const who = isSent
+        ? `${t('You announced')}`
+        : `${escapeHtml(entry.sender || '')} ${t('announced')}`;
+    const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+    div.innerHTML = `
+        <div class="announcement-header">
+            <span class="announcement-icon">${icon}</span>
+            <span class="announcement-sender">${who}</span>
+            <span class="announcement-scope">${escapeHtml(ts)}</span>
+        </div>
+        <div class="announcement-content">${escapeHtml(entry.text || '')}</div>
+    `;
+    chatMessages.appendChild(div);
+}
+
+async function _enterAnnounceMode() {
+    const avatar = getPlayerCharacterName();
+    if (!avatar) {
+        showStatusToast(t('No active character'), 'error');
+        return;
+    }
+    chatMode = 'announce';
+    if (typeof _groupSession !== 'undefined' && _groupSession) {
+        _groupSession = null;
+        try { _updateGroupHeader(false); _showGroupChatBar(false); } catch (e) {}
+    }
+    chatMessages.innerHTML = '';
+
+    // Header banner: explanation + scope picker.
+    const banner = document.createElement('div');
+    banner.className = 'announcement-mode-banner';
+    banner.innerHTML = `
+        <div class="announcement-mode-title">📢 ${escapeHtml(t('Announcement mode'))}</div>
+        <div class="announcement-mode-desc">
+            ${escapeHtml(t('Type your message below and hit send. Everyone present will hear it — no one will reply. Past announcements are listed below.'))}
+        </div>
+        <div class="announcement-mode-scope">
+            <label>${escapeHtml(t('Reach'))}:</label>
+            <select id="announce-scope-select" class="agent-status-input">
+                <option value="here">${escapeHtml(t('Everyone in this room'))}</option>
+                <option value="location">${escapeHtml(t('Everyone at this location'))}</option>
+            </select>
+        </div>
+    `;
+    chatMessages.appendChild(banner);
+    const sel = document.getElementById('announce-scope-select');
+    if (sel) {
+        sel.value = _announceScope;
+        sel.addEventListener('change', () => { _announceScope = sel.value; });
+    }
+
+    // Past announcements (sent + heard).
+    try {
+        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/announcements`);
+        if (resp.ok) {
+            const data = await resp.json();
+            const entries = data.entries || [];
+            if (entries.length) {
+                const sep = document.createElement('div');
+                sep.className = 'announcement-history-header';
+                sep.textContent = t('Recent announcements');
+                chatMessages.appendChild(sep);
+                for (const e of entries) {
+                    _renderAnnouncementHistoryEntry(e);
+                }
+            } else {
+                const empty = document.createElement('div');
+                empty.className = 'announcement-history-empty';
+                empty.textContent = t('No announcements yet.');
+                chatMessages.appendChild(empty);
+            }
+        }
+    } catch (e) {
+        console.warn('[Announce] history load failed:', e);
+    }
+
+    if (typeof userInput !== 'undefined' && userInput) {
+        userInput.placeholder = t('e.g. Party at my place tonight at 7!');
+        userInput.focus();
+    }
+    if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
+}
+
+function _exitAnnounceMode() {
+    chatMode = 'direct';
+    chatMessages.innerHTML = '';
+    if (typeof userInput !== 'undefined' && userInput) {
+        userInput.placeholder = '';
+    }
+    if (typeof loadChatHistory === 'function') loadChatHistory();
+    if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
+}
+
+async function _sendAnnouncementFromChatInput(text) {
+    const avatar = getPlayerCharacterName();
+    if (!avatar) {
+        showStatusToast(t('No active character'), 'error');
+        return;
+    }
+    const scope = (document.getElementById('announce-scope-select')?.value) || _announceScope || 'here';
+    _announceScope = scope;
+    try {
+        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/announce`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, scope }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            showStatusToast(err.detail || t('Could not announce'), 'error');
+            return;
+        }
+        const data = await resp.json();
+        _renderAnnouncementBubble(avatar, text, scope, data.recipients || []);
+    } catch (e) {
+        showStatusToast(t('Could not announce'), 'error');
+    }
+}
+
 async function handleLogin() {
     const username = (document.getElementById('login-username').value || '').trim();
     const password = document.getElementById('login-password').value || '';
@@ -6018,6 +6173,15 @@ async function sendMessage() {
     const message = userInput.value.trim();
     if (!message && !_chatAttachedImage) return;
     if (isChatBusy) return;
+    // Announce mode: input text becomes a broadcast, not a chat message.
+    // No LLM, no chat partner needed, no busy state.
+    if (chatMode === 'announce') {
+        if (!message) return;
+        userInput.value = '';
+        _clearChatImageAttachment();
+        await _sendAnnouncementFromChatInput(message);
+        return;
+    }
     // Kein Chat-Partner gewaehlt (z.B. nach Location-Wechsel ohne Character-Klick)
     // Im Gruppenchat nicht zwingend ein einzelner Character noetig.
     if (chatMode !== 'group' && (!currentCharacterName || currentCharacterName === 'KI')) {
@@ -13155,6 +13319,49 @@ function _announceRoomEntry(data) {
     const verb = silent.length > 1 ? 'haben Dich bemerkt' : 'hat Dich bemerkt';
     showStatusToast(`${names}${more} ${verb}, ` + t('but says nothing.'), 'info');
 }
+
+// Direction-Pad neben dem Chat-Input: bewegt den Avatar 1 Grid-Step.
+async function _avatarStep(direction) {
+    if (typeof isChatBusy !== 'undefined' && isChatBusy) {
+        showStatusToast('Bewegung waehrend Chat nicht moeglich', 'error');
+        return;
+    }
+    // Buttons kurz disablen damit kein Doppelklick passiert
+    const btns = document.querySelectorAll('.chat-dpad-btn');
+    btns.forEach(b => { b.disabled = true; });
+    try {
+        const resp = await fetch('/world/avatar/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ direction }),
+        });
+        if (!resp.ok) {
+            let msg = 'Bewegung nicht moeglich';
+            try { const e = await resp.json(); if (e && e.detail) msg = String(e.detail); } catch (_) {}
+            // 404 "no location in that direction" ist erwartbar — silent
+            if (resp.status !== 404) showStatusToast(msg, 'error');
+            return;
+        }
+        const data = await resp.json().catch(() => null);
+        if (data && data.location_name) {
+            showStatusToast(`📍 ${data.location_name}`, 'success');
+        }
+        // Standard-Refresh-Fan: Background, Player-Avatar, Sidebar, Live-Tick.
+        if (typeof refreshAfterAvatarMove === 'function') await refreshAfterAvatarMove();
+    } catch (e) {
+        showStatusToast('Bewegung fehlgeschlagen', 'error');
+    } finally {
+        btns.forEach(b => { b.disabled = false; });
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chat-dpad-btn');
+    if (!btn) return;
+    const dir = btn.dataset.dir;
+    if (!dir) return;
+    _avatarStep(dir);
+});
 
 async function refreshAfterAvatarMove() {
     const avatar = (typeof getPlayerCharacterName === 'function')
@@ -21014,10 +21221,10 @@ function _renderTaskMeta(t) {
     return parts.length > 0 ? parts.join(' / ') : '';
 }
 
-function _renderTaskEstimate(t) {
-    const est = t.estimated_duration_s;
+function _renderTaskEstimate(task) {
+    const est = task.estimated_duration_s;
     if (!est || est <= 0) return '';
-    const samples = t.estimated_samples || 0;
+    const samples = task.estimated_samples || 0;
     const title = `${t('estimated from')} ${samples} ${t('historic calls')}`;
     return `<span class="queue-task-estimate" title="${escapeHtml(title)}">~${est.toFixed(1)}s</span>`;
 }
@@ -22197,8 +22404,13 @@ async function loadCharacterSidebar(prefetched) {
         // das hat aber den Group-Chat fehl-gefuettert + visuell verwirrt.
         const _sameRoom = characters.filter(c => c.same_room && c.name !== _playerChar);
 
-        // Buttons rendern (mit Group-Toggle wenn >= 2 same-room Characters)
+        // Buttons rendern (Announce-Toggle, dann Group-Toggle bei >=2, dann Characters)
         let html = '';
+        // Announce mode toggle — always visible, allows broadcasting to everyone present.
+        html += `<button class="character-sidebar-btn announce-toggle-btn${chatMode === 'announce' ? ' active' : ''}" id="btn-announce-mode" title="${escapeHtml(t('Make an announcement'))}">`;
+        html += `<span class="announce-toggle-icon">📢</span>`;
+        html += `<span class="character-sidebar-name">${escapeHtml(t('Announce'))}</span>`;
+        html += `</button>`;
         if (_sameRoom.length >= 2) {
             html += `<button class="character-sidebar-btn group-chat-toggle-btn${chatMode === 'group' ? ' active' : ''}" id="btn-group-mode" title="Gruppenchat">`;
             html += `<span class="group-toggle-icon">${chatMode === 'group' ? '👥' : '👥'}</span>`;
@@ -22252,6 +22464,9 @@ async function loadCharacterSidebar(prefetched) {
         container.querySelectorAll('.character-sidebar-btn').forEach(btn => {
             btn.addEventListener('click', async (ev) => {
                 const name = btn.dataset.character;
+                // Toggle-Buttons (Announce, Gruppenchat) haben keine
+                // data-character — die haben eigene Handler weiter unten.
+                if (!name) return;
                 if (isChatBusy) {
                     showStatusToast(t('Character switch not possible while chat is active'), 'error');
                     return;
@@ -22263,6 +22478,11 @@ async function loadCharacterSidebar(prefetched) {
                     _groupSession = null;
                     _updateGroupHeader(false);
                     _showGroupChatBar(false);
+                }
+                // Announce-Modus: Klick auf Character beendet den Broadcast-Modus
+                if (chatMode === 'announce') {
+                    chatMode = 'direct';
+                    if (typeof userInput !== 'undefined' && userInput) userInput.placeholder = '';
                 }
 
                 if (name === currentCharacterName) {
@@ -22311,6 +22531,7 @@ async function loadCharacterSidebar(prefetched) {
         if (groupBtn) {
             groupBtn.addEventListener('click', async () => {
                 if (isChatBusy) return;
+                if (chatMode === 'announce') _exitAnnounceMode();
                 chatMode = chatMode === 'direct' ? 'group' : 'direct';
                 if (chatMode === 'group') {
                     await _initGroupSession();
@@ -22320,6 +22541,18 @@ async function loadCharacterSidebar(prefetched) {
                     _showGroupChatBar(false);
                 }
                 loadCharacterSidebar();
+            });
+        }
+        // Announce-Toggle Handler
+        const announceBtn = document.getElementById('btn-announce-mode');
+        if (announceBtn) {
+            announceBtn.addEventListener('click', async () => {
+                if (isChatBusy) return;
+                if (chatMode === 'announce') {
+                    _exitAnnounceMode();
+                } else {
+                    await _enterAnnounceMode();
+                }
             });
         }
 
@@ -22572,7 +22805,7 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             html += `<div class="worldmap-homeless-list">`;
             for (const ch of homelessChars) {
                 const src = ch.avatar ? ch.avatar : generateDefaultAvatar(ch.name);
-                html += `<button class="worldmap-homeless-btn" draggable="true" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} (auf Ort ziehen, um ihn zu lernen)">`;
+                html += `<button class="worldmap-homeless-btn" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)}">`;
                 html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}">`;
                 html += `<span>${escapeHtml(ch.name)}</span>`;
                 html += `</button>`;
@@ -22585,7 +22818,7 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             html += `<div class="worldmap-homeless-list">`;
             for (const ch of sleepingChars) {
                 const src = ch.avatar ? ch.avatar : generateDefaultAvatar(ch.name);
-                html += `<button class="worldmap-homeless-btn worldmap-sleeping-btn" draggable="true" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} schlaeft (auf Ort ziehen, um ihn zu lernen)">`;
+                html += `<button class="worldmap-homeless-btn worldmap-sleeping-btn" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)} schlaeft">`;
                 html += `<img class="worldmap-avatar" src="${src}" alt="${escapeHtml(ch.name)}">`;
                 html += `<span>${escapeHtml(ch.name)}</span>`;
                 html += `<span class="worldmap-sleep-badge">💤</span>`;
@@ -22614,12 +22847,10 @@ function _attachWorldmapDragDrop(container) {
     container.addEventListener('dragstart', (e) => {
         const draggable = e.target.closest('[draggable="true"]');
         if (!draggable) return;
-        const charName = draggable.dataset.character;
+        // Character-Drag wurde entfernt — homeless-btn ist nicht mehr draggable.
         const tmplId = draggable.dataset.templateId;
         const locId = draggable.dataset.locationId;
-        if (charName) {
-            draggedPayload = `char:${charName}`;
-        } else if (tmplId) {
+        if (tmplId) {
             draggedPayload = `tmpl:${tmplId}`;
         } else if (locId) {
             draggedPayload = `loc:${locId}`;
@@ -22648,12 +22879,8 @@ function _attachWorldmapDragDrop(container) {
     container.addEventListener('dragover', (e) => {
         const cell = e.target.closest('.worldmap-grid-cell');
         if (!cell) return;
-        const isCharDrag = draggedPayload && draggedPayload.startsWith('char:');
         const isTmplDrag = draggedPayload && draggedPayload.startsWith('tmpl:');
-        if (isCharDrag) {
-            // Character muss auf eine besetzte Zelle (Location) gedroppt werden
-            if (!cell.classList.contains('occupied')) return;
-        } else if (isTmplDrag) {
+        if (isTmplDrag) {
             // Template-Klon: nur auf leeres Feld
             if (cell.classList.contains('occupied')) return;
         } else {
@@ -22679,15 +22906,8 @@ function _attachWorldmapDragDrop(container) {
         cell.classList.remove('drag-over');
         const payload = e.dataTransfer.getData('text/plain');
         if (!payload) return;
-        if (payload.startsWith('char:')) {
-            if (!cell.classList.contains('occupied')) return;
-            const charName = payload.slice(5);
-            const locationId = cell.dataset.location;
-            if (charName && locationId) {
-                await _placeCharacterOnMap(charName, locationId);
-            }
-            return;
-        }
+        // Char-Drop wurde entfernt — Characters werden nicht mehr per Drag
+        // auf die Karte platziert. Templates und Location-Verschieben bleiben.
         if (payload.startsWith('tmpl:')) {
             if (cell.classList.contains('occupied')) return;
             const templateId = payload.slice(5);
@@ -22710,8 +22930,7 @@ function _attachWorldmapDragDrop(container) {
     const tray = container.querySelector('.worldmap-tray');
     if (tray) {
         tray.addEventListener('dragover', (e) => {
-            if (draggedPayload && (draggedPayload.startsWith('char:') ||
-                                   draggedPayload.startsWith('tmpl:'))) return;
+            if (draggedPayload && draggedPayload.startsWith('tmpl:')) return;
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
         });
@@ -22930,18 +23149,10 @@ function _attachWorldmapZoom(container) {
 
 // Event delegation for world map tile clicks
 document.getElementById('worldmap-content')?.addEventListener('click', function(e) {
-    // Occupied grid cell clicked → Ort wechseln
-    const cell = e.target.closest('.worldmap-grid-cell.occupied');
-    if (cell && cell.dataset.location) {
-        onWorldPanelLocationClick(cell.dataset.location);
-        return;
-    }
-    // Tray item clicked → Ort wechseln
-    const trayItem = e.target.closest('.worldmap-tray-item');
-    if (trayItem && trayItem.dataset.location) {
-        onWorldPanelLocationClick(trayItem.dataset.location);
-        return;
-    }
+    // Avatar-Bewegung via Karten-Klick wurde entfernt — Bewegung laeuft
+    // jetzt ausschliesslich ueber das Direction-Pad neben dem Chat-Input.
+    // Die Karte ist nur noch Anzeige (+ Homeless-Character auswaehlen).
+
     // Homeless-Character geklickt → Character auswaehlen ohne Ortswechsel
     const btn = e.target.closest('.worldmap-homeless-btn');
     if (btn && btn.dataset.character) {

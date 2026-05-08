@@ -201,7 +201,42 @@ body { font-family: var(--font); margin: 0; background: var(--bg); color: var(--
 .chat-image-preview-remove { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
 .chat-image-preview-remove:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 
-.chat-input-buttons { display: flex; align-items: flex-end; gap: 2px; margin-left: 6px; }
+.chat-input-buttons { display: flex; gap: 2px; justify-content: flex-end; }
+.chat-input-actions { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-left: 6px; }
+.chat-input-actions #send-button { margin-left: 0 !important; }
+/* Direction-Pad: bewegt den Avatar 1 Grid-Step. 3x3 Grid mit N/W/E/S an
+   den Compass-Positionen. */
+.chat-dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 28px);
+    grid-template-rows: repeat(3, 28px);
+    gap: 2px;
+    margin: 0 6px;
+    align-self: center;
+    flex-shrink: 0;
+}
+.chat-dpad-btn {
+    border: 1px solid var(--border);
+    background: var(--bg-alt);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, transform 0.1s;
+}
+.chat-dpad-btn:hover:not(:disabled) { background: var(--bg-container); }
+.chat-dpad-btn:active:not(:disabled) { transform: scale(0.92); }
+.chat-dpad-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.chat-dpad-btn.dpad-n { grid-column: 2; grid-row: 1; }
+.chat-dpad-btn.dpad-w { grid-column: 1; grid-row: 2; }
+.chat-dpad-btn.dpad-e { grid-column: 3; grid-row: 2; }
+.chat-dpad-btn.dpad-s { grid-column: 2; grid-row: 3; }
+.chat-dpad-center { grid-column: 2; grid-row: 2; }
 .btn-attach-image { padding: 6px 8px; background: transparent; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; font-size: 15px; transition: all 0.2s; opacity: 0.5; }
 .btn-attach-image:hover { opacity: 0.85; background: rgba(255,255,255,0.05); }
 
@@ -641,14 +676,25 @@ body[data-role="user"] .admin-only { display: none !important; }
 .status-since { font-size: 11px; color: var(--text-light); }
 .status-warning { margin-top: 10px; padding: 8px 12px; background: rgba(239,68,68,0.08); border-left: 3px solid #ef4444; border-radius: 4px; font-size: 12px; color: var(--text); }
 
-/* Bekannte Orte */
-.known-locations-grid { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.known-loc { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
-.known-loc.current { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
-.known-loc.current .known-loc-visits { color: rgba(255,255,255,0.85); }
-.known-loc-name { color: inherit; }
-.known-loc-visits { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.known-loc-visits.muted { opacity: 0.5; }
+/* Tab "Bekannte Orte" — 2D-Karte */
+.locations-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.location-map { background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-x: auto; }
+.loc-map-grid { display: grid; gap: 6px; }
+.loc-tile { position: relative; min-height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 4px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); font-size: 11px; text-align: center; transition: border-color 0.15s, background 0.15s; }
+.loc-tile.empty { border-style: dashed; opacity: 0.25; min-height: 70px; background: transparent; }
+.loc-tile.unknown { opacity: 0.35; filter: grayscale(0.6); }
+.loc-tile.passable { border-style: dashed; }
+.loc-tile.current { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; box-shadow: 0 0 0 2px rgba(99,102,241,0.35); }
+.loc-tile[data-click-id] { cursor: pointer; }
+.loc-tile[data-click-id]:hover { border-color: var(--primary); }
+.loc-tile-icon { font-size: 22px; line-height: 1; }
+.loc-tile-name { font-size: 11px; line-height: 1.2; word-break: break-word; max-width: 100%; }
+.loc-tile-visits { position: absolute; top: 2px; right: 4px; font-size: 10px; color: var(--text-muted); background: var(--bg-alt); padding: 0 4px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+.loc-tile.current .loc-tile-visits { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.18); }
+.loc-map-unplaced { margin-top: 12px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.loc-map-unplaced-title { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 6px; }
+.loc-map-unplaced-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.loc-map-unplaced-list .loc-tile { width: 110px; }
 
 /* 24h-Lanes */
 .lanes-container { position: relative; width: 100%; background: var(--bg-alt); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; overflow-x: auto; }
@@ -1528,27 +1574,10 @@ body[data-worlddev="1"] .worlddev-container { padding-top: 10px; }
 @keyframes queuePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 @keyframes worldmapPulse { 0%, 100% { box-shadow: 0 0 0 2px var(--worldmap-active-glow); } 50% { box-shadow: 0 0 0 5px rgba(67,160,71,0.1); } }
 
-/* ── Relations / Social Graph ── */
-.relations-container { display: flex; flex-direction: column; height: 100%; min-height: 400px; position: relative; }
 /* ── Editor Checkboxes ── */
 .editor-checkboxes { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .editor-checkbox-label { display: flex; align-items: center; gap: 4px; font-size: 13px; cursor: pointer; padding: 2px 0; }
 .editor-checkbox-label input[type="checkbox"] { accent-color: var(--primary, #4fc3f7); }
-
-.relations-toolbar { display: flex; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border-color, #333); justify-content: flex-end; }
-.relations-graph { flex: 1; min-height: 350px; background: var(--bg-secondary, #1a1a2e); border-radius: 8px; margin: 8px; }
-.relations-detail { position: absolute; right: 8px; top: 52px; width: 320px; max-height: calc(100% - 60px); overflow-y: auto; background: var(--bg-primary, #16213e); border: 1px solid var(--border-color, #333); border-radius: 10px; padding: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); z-index: 10; }
-.relations-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 600; font-size: 1.05em; }
-.rel-detail-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.9em; }
-.rel-detail-row label { min-width: 90px; color: var(--text-muted, #888); }
-.rel-detail-row select { background: var(--bg-secondary, #1a1a2e); color: var(--text-primary, #eee); border: 1px solid var(--border-color, #444); border-radius: 4px; padding: 2px 6px; }
-.rel-strength-bar-wrap { flex: 1; height: 10px; background: var(--bg-secondary, #2a2a4a); border-radius: 5px; overflow: hidden; }
-.rel-strength-bar { height: 100%; background: var(--accent-color, #4fc3f7); border-radius: 5px; transition: width 0.3s; }
-.rel-strength-bar.romantic { background: #e91e63; }
-.rel-history { max-height: 200px; overflow-y: auto; font-size: 0.82em; }
-.rel-history-item { padding: 4px 0; border-bottom: 1px solid var(--border-color, #222); color: var(--text-muted, #aaa); }
-.rel-history-item .rel-h-time { color: var(--text-muted, #666); font-size: 0.85em; }
-.rel-history-item .rel-h-type { font-weight: 600; margin: 0 4px; }
 
 /* Group Chat */
 .group-character-message { padding-left: 48px; position: relative; border-left: 3px solid var(--group-char-color, var(--primary)); }
@@ -1560,6 +1589,26 @@ body[data-worlddev="1"] .worlddev-container { padding-top: 10px; }
 .group-msg-content p:first-child { margin-top: 0; }
 .group-msg-content p:last-child { margin-bottom: 0; }
 .group-passive-notice { text-align: center; font-size: 12px; color: var(--text-muted); padding: 4px 16px; font-style: italic; opacity: 0.7; }
+/* Announcement bubble — one-way broadcast, distinct from chat replies */
+.announcement-message { margin: 16px auto; padding: 12px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.18)); border: 1px dashed var(--accent, var(--primary)); font-style: italic; }
+.announcement-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-style: normal; }
+.announcement-icon { font-size: 18px; }
+.announcement-sender { font-weight: 600; color: var(--accent, var(--primary)); }
+.announcement-scope { font-size: 12px; color: var(--text-muted); font-weight: normal; }
+.announcement-content { font-size: 15px; line-height: 1.5; color: var(--text); }
+.announcement-meta { margin-top: 6px; font-size: 11px; color: var(--text-muted); font-style: normal; }
+.announcement-history { opacity: 0.78; }
+.announcement-mode-banner { margin: 8px auto 12px; padding: 14px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.22)); border: 2px solid var(--accent, var(--primary)); }
+.announcement-mode-title { font-size: 18px; font-weight: 600; color: var(--accent, var(--primary)); margin-bottom: 6px; }
+.announcement-mode-desc { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 10px; }
+.announcement-mode-scope { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.announcement-mode-scope select { flex: 1; max-width: 280px; }
+.announcement-history-header { text-align: center; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 6px; }
+.announcement-history-empty { text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; padding: 20px; }
+/* Announce-Toggle in der Character-Sidebar — gross, vor dem Group-Chat-Toggle */
+.announce-toggle-btn .announce-toggle-icon { font-size: 22px; display: block; width: 44px; height: 44px; line-height: 44px; text-align: center; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-alt, rgba(0,0,0,0.2)); }
+.announce-toggle-btn.active .announce-toggle-icon { border-color: var(--accent, var(--primary)); background: var(--accent, var(--primary)); }
+.announce-toggle-btn.active .character-sidebar-name { color: var(--accent, var(--primary)); font-weight: 600; }
 /* Group Chat Toggle — same size as character sidebar buttons */
 .group-chat-toggle-btn .group-toggle-icon { font-size: 22px; display: block; width: 44px; height: 44px; line-height: 44px; text-align: center; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-alt, rgba(0,0,0,0.2)); }
 .group-chat-toggle-btn.active .group-toggle-icon { border-color: var(--primary); background: var(--primary); }
