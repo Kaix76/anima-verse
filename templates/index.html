@@ -128,11 +128,13 @@
                     data-i18n-placeholder="Type a message … Enter to send, Shift+Enter for newline"
                     autocomplete="off"
                 ></textarea>
-                <!-- Direction-Pad: bewegt den Avatar um eine Grid-Position auf der Karte -->
+                <!-- Direction-Pad: bewegt den Avatar um eine Grid-Position auf der Karte.
+                     Nicht-erreichbare Richtungen werden via _refreshDpad() ausgeblendet.
+                     Center-Button oeffnet den Raum-Picker fuer den aktuellen Ort. -->
                 <div class="chat-dpad" title="Avatar bewegen">
                     <button class="chat-dpad-btn dpad-n" data-dir="north" title="Norden">▲</button>
                     <button class="chat-dpad-btn dpad-w" data-dir="west" title="Westen">◀</button>
-                    <span class="chat-dpad-center"></span>
+                    <button class="chat-dpad-btn dpad-center" id="chat-dpad-room" title="Raum wechseln">⌂</button>
                     <button class="chat-dpad-btn dpad-e" data-dir="east" title="Osten">▶</button>
                     <button class="chat-dpad-btn dpad-s" data-dir="south" title="Sueden">▼</button>
                 </div>

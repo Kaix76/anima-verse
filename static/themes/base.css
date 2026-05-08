@@ -236,7 +236,8 @@ body { font-family: var(--font); margin: 0; background: var(--bg); color: var(--
 .chat-dpad-btn.dpad-w { grid-column: 1; grid-row: 2; }
 .chat-dpad-btn.dpad-e { grid-column: 3; grid-row: 2; }
 .chat-dpad-btn.dpad-s { grid-column: 2; grid-row: 3; }
-.chat-dpad-center { grid-column: 2; grid-row: 2; }
+.chat-dpad-btn.dpad-center { grid-column: 2; grid-row: 2; font-size: 12px; }
+.chat-dpad-btn.hidden { visibility: hidden; }
 .btn-attach-image { padding: 6px 8px; background: transparent; border: 1px solid var(--border); border-radius: 20px; cursor: pointer; font-size: 15px; transition: all 0.2s; opacity: 0.5; }
 .btn-attach-image:hover { opacity: 0.85; background: rgba(255,255,255,0.05); }
 

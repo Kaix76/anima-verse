@@ -6710,6 +6710,8 @@ async function initializeApp() {
     await populateActiveCharacterDropdown();
     await loadPlayerAvatar();
     initLanguageSelector();
+    // Direction-Pad: erreichbare Richtungen einmal initial pruefen.
+    if (typeof _refreshDpad === 'function') _refreshDpad();
 
     // Outfit-SSE: refresht Scene/Avatar bei Hintergrund-Wechseln (Scheduler,
     // Skills im naechsten Tab, Telegram).
@@ -13358,10 +13360,51 @@ async function _avatarStep(direction) {
 document.addEventListener('click', (e) => {
     const btn = e.target.closest('.chat-dpad-btn');
     if (!btn) return;
+    // Center-Button: Raum-Picker (existierende Funktion fuer den aktuellen Ort)
+    if (btn.id === 'chat-dpad-room') {
+        const _av = (typeof getPlayerCharacterName === 'function')
+            ? getPlayerCharacterName() : '';
+        if (_av && typeof openAvatarRoomPicker === 'function') {
+            openAvatarRoomPicker(_av);
+        }
+        return;
+    }
     const dir = btn.dataset.dir;
     if (!dir) return;
     _avatarStep(dir);
 });
+
+// Aktualisiert das Direction-Pad: Buttons ohne Nachbar-Location ausblenden,
+// Tooltip mit Ortsnamen pflegen, Center-Button beschriften.
+async function _refreshDpad() {
+    try {
+        const resp = await fetch('/world/avatar/neighbors');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const map = { north: 'dpad-n', south: 'dpad-s', east: 'dpad-e', west: 'dpad-w' };
+        for (const [dir, cls] of Object.entries(map)) {
+            const btn = document.querySelector(`.chat-dpad-btn.${cls}`);
+            if (!btn) continue;
+            const target = data[dir];
+            if (target && target.name) {
+                btn.classList.remove('hidden');
+                btn.title = `${({north:'Norden',south:'Sueden',east:'Osten',west:'Westen'})[dir]}: ${target.name}`;
+                btn.disabled = false;
+            } else {
+                btn.classList.add('hidden');
+                btn.title = '';
+            }
+        }
+        const centerBtn = document.getElementById('chat-dpad-room');
+        if (centerBtn) {
+            const locName = (data && data.current_location_name) || '';
+            centerBtn.title = locName ? `Raum wechseln (${locName})` : 'Raum wechseln';
+            centerBtn.classList.toggle('hidden', !locName);
+        }
+    } catch (e) {
+        // Silent — Default-Sichtbarkeit (alle Buttons) bleibt
+    }
+}
 
 async function refreshAfterAvatarMove() {
     const avatar = (typeof getPlayerCharacterName === 'function')
@@ -13452,6 +13495,8 @@ async function refreshAfterAvatarMove() {
     // Agent-Header, Conditions, Status-Bars) wird fuer den neuen Avatar-Ort
     // neu berechnet und an die UI verteilt.
     if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
+    // D-Pad: erreichbare Richtungen neu pruefen
+    if (typeof _refreshDpad === 'function') _refreshDpad();
 }
 
 async function updateLocationBackground(locationId, roomId) {

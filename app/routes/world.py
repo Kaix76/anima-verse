@@ -28,6 +28,46 @@ router = APIRouter(prefix="/world", tags=["world"])
 
 # === Avatar-Movement (Direction-Pad) ===
 
+@router.get("/avatar/neighbors")
+def avatar_neighbors_route() -> Dict[str, Any]:
+    """Liefert die Nachbar-Locations des Avatars in jede Himmelsrichtung.
+
+    Response: { "north": {id, name} | null, "south": ..., "east": ..., "west": ... }
+    Damit kann das Direction-Pad nicht-erreichbare Richtungen ausblenden,
+    statt erst auf der 404-Antwort zu reagieren.
+    """
+    from app.models.account import get_active_character
+    from app.models.character import get_character_current_location
+
+    out = {"north": None, "south": None, "east": None, "west": None,
+           "current_location_id": "", "current_location_name": ""}
+    avatar = (get_active_character() or "").strip()
+    if not avatar:
+        return out
+    cur_loc_id = (get_character_current_location(avatar) or "").strip()
+    if not cur_loc_id:
+        return out
+    cur = get_location_by_id(cur_loc_id)
+    if not cur:
+        return out
+    out["current_location_id"] = cur.get("id", "") or ""
+    out["current_location_name"] = cur.get("name", "") or ""
+    cx = int(cur.get("grid_x") or 0)
+    cy = int(cur.get("grid_y") or 0)
+    deltas = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+    targets = {(cx + dx, cy + dy): direction
+               for direction, (dx, dy) in deltas.items()}
+    for loc in list_locations():
+        key = (int(loc.get("grid_x") or 0), int(loc.get("grid_y") or 0))
+        direction = targets.get(key)
+        if direction and not out[direction]:
+            out[direction] = {
+                "id": loc.get("id", "") or "",
+                "name": loc.get("name", "") or "",
+            }
+    return out
+
+
 @router.post("/avatar/step")
 async def avatar_step_route(request: Request) -> Dict[str, Any]:
     """Bewegt den Avatar um einen Grid-Schritt in die angegebene Richtung.
