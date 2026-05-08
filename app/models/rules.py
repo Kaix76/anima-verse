@@ -445,6 +445,85 @@ def check_access(character_name: str,
     return True, ""
 
 
+def check_leave(character_name: str, *,
+                room_only: bool = False,
+                target_location_id: str = "",
+                target_room_id: str = "") -> Tuple[bool, str]:
+    """Prueft Block-Rules mit ``action="leave"`` fuer den aktuellen Standort.
+
+    Wird vor jedem Move aufgerufen (SetLocation-Skill, Walk-Step,
+    Scheduler, Chat-Narrative-Extract). Greift, wenn der Character
+    seinen aktuellen Raum oder Ort gar nicht erst verlassen darf —
+    Pinning/Confine-Use-Case.
+
+    ``room_only=True`` betrachtet ausschliesslich Rules mit ``scope="room"``
+    — fuer Same-Location-Raumwechsel, bei denen die Location nicht
+    verlassen wird, ein anderer Raum innerhalb derselben Location aber
+    trotzdem durch eine Raum-Pinning-Rule blockiert sein kann.
+
+    Confine-Set-Semantik (``scope="room"`` mit mehreren ``room_ids``):
+        Wechsel ZWISCHEN Raeumen desselben Sets ist erlaubt (freie
+        Bewegung innerhalb des Confinements). Nur Wechsel nach AUSSEN
+        wird blockiert. Dafuer muss das Ziel bekannt sein —
+        ``target_location_id`` / ``target_room_id`` mitgeben, sonst wird
+        konservativ blockiert (z.B. im Walk-Step ohne bekanntes Zielraum).
+
+    Gleiche Idee bei ``scope="location"``: Same-Location-Raumwechsel
+    (target_location_id == cur_loc) wird nicht als "leave" gewertet.
+    """
+    from app.core.activity_engine import evaluate_condition
+    from app.models.character import (
+        get_character_current_location, get_character_current_room)
+    cur_loc = get_character_current_location(character_name) or ""
+    if not cur_loc:
+        return True, ""
+    cur_room = get_character_current_room(character_name) or ""
+
+    for rule in load_rules():
+        if rule.get("type") != "block":
+            continue
+        if rule.get("action", "enter") != "leave":
+            continue
+        rule_char = (rule.get("character") or "").strip()
+        if rule_char and rule_char != character_name:
+            continue
+
+        target = rule.get("target", {}) or {}
+        scope = target.get("scope", "")
+        rule_room_ids = target.get("room_ids") or []
+        matched = False
+        if scope == "room" and cur_room and target.get("location_id") == cur_loc \
+                and cur_room in rule_room_ids:
+            # Confine-Set: Wechsel innerhalb von room_ids (gleiche Location)
+            # ist freie Bewegung — nur Verlassen des Sets blockiert.
+            if target_location_id and target_location_id == cur_loc \
+                    and target_room_id and target_room_id in rule_room_ids:
+                continue
+            matched = True
+        elif scope == "location" and not room_only and target.get("location_id") == cur_loc:
+            # Same-Location-Raumwechsel ist kein "leave" der Location.
+            if target_location_id and target_location_id == cur_loc:
+                continue
+            matched = True
+        elif scope == "any_room" and cur_room:
+            matched = True
+        # danger_level fuer leave ist nicht sinnvoll — uebersprungen
+        if not matched:
+            continue
+
+        condition = rule.get("condition", "")
+        if condition:
+            passed, _ = evaluate_condition(condition, character_name, cur_loc, cur_room)
+            if not passed:
+                continue
+        message = rule.get("message", "") or "Du kannst diesen Ort nicht verlassen."
+        logger.info("Rule blockiert Leave %s: %s (%s)", character_name,
+                    rule.get("name", "?"), message[:60])
+        return False, message
+
+    return True, ""
+
+
 # ============================================================
 # ZWANGS-REGELN: Erzwungene Aktionen pruefen
 # ============================================================
@@ -461,32 +540,61 @@ def check_force_rules(character_name: str) -> Optional[Dict[str, Any]]:
     location_id = get_character_current_location(character_name) or ""
     current_activity = get_character_current_activity(character_name) or ""
 
-    for rule in load_rules():
-        if rule.get("type") != "force":
-            continue
+    # Regeln in zwei Buckets: char-spezifisch (rule.character == character_name)
+    # vor globalen (rule.character leer/None). Damit gewinnt z.B. eine
+    # "Ondina — Day"-Regel die "go_to=home, set_activity=sleeping" sagt
+    # ueber die globale "Aufwachen wenn ausgeschlafen"-Regel — sonst
+    # weckt der Default-Wake-Trigger den Char gleich wieder auf.
+    # Regeln mit character != character_name werden komplett uebersprungen
+    # (vorher: check_force_rules ignorierte das Feld → fremde Char-Rules
+    # wurden auf jeden Char angewendet).
+    _all_rules = [r for r in load_rules() if r.get("type") == "force" and r.get("condition")]
+    _own_rules: List[Dict[str, Any]] = []
+    _global_rules: List[Dict[str, Any]] = []
+    for r in _all_rules:
+        rc = (r.get("character") or "").strip()
+        if not rc:
+            _global_rules.append(r)
+        elif rc == character_name:
+            _own_rules.append(r)
+        # Sonst: gehoert einem anderen Char — uebersprungen
+    ordered_rules = _own_rules + _global_rules
 
+    for rule in ordered_rules:
         condition = rule.get("condition", "")
-        if not condition:
+        passed, _ = evaluate_condition(condition, character_name, location_id)
+        if not passed:
+            continue
+        force = rule.get("force_action", {})
+        if not force:
+            continue
+        # Bereits in der erzwungenen Aktivitaet? Char-spezifisch: dann
+        # globale Regeln BLOCKIEREN (sonst kann z.B. der Default-Wake-
+        # Trigger den char-spezifischen Sleep-Modus aushebeln). Global:
+        # nur weiterspringen.
+        forced_activity = force.get("set_activity", "")
+        already_applied = (
+            forced_activity and
+            current_activity.lower() == forced_activity.lower())
+        is_char_specific = bool((rule.get("character") or "").strip())
+        if already_applied:
+            if is_char_specific:
+                logger.debug(
+                    "Char-spezifische Force-Rule '%s' bereits aktiv fuer %s "
+                    "— globale Regeln blockiert", rule.get("name", "?"),
+                    character_name)
+                return None
             continue
 
-        passed, _ = evaluate_condition(condition, character_name, location_id)
-        if passed:
-            force = rule.get("force_action", {})
-            if force:
-                # Bereits in der erzwungenen Aktivitaet? → nicht nochmal feuern
-                forced_activity = force.get("set_activity", "")
-                if forced_activity and current_activity.lower() == forced_activity.lower():
-                    continue
-
-                logger.info("Zwangs-Regel greift fuer %s: %s", character_name,
-                           rule.get("name", "?"))
-                return {
-                    "rule_id": rule.get("id", ""),
-                    "rule_name": rule.get("name", ""),
-                    "go_to": force.get("go_to", "stay"),
-                    "set_activity": force.get("set_activity", ""),
-                    "message": rule.get("message", ""),
-                }
+        logger.info("Zwangs-Regel greift fuer %s: %s", character_name,
+                   rule.get("name", "?"))
+        return {
+            "rule_id": rule.get("id", ""),
+            "rule_name": rule.get("name", ""),
+            "go_to": force.get("go_to", "stay"),
+            "set_activity": force.get("set_activity", ""),
+            "message": rule.get("message", ""),
+        }
 
     return None
 
