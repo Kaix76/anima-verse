@@ -22192,18 +22192,20 @@ async function loadCharacterSidebar(prefetched) {
             return;
         }
 
-        // Buttons rendern (mit Group-Toggle wenn >= 2 Characters)
+        // Sidebar zeigt nur wer im SELBEN Raum ist. Andere Raeume am gleichen
+        // Ort sind raeumlich getrennt — die wurden frueher ausgegraut gerendert,
+        // das hat aber den Group-Chat fehl-gefuettert + visuell verwirrt.
+        const _sameRoom = characters.filter(c => c.same_room && c.name !== _playerChar);
+
+        // Buttons rendern (mit Group-Toggle wenn >= 2 same-room Characters)
         let html = '';
-        if (characters.length >= 2) {
+        if (_sameRoom.length >= 2) {
             html += `<button class="character-sidebar-btn group-chat-toggle-btn${chatMode === 'group' ? ' active' : ''}" id="btn-group-mode" title="Gruppenchat">`;
             html += `<span class="group-toggle-icon">${chatMode === 'group' ? '👥' : '👥'}</span>`;
             html += `<span class="character-sidebar-name">Gruppenchat</span>`;
             html += `</button>`;
         }
-        // Location-Characters rendern: erst same_room, dann other_room (ausgegraut)
         let _locRendered = 0;
-        const _sameRoom = characters.filter(c => c.same_room && c.name !== _playerChar);
-        const _otherRoom = characters.filter(c => !c.same_room && c.name !== _playerChar);
         for (const ch of _sameRoom) {
             const isGroupParticipant = chatMode === 'group';
             const isChatPartner = !isGroupParticipant && ch.name === currentCharacterName;
@@ -22220,18 +22222,7 @@ async function loadCharacterSidebar(prefetched) {
             html += `</button>`;
             _locRendered++;
         }
-        for (const ch of _otherRoom) {
-            const avatarSrc = ch.avatar_url || generateDefaultAvatar(ch.name);
-            const _roomLbl = ch.room ? ` (im anderen Raum: ${ch.room})` : ' (im anderen Raum)';
-            const _unread = _isChatUnread(ch.name);
-            const cls = 'character-sidebar-btn other-room' + (_unread ? ' has-unread' : '');
-            html += `<div class="${cls}" data-character="${escapeHtml(ch.name)}" title="${escapeHtml(ch.name)}${escapeHtml(_roomLbl)}${_unread ? ' — neue Nachricht' : ''}" style="opacity:0.4;pointer-events:none;cursor:default;">`;
-            html += `<img class="character-sidebar-avatar" src="${avatarSrc}" alt="${escapeHtml(ch.name)}" onerror="this.src='${generateDefaultAvatar(ch.name).replace(/'/g, "\\'")}'">`;
-            html += `<span class="character-sidebar-name">${escapeHtml(ch.name)}</span>`;
-            if (_unread) html += `<span class="character-sidebar-unread-badge" title="Neue Nachricht">💬</span>`;
-            html += `</div>`;
-            _locRendered++;
-        }
+        // (other_room-Block entfernt — siehe Kommentar oben)
 
         // Chatbots als eigene Gruppe mit Header
         const _bots = (chatbots || []).filter(b => b.name !== _playerChar);

@@ -247,14 +247,40 @@ async def get_group_session(location_id: str = "") -> Dict[str, Any]:
     loc_name = loc.get("name", location_id) if loc else location_id
     loc_id = loc.get("id", location_id) if loc else location_id
 
-    # Get characters at this location (Avatar rausfiltern — ist der User)
+    # Get characters at this location AND same room as the avatar — sonst
+    # zieht der Group-Chat NPCs aus anderen Raeumen mit rein, die der Avatar
+    # raeumlich gar nicht erreichen kann (z.B. Kahiro im Edwins-Haus waehrend
+    # Lirien auf dem Dorfplatz steht).
     _player_char = get_active_character()
+    avatar_room = ""
+    if _player_char:
+        try:
+            from app.models.character import get_character_current_room
+            avatar_room = (get_character_current_room(_player_char) or "").strip()
+        except Exception:
+            avatar_room = ""
     chars = get_characters_at_location(loc_id)
-    npc_chars = [c for c in chars if c["name"] != _player_char]
+    # Filter: NPC darf nicht der Avatar sein UND muss im SELBEN Raum stehen.
+    # Wenn der Avatar selbst keinen Raum hat (Outdoor-Location ohne Raum-
+    # Struktur), wird nicht gefiltert — same-location reicht.
+    npc_chars = []
+    for c in chars:
+        if c["name"] == _player_char:
+            continue
+        if avatar_room:
+            try:
+                from app.models.character import get_character_current_room
+                _cr = (get_character_current_room(c["name"]) or "").strip()
+            except Exception:
+                _cr = ""
+            # Char ohne eigenen Raum darf bleiben (legacy outdoor-NPC)
+            if _cr and _cr != avatar_room:
+                continue
+        npc_chars.append(c)
     if len(npc_chars) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Mindestens 2 Charaktere muessen am selben Ort sein"
+            detail="Mindestens 2 Charaktere muessen im selben Raum sein"
         )
 
     participant_names = [c["name"] for c in npc_chars]
