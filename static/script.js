@@ -468,7 +468,7 @@ async function openAvatarActivityPicker(avatarName) {
                     ${escapeHtml(label)}${nameDe && nameDe !== name ? ` <span style="color:var(--text-muted);font-size:11px;">(${escapeHtml(name)})</span>` : ''}
                 </button>`;
         }).join('')
-        : '<p class="scheduler-empty">Keine Aktivitaeten am aktuellen Ort.</p>';
+        : `<p class="scheduler-empty">${escapeHtml(t('No activities at the current location.'))}</p>`;
 
     dialog.innerHTML = `
         <div class="caption-mode-title">Aktivitaet fuer ${escapeHtml(avatarName)}</div>
@@ -498,10 +498,10 @@ async function openAvatarActivityPicker(avatarName) {
                 overlay.remove();
                 loadPlayerAvatar();
             } else {
-                showStatusToast('Activity konnte nicht gesetzt werden', 'error');
+                showStatusToast(t('Could not set activity'), 'error');
             }
         } catch (e) {
-            showStatusToast('Activity konnte nicht gesetzt werden', 'error');
+            showStatusToast(t('Could not set activity'), 'error');
         }
     };
 
@@ -551,7 +551,7 @@ async function openAvatarRoomPicker(avatarName) {
 
     let body;
     if (!curLoc) {
-        body = '<p class="scheduler-empty">Kein aktueller Ort verfuegbar.</p>';
+        body = `<p class="scheduler-empty">${escapeHtml(t('No current location available.'))}</p>`;
     } else {
         const rooms = (curLoc.rooms || []).map(r => {
             const isCurRoom = (r.id === curRoomId);
@@ -564,7 +564,7 @@ async function openAvatarRoomPicker(avatarName) {
                     ${r.description ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${escapeHtml(r.description.substring(0, 80))}${r.description.length > 80 ? '...' : ''}</div>` : ''}
                 </button>`;
         }).join('');
-        body = rooms || '<p class="scheduler-empty">Keine Raeume in diesem Ort.</p>';
+        body = rooms || `<p class="scheduler-empty">${escapeHtml(t('No rooms at this location.'))}</p>`;
     }
 
     const locLabel = curLoc ? (curLoc.name || curLoc.id) : '?';
@@ -596,7 +596,7 @@ async function openAvatarRoomPicker(avatarName) {
                 showStatusToast(err.detail || 'Ort konnte nicht gesetzt werden', 'error');
             }
         } catch (e) {
-            showStatusToast('Ort konnte nicht gesetzt werden', 'error');
+            showStatusToast(t('Could not set location'), 'error');
         }
     };
 
@@ -666,10 +666,10 @@ async function openAvatarMoodPicker(avatarName) {
                 overlay.remove();
                 loadPlayerAvatar();  // refresh mood line + expression
             } else {
-                showStatusToast('Stimmung konnte nicht gesetzt werden', 'error');
+                showStatusToast(t('Could not set mood'), 'error');
             }
         } catch (e) {
-            showStatusToast('Stimmung konnte nicht gesetzt werden', 'error');
+            showStatusToast(t('Could not set mood'), 'error');
         }
     };
 
@@ -721,7 +721,7 @@ async function loadRoomItemsPanel(locationId, roomId) {
     } catch (e) { /* empty */ }
 
     if (!items.length) {
-        panelContent.innerHTML = '<div class="room-items-empty">Keine Items im Raum</div>';
+        panelContent.innerHTML = `<div class="room-items-empty">${escapeHtml(t('No items in the room'))}</div>`;
         return;
     }
 
@@ -867,7 +867,7 @@ async function loadWardrobeRulesTab() {
             ? ` @ ${escapeHtml(compliance.location)}${compliance.room ? ' / ' + escapeHtml(compliance.room) : ''}`
             : '';
         let banner = `<div style="color:var(--text);"><b>Aktueller Ort:</b> ${locInfo || '—'}<br><b>outfit_type:</b> ${typeInfo}</div>`;
-        banner += `<div style="margin-top:6px;color:var(--text);"><b>Benötigt:</b> ${req.length ? req.map(s => `<span style="display:inline-block;padding:1px 6px;margin:0 2px;background:${equipped.includes(s) ? '#2a4a2a' : '#5a2a2a'};color:#fff;border-radius:3px;font-size:11px;">${escapeHtml(SLOT_LABELS_DE[s] || s)}</span>`).join('') : '—'}</div>`;
+        banner += `<div style="margin-top:6px;color:var(--text);"><b>${escapeHtml(t('Required:'))}</b> ${req.length ? req.map(s => `<span style="display:inline-block;padding:1px 6px;margin:0 2px;background:${equipped.includes(s) ? '#2a4a2a' : '#5a2a2a'};color:#fff;border-radius:3px;font-size:11px;">${escapeHtml(SLOT_LABELS_DE[s] || s)}</span>`).join('') : '—'}</div>`;
         if (missing.length) {
             banner += `<div style="margin-top:6px;color:#ff9a73;"><b>Fehlt:</b> ${missing.map(s => escapeHtml(SLOT_LABELS_DE[s] || s)).join(', ')}</div>`;
         } else if (req.length) {
@@ -955,7 +955,7 @@ async function _loadWardrobeData() {
         _wardrobeState.equipped = eqRes.ok ? (await eqRes.json()) : { equipped_pieces: {}, equipped_items: [] };
         _wardrobeState.outfits = outRes.ok ? ((await outRes.json()).outfits || []) : [];
     } catch (e) {
-        showStatusToast('Garderobe konnte nicht geladen werden', 'error');
+        showStatusToast(t('Could not load wardrobe'), 'error');
     }
 
     _renderWardrobeStudio();
@@ -1300,7 +1300,7 @@ async function _wardrobeSetPieceColor(slot, color) {
         );
         if (!resp.ok) {
             const d = await resp.json().catch(() => ({}));
-            showStatusToast(`Farbe: ${d.detail || 'Fehler'}`, 'error');
+            showStatusToast(t('Color') + `: ${d.detail || t('Error')}`, 'error');
             return;
         }
         const meta = _wardrobeState.equipped.equipped_pieces_meta || {};
@@ -1313,7 +1313,7 @@ async function _wardrobeSetPieceColor(slot, color) {
         _renderWardrobeStudio();
         _loadWardrobePreview(_wardrobeState.character);
     } catch (e) {
-        showStatusToast(`Farbe: ${e.message || e}`, 'error');
+        showStatusToast(t('Color') + `: ${e.message || e}`, 'error');
     }
 }
 
@@ -1499,7 +1499,7 @@ function _renderWardrobeStudio() {
             return slots.includes(filter);
         });
         if (!allItems.length) {
-            availEl.innerHTML = '<p class="scheduler-empty">Keine outfit-tauglichen Items im Inventar. Lege im Reiter "Inventar (Outfit-Teile)" welche an.</p>';
+            availEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No outfit-suitable items in inventory. Create some in the "Inventory (outfit pieces)" tab.'))}</p>`;
         } else {
             availEl.innerHTML = allItems.map(it => {
                 const isPiece = it.item_category === 'outfit_piece';
@@ -1544,7 +1544,7 @@ function _renderWardrobeStudio() {
                         // (ueberschreibt bestehende Eintraege, Remove-Markierungen geclearT).
                         const piece = _wardrobePieces().find(p => p.item_id === iid);
                         const slots = (piece && piece.outfit_piece && piece.outfit_piece.slots) || [];
-                        if (!slots.length) { showStatusToast('Item hat keine Slots', 'error'); return; }
+                        if (!slots.length) { showStatusToast(t('Item has no slots'), 'error'); return; }
                         for (const slot of slots) {
                             _wardrobeState.setEditPieces[slot] = iid;
                             _wardrobeState.setRemoveSlots.delete(slot);
@@ -1642,13 +1642,13 @@ async function clearAllVariantsForWardrobeChar() {
         });
         if (resp.ok) {
             const d = await resp.json().catch(() => ({}));
-            showStatusToast(`${d.cleared || 0} Variant-Bilder von ${charName} geloescht.`, 'success');
+            showStatusToast(`${d.cleared || 0} ` + t('variant images of') + ` ${charName} ` + t('deleted.'), 'success');
             _loadWardrobePreview(charName);
         } else {
-            showStatusToast('Variants konnten nicht geloescht werden.', 'error');
+            showStatusToast(t('Could not delete variants.'), 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler beim Loeschen: ' + e.message, 'error');
+        showStatusToast(t('Delete error') + ': ' + e.message, 'error');
     }
 }
 
@@ -1837,7 +1837,7 @@ async function _initWardrobeAddExisting() {
 
     addBtn.onclick = async () => {
         if (!_wardrobeAddSelected) {
-            showStatusToast('Erst ein Item aus der Suche auswaehlen', 'info');
+            showStatusToast(t('Choose an item from the search first'), 'info');
             return;
         }
         const c = _wardrobeState.character;
@@ -1849,16 +1849,16 @@ async function _initWardrobeAddExisting() {
             });
             if (r.ok) {
                 const it = (_wardrobeAllItems || []).find(x => x.id === _wardrobeAddSelected);
-                showStatusToast(`'${it ? it.name : _wardrobeAddSelected}' ins Inventar aufgenommen`, 'success');
+                showStatusToast(`'${it ? it.name : _wardrobeAddSelected}' ` + t('added to inventory'), 'success');
                 _wardrobeAddSelected = null;
                 searchEl.value = '';
                 resultsEl.style.display = 'none';
                 await _wardrobeRefresh();
             } else {
                 const d = await r.json().catch(() => ({}));
-                showStatusToast(d.detail || 'Hinzufuegen fehlgeschlagen', 'error');
+                showStatusToast(d.detail || t('Add failed'), 'error');
             }
-        } catch (e) { showStatusToast('Fehler: ' + e.message, 'error'); }
+        } catch (e) { showStatusToast(t('Error') + ': ' + e.message, 'error'); }
     };
 
     // Ergebnisse schliessen bei Klick ausserhalb
@@ -1970,12 +1970,12 @@ async function _generateWardrobePieceImage(itemId) {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(`Bild '${label}': ${d.detail || 'Fehler'}`, 'error');
+            showStatusToast(t('Image') + ` '${label}': ${d.detail || t('Error')}`, 'error');
         } else {
-            showStatusToast(`Bild fuer '${label}' in Warteschlange`, 'success');
+            showStatusToast(t('Image for') + ` '${label}' ` + t('queued'), 'success');
         }
     } catch (e) {
-        showStatusToast(`Bild '${label}': ${e.message || e}`, 'error');
+        showStatusToast(t('Image') + ` '${label}': ${e.message || e}`, 'error');
     }
 }
 
@@ -1990,10 +1990,10 @@ async function _wardrobeEquip(itemId) {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Equip fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Equip failed'), 'error');
             return;
         }
-    } catch (e) { showStatusToast('Equip fehlgeschlagen', 'error'); return; }
+    } catch (e) { showStatusToast(t('Equip failed'), 'error'); return; }
     await _wardrobeRefresh();
     _loadWardrobePreview(_wardrobeState.character);
 }
@@ -2008,10 +2008,10 @@ async function _wardrobeUnequip(payload) {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Unequip fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Unequip failed'), 'error');
             return;
         }
-    } catch (e) { showStatusToast('Unequip fehlgeschlagen', 'error'); return; }
+    } catch (e) { showStatusToast(t('Unequip failed'), 'error'); return; }
     await _wardrobeRefresh();
     _loadWardrobePreview(_wardrobeState.character);
 }
@@ -2041,7 +2041,7 @@ async function _loadWardrobePreview(characterName) {
     _updateWardrobePreviewLabel();
     const hasImage = !!previewEl.querySelector('img');
     if (!hasImage) {
-        previewEl.innerHTML = '<p class="scheduler-empty">Lade Vorschau...</p>';
+        previewEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Loading preview…'))}</p>`;
     }
     // Garderoben-Vorschau soll immer in DEFAULT Pose + Expression laufen,
     // nicht im Variant des aktuellen Mood/Activity. override=1 zwingt das
@@ -2097,17 +2097,17 @@ async function _loadWardrobePreview(characterName) {
                 // Asynchrone Generierung laeuft — bestehendes Bild NICHT ueberschreiben.
                 // Kein weiteres Polling; der User kann manuell refreshen.
                 if (!hasImage) {
-                    previewEl.innerHTML = '<p class="scheduler-empty">Keine Vorschau vorhanden</p>';
+                    previewEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No preview available'))}</p>`;
                 }
                 return;
             }
             // 404 o.ae. — nur setzen wenn noch kein Bild da war
             if (!hasImage) {
-                previewEl.innerHTML = '<p class="scheduler-empty">Keine Vorschau vorhanden</p>';
+                previewEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No preview available'))}</p>`;
             }
         } catch (e) {
             if (!hasImage) {
-                previewEl.innerHTML = '<p class="scheduler-empty">Keine Vorschau vorhanden</p>';
+                previewEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No preview available'))}</p>`;
             }
         }
     };
@@ -2182,7 +2182,7 @@ async function _renderWpcLora(lora) {
             opts.push(`<option value="${escapeHtml(l)}"${selAttr}>${escapeHtml(l)}</option>`);
         }
         if (name && name !== 'None' && !found) {
-            opts.splice(1, 0, `<option value="${escapeHtml(name)}" selected>${escapeHtml(name)} (nicht verfuegbar)</option>`);
+            opts.splice(1, 0, `<option value="${escapeHtml(name)}" selected>${escapeHtml(name)} (${escapeHtml(t('not available'))})</option>`);
         }
         sel.innerHTML = opts.join('');
     }
@@ -2595,7 +2595,7 @@ async function saveWardrobePiece() {
             });
             if (!r.ok) {
                 const d = await r.json().catch(() => ({}));
-                if (status) status.textContent = `Fehler: ${d.detail || 'Speichern fehlgeschlagen'}`;
+                if (status) status.textContent = t('Error') + `: ${d.detail || t('Save failed')}`;
                 return;
             }
             if (status) status.textContent = `'${name}' aktualisiert.`;
@@ -2629,7 +2629,7 @@ async function saveWardrobePiece() {
         });
         if (!itemRes.ok) {
             const d = await itemRes.json().catch(() => ({}));
-            if (status) status.textContent = `Fehler: ${d.detail || 'Item-Anlage fehlgeschlagen'}`;
+            if (status) status.textContent = t('Error') + `: ${d.detail || t('Item creation failed')}`;
             return;
         }
         const { item } = await itemRes.json();
@@ -2640,7 +2640,7 @@ async function saveWardrobePiece() {
         });
         if (!invRes.ok) {
             const d = await invRes.json().catch(() => ({}));
-            if (status) status.textContent = `Item angelegt, aber Inventar-Add fehlgeschlagen: ${d.detail || ''}`;
+            if (status) status.textContent = t('Item created, but inventory add failed') + `: ${d.detail || ''}`;
         } else {
             if (status) status.textContent = `'${name}' angelegt + im Inventar.`;
         }
@@ -2666,10 +2666,10 @@ async function deleteWardrobePiece(itemId) {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Loeschen fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Delete failed'), 'error');
             return;
         }
-    } catch (e) { showStatusToast('Loeschen fehlgeschlagen', 'error'); return; }
+    } catch (e) { showStatusToast(t('Delete failed'), 'error'); return; }
     await _wardrobeRefresh();
 }
 
@@ -2682,7 +2682,7 @@ async function saveWardrobeAsSet() {
         : (_wardrobeState.equipped.equipped_pieces || {});
     const pieces = Object.values(eq).filter(Boolean);
     if (!pieces.length && !(_wardrobeState.setRemoveSlots || new Set()).size) {
-        showStatusToast('Keine Pieces im Set — nichts zu speichern.', 'error');
+        showStatusToast(t('No pieces in set — nothing to save.'), 'error');
         return;
     }
 
@@ -2708,16 +2708,16 @@ function _openWardrobeSaveAsDialog(existingSets, onChoose) {
                     data-id="${escapeHtml(o.id || '')}" data-name="${escapeHtml(o.name || '')}"
                     style="display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-alt);cursor:pointer;color:var(--text);">
                 👕 ${escapeHtml(o.name || '(unbenannt)')}
-                <span style="color:var(--text-muted);font-size:11px;margin-left:6px;">überschreiben</span>
+                <span style="color:var(--text-muted);font-size:11px;margin-left:6px;">${escapeHtml(t('overwrite'))}</span>
             </button>`).join('')
         : '<p class="scheduler-empty" style="font-size:12px;">Noch keine Sets vorhanden.</p>';
 
     dialog.innerHTML = `
         <div class="caption-mode-title">Speichern unter…</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Bestehendes Set überschreiben:</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">${escapeHtml(t('Overwrite existing set:'))}</div>
         <div style="max-height:40vh;overflow-y:auto;margin-bottom:12px;">${listHtml}</div>
         <label style="font-size:12px;color:var(--text-muted);">Oder neuer Name:</label>
-        <input type="text" class="agent-status-input wardrobe-saveas-new" placeholder="Name für neues Set" style="margin-top:4px;">
+        <input type="text" class="agent-status-input wardrobe-saveas-new" placeholder="${escapeHtml(t('Name for new set'))}" style="margin-top:4px;">
         <div class="prompt-edit-actions" style="margin-top:12px;">
             <button class="prompt-edit-btn prompt-edit-cancel">Abbrechen</button>
             <button class="prompt-edit-btn prompt-edit-submit save-btn">Neu anlegen</button>
@@ -2738,7 +2738,7 @@ function _openWardrobeSaveAsDialog(existingSets, onChoose) {
     dialog.querySelector('.prompt-edit-cancel').onclick = () => overlay.remove();
     const submit = () => {
         const name = (input.value || '').trim();
-        if (!name) { showStatusToast('Name fehlt', 'error'); return; }
+        if (!name) { showStatusToast(t('Name missing'), 'error'); return; }
         // Kollision mit bestehendem Namen → Update auf dieses Set
         const existing = existingSets.find(o => (o.name || '').toLowerCase() === name.toLowerCase());
         overlay.remove();
@@ -2778,11 +2778,11 @@ async function _doSaveWardrobeSet(characterName, pieces, name, updateId) {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Set speichern fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Saving set failed'), 'error');
             return;
         }
         const data = await r.json();
-        showStatusToast(updateId ? `Set '${name}' aktualisiert` : `Set '${name}' gespeichert`, 'success');
+        showStatusToast(updateId ? `${t('Set')} '${name}' ${t('updated')}` : `${t('Set')} '${name}' ${t('saved')}`, 'success');
         await _loadWardrobeData();
         const newId = data.id || updateId;
         const sel = document.getElementById('wardrobe-set-select');
@@ -2791,7 +2791,7 @@ async function _doSaveWardrobeSet(characterName, pieces, name, updateId) {
             _onWardrobeSetSelected();
         }
     } catch (e) {
-        showStatusToast('Set speichern fehlgeschlagen', 'error');
+        showStatusToast(t('Saving set failed'), 'error');
     }
 }
 
@@ -2848,10 +2848,10 @@ async function previewWardrobeSetImage() {
             _loadWardrobePreview(c);
         } else {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(`Fehler: ${d.detail || 'Generierung fehlgeschlagen'}`, 'error');
+            showStatusToast(t('Error') + `: ${d.detail || t('Generation failed')}`, 'error');
         }
     } catch (e) {
-        showStatusToast(`Fehler: ${e.message || e}`, 'error');
+        showStatusToast(t('Error') + `: ${e.message || e}`, 'error');
     }
 }
 
@@ -2871,15 +2871,15 @@ async function deleteWardrobeSet() {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Loeschen fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Delete failed'), 'error');
             return;
         }
-        showStatusToast(`Set '${o.name || ''}' geloescht`, 'success');
+        showStatusToast(t('Set') + ` '${o.name || ''}' ` + t('deleted'), 'success');
         await _loadWardrobeData();
         if (sel) sel.value = '';
         _onWardrobeSetSelected();
     } catch (e) {
-        showStatusToast('Loeschen fehlgeschlagen', 'error');
+        showStatusToast(t('Delete failed'), 'error');
     }
 }
 
@@ -2902,7 +2902,7 @@ async function applyEquippedFromColumn() {
         }
     }
     if (!editMode && !removeSlots.length) {
-        showStatusToast('Aktuelle Items sind bereits angezogen', 'info');
+        showStatusToast(t('Current items are already worn'), 'info');
         return;
     }
     try {
@@ -2918,7 +2918,7 @@ async function applyEquippedFromColumn() {
         });
         if (!r.ok) {
             const d = await r.json().catch(() => ({}));
-            showStatusToast(d.detail || 'Anwenden fehlgeschlagen', 'error');
+            showStatusToast(d.detail || t('Apply failed'), 'error');
             return;
         }
         const data = await r.json();
@@ -2931,7 +2931,7 @@ async function applyEquippedFromColumn() {
                 : `Angezogen: ${applied} OK, ${cleared} geleert`,
             skipped ? 'info' : 'success',
         );
-    } catch (e) { showStatusToast('Anwenden fehlgeschlagen', 'error'); return; }
+    } catch (e) { showStatusToast(t('Apply failed'), 'error'); return; }
     // Nach Anziehen: zurueck in Live-Modus (Dropdown reset), damit
     // die frisch angelegten Pieces aus dem Server angezeigt werden —
     // nicht der alte Set-Editor-Stand.
@@ -3217,12 +3217,12 @@ async function openGarderobePicker(characterName) {
                 });
                 if (!r.ok) {
                     const d = await r.json().catch(() => ({}));
-                    showStatusToast(d.detail || 'Equip fehlgeschlagen', 'error');
+                    showStatusToast(d.detail || t('Equip failed'), 'error');
                     return;
                 }
                 await refresh();
             } catch (e) {
-                showStatusToast('Equip fehlgeschlagen', 'error');
+                showStatusToast(t('Equip failed'), 'error');
             }
         };
     });
@@ -3241,12 +3241,12 @@ async function openGarderobePicker(characterName) {
                 });
                 if (!r.ok) {
                     const d = await r.json().catch(() => ({}));
-                    showStatusToast(d.detail || 'Equip fehlgeschlagen', 'error');
+                    showStatusToast(d.detail || t('Equip failed'), 'error');
                     return;
                 }
                 await refresh();
             } catch (e) {
-                showStatusToast('Equip fehlgeschlagen', 'error');
+                showStatusToast(t('Equip failed'), 'error');
             }
         };
     }
@@ -3268,12 +3268,12 @@ async function openGarderobePicker(characterName) {
                 });
                 if (!r.ok) {
                     const d = await r.json().catch(() => ({}));
-                    showStatusToast(d.detail || 'Unequip fehlgeschlagen', 'error');
+                    showStatusToast(d.detail || t('Unequip failed'), 'error');
                     return;
                 }
                 await refresh();
             } catch (e) {
-                showStatusToast('Unequip fehlgeschlagen', 'error');
+                showStatusToast(t('Unequip failed'), 'error');
             }
         };
     });
@@ -3317,7 +3317,7 @@ async function openAvatarOutfitPicker(avatarName) {
 
     let gridHtml = '';
     if (!outfits.length) {
-        gridHtml = '<p class="scheduler-empty">Keine Outfits konfiguriert.</p>';
+        gridHtml = `<p class="scheduler-empty">${escapeHtml(t('No outfits configured.'))}</p>`;
     } else {
         gridHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:65vh;overflow-y:auto;padding:4px;">';
         for (const o of outfits) {
@@ -3361,14 +3361,14 @@ async function openAvatarOutfitPicker(avatarName) {
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => ({}));
-                    showStatusToast(`Outfit: ${outfitName}`, 'success');
+                    showStatusToast(t('Outfit') + `: ${outfitName}`, 'success');
                     overlay.remove();
                     if (data.changed !== false) updatePlayerExpression(avatarName);
                 } else {
-                    showStatusToast('Outfit-Wechsel fehlgeschlagen', 'error');
+                    showStatusToast(t('Outfit change failed'), 'error');
                 }
             } catch (e) {
-                showStatusToast('Outfit-Wechsel fehlgeschlagen', 'error');
+                showStatusToast(t('Outfit change failed'), 'error');
             }
         };
     });
@@ -3436,6 +3436,101 @@ let currentUserAllowedChars = [];
 // --- UI Language ---
 // Default from localStorage or browser language; overridden after user profile loads
 let uiLang = localStorage.getItem('uiLang') || (navigator.language || 'de').split('-')[0];
+
+// Translation map for static UI strings (English source -> translated string).
+// Loaded lazily from /i18n/translations/<lang>; empty when uiLang === 'en'.
+let _uiTranslations = {};
+const _uiMissingLogged = new Set();
+
+async function loadTranslations(lang) {
+    if (!lang || lang === 'en') {
+        _uiTranslations = {};
+        return;
+    }
+    try {
+        const res = await fetch(`/i18n/translations/${encodeURIComponent(lang)}`);
+        if (res.ok) {
+            const data = await res.json();
+            _uiTranslations = data.translations || {};
+        } else {
+            _uiTranslations = {};
+        }
+    } catch (e) {
+        console.warn('loadTranslations failed:', e);
+        _uiTranslations = {};
+    }
+}
+
+// Translate an English UI source string. Falls back to the source on miss.
+// Each missing key is warned about once so dev can spot coverage gaps.
+function t(en) {
+    if (!en) return en;
+    if (uiLang === 'en') return en;
+    const hit = _uiTranslations[en];
+    if (hit) return hit;
+    const k = `${uiLang}::${en}`;
+    if (!_uiMissingLogged.has(k)) {
+        _uiMissingLogged.add(k);
+        if (typeof console !== 'undefined') console.debug(`[i18n] missing [${uiLang}]: ${en}`);
+    }
+    return en;
+}
+
+// Walk the DOM and translate all elements marked for i18n:
+//   <span data-i18n="Save">Save</span>
+//     -> textContent is set to t('Save'); the original English source is
+//        captured in data-i18n-src on first run so a later language change
+//        can re-translate from the same source.
+//   <button data-i18n-title="Cancel" title="Cancel">×</button>
+//     -> title attribute translated.
+//   <input data-i18n-placeholder="Enter your name" placeholder="...">
+//     -> placeholder attribute translated.
+// data-i18n="" (empty) means: take the existing textContent as the English
+// source on first run. Useful when the source string is already in the HTML.
+function applyTranslations(root) {
+    const scope = root || document;
+    // textContent
+    scope.querySelectorAll('[data-i18n]').forEach(el => {
+        let src = el.getAttribute('data-i18n');
+        if (!src) {
+            src = (el.getAttribute('data-i18n-src') || el.textContent || '').trim();
+            if (src && !el.getAttribute('data-i18n-src')) el.setAttribute('data-i18n-src', src);
+        } else if (!el.getAttribute('data-i18n-src')) {
+            el.setAttribute('data-i18n-src', src);
+        }
+        if (src) el.textContent = t(src);
+    });
+    // title attribute
+    scope.querySelectorAll('[data-i18n-title]').forEach(el => {
+        const src = el.getAttribute('data-i18n-title');
+        if (src) el.setAttribute('title', t(src));
+    });
+    // placeholder attribute
+    scope.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const src = el.getAttribute('data-i18n-placeholder');
+        if (src) el.setAttribute('placeholder', t(src));
+    });
+    // alt attribute (images)
+    scope.querySelectorAll('[data-i18n-alt]').forEach(el => {
+        const src = el.getAttribute('data-i18n-alt');
+        if (src) el.setAttribute('alt', t(src));
+    });
+}
+
+// Early bootstrap — runs as soon as the DOM is ready, before auth completes.
+// Loads translations for the cached uiLang (LocalStorage / browser-default) and
+// translates all static [data-i18n] markers in the page. After login, the
+// user's profile language may differ — `loadUiLanguage()` then re-runs both.
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        await loadTranslations(uiLang);
+        applyTranslations();
+        // Reflect uiLang on the <html> element so CSS / a11y tooling sees it.
+        try { document.documentElement.setAttribute('lang', uiLang || 'en'); } catch (_) {}
+    } catch (e) {
+        console.warn('[i18n] bootstrap failed:', e);
+    }
+});
 
 // Return the localized label from a template object (section, field, option, tab).
 // Falls back to 'label' if no language-specific key exists.
@@ -3638,7 +3733,7 @@ function _renderPhoneBookDialog(chars) {
 
 async function openPhoneChatPicker() {
     if (isChatBusy) {
-        showStatusToast('Phone-Chat-Wechsel nicht moeglich waehrend Chat aktiv ist', 'error');
+        showStatusToast(t('Phone-chat switch not possible while chat is active'), 'error');
         return;
     }
     let allChars = [];
@@ -3649,7 +3744,7 @@ async function openPhoneChatPicker() {
             allChars = (d.characters || []).map(c => typeof c === 'string' ? {name: c} : c);
         }
     } catch (e) {
-        showStatusToast('Character-Liste konnte nicht geladen werden.', 'error');
+        showStatusToast(t('Could not load character list.'), 'error');
         return;
     }
     let avatar = '';
@@ -3658,7 +3753,7 @@ async function openPhoneChatPicker() {
     } catch (e) {}
     const filtered = allChars.filter(c => c.name && c.name !== avatar);
     if (!filtered.length) {
-        showStatusToast('Keine Characters fuer Phone-Chat verfuegbar.', 'info');
+        showStatusToast(t('No characters available for phone chat.'), 'info');
         return;
     }
     // Pro Character: Location + Profilbild parallel laden (fuer Telefonbuch-View)
@@ -3746,14 +3841,14 @@ async function _openChatGiftPicker() {
     const avatar = getPlayerCharacterName();
     const partner = (typeof currentCharacterName !== 'undefined' ? currentCharacterName : '') || '';
     if (!avatar) {
-        showStatusToast('Kein Avatar aktiv — bitte oben einen Character waehlen', 'error');
+        showStatusToast(t('No avatar active — please choose a character at the top'), 'error');
         return;
     }
     if (!partner || partner === 'KI') {
-        showStatusToast('Kein Chat-Partner aktiv', 'error');
+        showStatusToast(t('No chat partner active'), 'error');
         return;
     }
-    body.innerHTML = '<div style="color:var(--text-muted);">Lade Inventar...</div>';
+    body.innerHTML = `<div style="color:var(--text-muted);">${escapeHtml(t('Loading inventory…'))}</div>`;
     box.style.display = 'block';
     setTimeout(() => document.addEventListener('click', _chatGiftPickerOutsideClick), 0);
     try {
@@ -3809,13 +3904,13 @@ async function _chatGiftClickItem(itemId, itemName) {
         });
         if (!r.ok) {
             const t = await r.text();
-            showStatusToast('Verschenken fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            showStatusToast(t('Gift failed') + ': ' + t.slice(0, 80), 'error');
             return;
         }
         const data = await r.json();
-        showStatusToast(`'${data.item_name || itemName}' an ${partner} verschenkt (Beziehungs-Boost +${data.boost || 0})`, 'success');
+        showStatusToast(`'${data.item_name || itemName}' ` + t('gifted to') + ` ${partner} (` + t('relationship boost') + ` +${data.boost || 0})`, 'success');
     } catch (e) {
-        showStatusToast('Fehler beim Verschenken: ' + e.message, 'error');
+        showStatusToast(t('Gift error') + ': ' + e.message, 'error');
     }
     _closeChatGiftPicker();
 }
@@ -3856,7 +3951,6 @@ function setAgentButtonsVisible(visible) {
 
 async function updateStoryTabVisibility() {
     const chatBtn = document.querySelector('.tab-btn[data-tab="chat"]');
-    const relationsBtn = document.querySelector('.tab-btn[data-tab="relations"]');
     const storyBtn = document.querySelector('.tab-btn[data-tab="story"]');
     const storyDevBtn = document.querySelector('.tab-btn[data-tab="storydev"]');
     const worldDevBtn = document.querySelector('.tab-btn[data-tab="worlddev"]');
@@ -3867,13 +3961,12 @@ async function updateStoryTabVisibility() {
     }
 
     if (!hasValidCharacter()) {
-        // Kein Agent → alle agent-gebundenen Tabs ausblenden (Chat, Relations, Story, StoryDev)
+        // Kein Agent → alle agent-gebundenen Tabs ausblenden (Chat, Story, StoryDev)
         if (chatBtn) chatBtn.style.display = 'none';
-        if (relationsBtn) relationsBtn.style.display = 'none';
         if (storyBtn) storyBtn.style.display = 'none';
         if (storyDevBtn) storyDevBtn.style.display = 'none';
         const activeTab = document.querySelector('.tab-btn.tab-active');
-        if (activeTab && ['chat', 'relations', 'story', 'storydev'].includes(activeTab.dataset.tab)) {
+        if (activeTab && ['chat', 'story', 'storydev'].includes(activeTab.dataset.tab)) {
             // Aktiven Tab abwaehlen — kein Hinweis-Inhalt
             activeTab.classList.remove('tab-active');
             document.querySelectorAll('.tab-content').forEach(c => {
@@ -3884,9 +3977,8 @@ async function updateStoryTabVisibility() {
         return;
     }
 
-    // Agent vorhanden: Chat + Relations IMMER sichtbar
+    // Agent vorhanden: Chat IMMER sichtbar
     if (chatBtn) chatBtn.style.display = '';
-    if (relationsBtn) relationsBtn.style.display = '';
 
     // Wenn nach Re-Selektion kein Tab aktiv ist (User kam aus Kein-Agent-Zustand)
     // → Chat aktivieren, sonst bleibt der Content-Bereich leer.
@@ -4122,7 +4214,7 @@ async function selectCharacterAndStart(characterName) {
     }
 
     await initializeApp();
-    showStatusToast(`Spielst als ${characterName}`, 'success');
+    showStatusToast(t('Playing as') + ` ${characterName}`, 'success');
 }
 
 async function populateActiveCharacterDropdown() {
@@ -4308,7 +4400,7 @@ async function handleLogin() {
 
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
-            errorDiv.textContent = data.detail || 'Login fehlgeschlagen';
+            errorDiv.textContent = data.detail || t('Login failed');
             errorDiv.style.display = 'block';
             return;
         }
@@ -4330,7 +4422,7 @@ async function handleLogin() {
         applyAdminOnlyVisibility();
         await initializeApp();
         populateActiveCharacterDropdown?.();
-        showStatusToast(`Willkommen, ${currentUsername}!`, 'success');
+        showStatusToast(t('Welcome,') + ` ${currentUsername}!`, 'success');
     } catch (e) {
         errorDiv.textContent = 'Verbindungsfehler: ' + e.message;
         errorDiv.style.display = 'block';
@@ -4592,7 +4684,7 @@ function appendVisualizeGallery(messageElement, imageUrls) {
             });
             const result = await resp.json();
             if (!resp.ok) {
-                showStatusToast(result.detail || result.error || 'Visualisierung fehlgeschlagen', 'error');
+                showStatusToast(result.detail || result.error || t('Visualization failed'), 'error');
             } else if (result.error) {
                 showStatusToast(result.error, 'error');
             } else {
@@ -4618,7 +4710,7 @@ function appendVisualizeGallery(messageElement, imageUrls) {
             }
         } catch (e) {
             console.error('[Visualize] Regen error:', e);
-            showStatusToast('Visualisierung fehlgeschlagen', 'error');
+            showStatusToast(t('Visualization failed'), 'error');
         } finally {
             regenBtn.innerHTML = '&#x1F504; Neues Bild';
             regenBtn.disabled = false;
@@ -4684,7 +4776,7 @@ function appendVisualizeGallery(messageElement, imageUrls) {
             }
         } catch (err) {
             console.error('[TTS] Selection speak error:', err);
-            showStatusToast('Audio-Generierung fehlgeschlagen', 'error');
+            showStatusToast(t('Audio generation failed'), 'error');
         }
         floatBtn.innerHTML = '&#128266; Vorlesen';
         floatBtn.disabled = false;
@@ -4846,7 +4938,7 @@ function appendSpeakButton(messageElement) {
             }
         } catch (e) {
             console.error('[TTS] Error:', e);
-            showStatusToast('Audio-Generierung fehlgeschlagen', 'error');
+            showStatusToast(t('Audio generation failed'), 'error');
         }
         btn.innerHTML = '&#128266;';
         btn.disabled = false;
@@ -4889,7 +4981,7 @@ function appendVisualizeButton(messageElement) {
         btn.disabled = true;
         btn.textContent = '\u23F3';
         setChatBusy(true);
-        showStatusToast('Szene wird visualisiert...', 'info');
+        showStatusToast(t('Visualizing scene…'), 'info');
 
         const body = { agent_name: _vizCharName, text: detectText };
         if (dialogResult.workflow) body.workflow = dialogResult.workflow;
@@ -4915,7 +5007,7 @@ function appendVisualizeButton(messageElement) {
             const result = await resp.json();
 
             if (!resp.ok) {
-                showStatusToast(result.detail || result.error || 'Visualisierung fehlgeschlagen', 'error');
+                showStatusToast(result.detail || result.error || t('Visualization failed'), 'error');
             } else if (result.error) {
                 showStatusToast(result.error, 'error');
             } else {
@@ -4941,7 +5033,7 @@ function appendVisualizeButton(messageElement) {
             }
         } catch (e) {
             console.error('[Visualize] Error:', e);
-            showStatusToast('Visualisierung fehlgeschlagen', 'error');
+            showStatusToast(t('Visualization failed'), 'error');
         } finally {
             btn.textContent = '\uD83C\uDFA8';
             btn.disabled = false;
@@ -5004,7 +5096,7 @@ function appendInstagramButton(messageElement) {
         text = text.replace(/\n?\*{0,2}I am at\s+[^*\n]+\*{0,2}\s*$/i, '').trim();
 
         if (!text) {
-            showStatusToast('Kein Text vorhanden', 'error');
+            showStatusToast(t('No text available'), 'error');
             return;
         }
 
@@ -5015,7 +5107,7 @@ function appendInstagramButton(messageElement) {
         btn.disabled = true;
         btn.textContent = '\u23F3';
         setChatBusy(true);
-        showStatusToast('Instagram-Post wird erstellt...', 'info');
+        showStatusToast(t('Creating Instagram post…'), 'info');
 
         try {
             const resp = await fetch('/chat/instagram-post', {
@@ -5031,7 +5123,7 @@ function appendInstagramButton(messageElement) {
             const result = await resp.json();
 
             if (result.post_id) {
-                showStatusToast('Instagram-Post erstellt!', 'success');
+                showStatusToast(t('Instagram post created!'), 'success');
                 if (instagramPanelOpen) {
                     loadInstagramFeed();
                 }
@@ -5041,7 +5133,7 @@ function appendInstagramButton(messageElement) {
             }
         } catch (e) {
             console.error('[Instagram] Error:', e);
-            showStatusToast('Instagram-Post fehlgeschlagen', 'error');
+            showStatusToast(t('Instagram post failed'), 'error');
         } finally {
             btn.textContent = '\uD83D\uDCF7';
             btn.disabled = false;
@@ -5286,7 +5378,7 @@ async function openPicker(opts) {
                     row.style.borderBottom = '1px solid var(--border)';
                     row.style.cursor = rendered.disabled ? 'not-allowed' : 'pointer';
                     row.style.opacity = rendered.disabled ? '0.4' : '1';
-                    row.title = rendered.disabled ? (rendered.disabledReason || 'Nicht verfuegbar') : '';
+                    row.title = rendered.disabled ? (rendered.disabledReason || t('Not available')) : '';
 
                     const lbl = document.createElement('div');
                     lbl.style.fontSize = '13px';
@@ -5537,7 +5629,7 @@ async function _readChatStream(streamUrl, botMessageId, botMessage, abortSignal,
                     return { fullResponse, toolImageUrls, tokenInfo, timestamp, hadError: true };
                 }
                 if (data.wake_up) {
-                    showStatusToast(`${currentCharacterName} wurde aufgeweckt`, 'info');
+                    showStatusToast(`${currentCharacterName} ` + t('was woken up'), 'info');
                     _updateHeaderActivity('', '', '');
                 }
                 if (data.model_info) {
@@ -5558,7 +5650,7 @@ async function _readChatStream(streamUrl, botMessageId, botMessage, abortSignal,
                 if (data.spell_event) {
                     const ev = data.spell_event;
                     const okIcon = ev.success ? '🪄' : '✨';
-                    const verdict = ev.success ? 'gelungen' : 'fehlgeschlagen';
+                    const verdict = ev.success ? t('succeeded') : t('failed');
                     const roll = (ev.chance && ev.roll)
                         ? ` <span class="spell-roll">(${ev.roll}/${ev.chance})</span>` : '';
                     const delivered = (ev.success && ev.delivered_item_name)
@@ -5625,7 +5717,7 @@ async function _readChatStream(streamUrl, botMessageId, botMessage, abortSignal,
                         chatMessages.scrollTop = chatMessages.scrollHeight;
                     }
                     if (!imageStatusShown && (data.content.includes('Bilddatei:') || data.content.includes('Bild generiert und gespeichert'))) {
-                        showStatusToast('Bild gespeichert und im Chat angezeigt', 'success');
+                        showStatusToast(t('Image saved and shown in chat'), 'success');
                         imageStatusShown = true;
                     }
                 }
@@ -5648,7 +5740,7 @@ async function _readChatStream(streamUrl, botMessageId, botMessage, abortSignal,
                     if (currentCharacterName) {
                         _recomputeChatMedium().then(() => updateCharacterScene(currentCharacterName));
                     }
-                    showStatusToast(`📍 ${currentCharacterName} ist jetzt: ${locationIdToName(data.location)}`, 'info');
+                    showStatusToast(`📍 ${currentCharacterName} ` + t('is now:') + ` ${locationIdToName(data.location)}`, 'info');
                 }
                 if (data.activity && !data.location) {
                     // Header komplett neu laden (inkl. activity_detail)
@@ -5786,7 +5878,7 @@ async function _uploadChatImage(file) {
             method: 'POST',
             body: formData,
         });
-        if (!resp.ok) throw new Error('Upload fehlgeschlagen');
+        if (!resp.ok) throw new Error('Upload failed');
         const data = await resp.json();
         // Preview via local object URL
         const previewUrl = URL.createObjectURL(file);
@@ -5798,7 +5890,7 @@ async function _uploadChatImage(file) {
         });
     } catch (e) {
         console.error('Image upload error:', e);
-        alert('Bild-Upload fehlgeschlagen: ' + e.message);
+        alert(t('Image upload failed') + ': ' + e.message);
     }
 }
 
@@ -5808,12 +5900,12 @@ async function _openImageLibrary() {
     const grid = document.getElementById('image-library-grid');
     if (!modal || !grid) return;
 
-    grid.innerHTML = '<div class="image-library-loading">Lade Bibliothek...</div>';
+    grid.innerHTML = `<div class="image-library-loading">${escapeHtml(t('Loading library…'))}</div>`;
     modal.style.display = 'flex';
 
     try {
         const resp = await fetch(`/chat/default/image-library`);
-        if (!resp.ok) throw new Error('Fehler beim Laden');
+        if (!resp.ok) throw new Error('Error loading');
         const data = await resp.json();
         const characters = data.characters || {};
 
@@ -5854,7 +5946,7 @@ async function _openImageLibrary() {
         }
 
         if (!hasImages) {
-            grid.innerHTML = '<div class="image-library-loading">Keine Bilder in der Bibliothek.</div>';
+            grid.innerHTML = `<div class="image-library-loading">${escapeHtml(t('No images in the library.'))}</div>`;
         }
     } catch (e) {
         console.error('Image library error:', e);
@@ -5929,7 +6021,7 @@ async function sendMessage() {
     // Kein Chat-Partner gewaehlt (z.B. nach Location-Wechsel ohne Character-Klick)
     // Im Gruppenchat nicht zwingend ein einzelner Character noetig.
     if (chatMode !== 'group' && (!currentCharacterName || currentCharacterName === 'KI')) {
-        showStatusToast('Bitte zuerst einen Character in der Seitenleiste auswaehlen', 'warning');
+        showStatusToast(t('Please choose a character in the sidebar first'), 'warning');
         return;
     }
 
@@ -6081,7 +6173,7 @@ async function sendMessage() {
         if (error.name === 'AbortError') {
             console.warn('[Chat] Anfrage wurde abgebrochen (Timeout)');
             const el = document.getElementById(botMessageId);
-            if (el) el.textContent = 'Zeitüberschreitung – bitte erneut versuchen.';
+            if (el) el.textContent = t('Request timeout – please try again.');
         } else {
             const el = document.getElementById(botMessageId);
             if (el) el.textContent = `Fehler: ${error.message}`;
@@ -6397,11 +6489,9 @@ async function loadKnownInfo() {
             console.warn('[Background] Avatar-Hintergrund laden fehlgeschlagen:', bgErr);
         }
     } catch (e) {
-        console.error('Fehler beim Laden bekannter Daten', e);
+        console.error('Error loading known data', e);
     }
 
-    // Character-Config laden (Relationships-Tab etc.)
-    if (typeof _loadCharacterConfigState === 'function') _loadCharacterConfigState();
 }
 
 // --- Character & User Management ---
@@ -6415,7 +6505,7 @@ async function resetUser() {
         });
 
         if (!response.ok) {
-            throw new Error('Reset fehlgeschlagen');
+            throw new Error('Reset failed');
         }
 
         // Leere den Chat
@@ -6426,7 +6516,7 @@ async function resetUser() {
         loadInitialPrompt();
     } catch (e) {
         console.error('Fehler beim Zurücksetzen des Benutzers', e);
-        alert('Fehler beim Zurücksetzen des Benutzers: ' + e.message);
+        alert(t('Failed to reset user') + ': ' + e.message);
     }
 }
 
@@ -6493,7 +6583,7 @@ function _connectOutfitEventStream() {
     };
 }
 
-// Load UI language preference from user profile
+// Load UI language preference from user profile and the matching translation map.
 async function loadUiLanguage() {
     try {
         const res = await fetch(`/store/default/user_profile`);
@@ -6506,6 +6596,9 @@ async function loadUiLanguage() {
             }
         }
     } catch (e) { /* ignore */ }
+    await loadTranslations(uiLang);
+    applyTranslations();
+    try { document.documentElement.setAttribute('lang', uiLang || 'en'); } catch (_) {}
 }
 
 // Load chat history from server
@@ -6568,7 +6661,7 @@ function _updateLoadMoreButton() {
             btn.addEventListener('click', () => loadOlderMessage());
         }
         const remaining = _chatHistoryTotal - _chatHistoryLoaded;
-        btn.textContent = `▲ Ältere Nachricht laden (${remaining})`;
+        btn.textContent = `▲ ${t('Load older message')} (${remaining})`;
         // Always ensure it's the first child
         if (chatMessages.firstChild !== btn) {
             chatMessages.prepend(btn);
@@ -6759,7 +6852,7 @@ async function _pollChatForUpdates() {
 
         if (!appended) return;
         if (nearBottom) chatMessages.scrollTop = chatMessages.scrollHeight;
-        if (hadAssistant) showStatusToast('Neue Nachricht', 'info');
+        if (hadAssistant) showStatusToast(t('New message'), 'info');
     } catch (e) {
         // ignore
     }
@@ -6882,7 +6975,7 @@ document.getElementById('btn-logout')?.addEventListener('click', async () => {
 
     // Show login modal
     showAuthModal();
-    showStatusToast('Abgemeldet', 'success');
+    showStatusToast(t('Logged out'), 'success');
 });
 
 // Character Buttons
@@ -6890,24 +6983,6 @@ document.getElementById('btn-edit-agent').addEventListener('click', () => {
     openCharacterModal(currentCharacterName);
 });
 document.getElementById('btn-new-character').addEventListener('click', createNewCharacter);
-
-// Character-Config laden (Relationships-Tab Sichtbarkeit etc.)
-async function _loadCharacterConfigState() {
-    if (!hasValidCharacter()) return;
-    try {
-        const resp = await fetch(`/characters/${encodeURIComponent(currentCharacterName)}/config`);
-        if (resp.ok) {
-            const data = await resp.json();
-            const cfg = data.config || data;
-            // Hide/show Relations tab based on relationships_enabled
-            const relEnabled = cfg.relationships_enabled;
-            const relOff = relEnabled === false || relEnabled === 'false';
-            const relTabBtn = document.querySelector('.tab-btn[data-tab="relations"]');
-            if (relTabBtn) relTabBtn.style.display = relOff ? 'none' : '';
-        }
-    } catch (e) { /* ignore */ }
-}
-
 
 async function createNewCharacter() {
     try {
@@ -6955,7 +7030,7 @@ async function createNewCharacter() {
 
         if (!response.ok) {
             const err = await response.json();
-            alert('Fehler: ' + (err.detail || 'Unbekannter Fehler'));
+            alert(t('Error') + ': ' + (err.detail || 'Unbekannter Fehler'));
             return;
         }
 
@@ -6967,7 +7042,7 @@ async function createNewCharacter() {
         // Refresh header info
         await loadKnownInfo();
 
-        showStatusToast(`Character "${characterName}" erstellt`, 'success');
+        showStatusToast(t('Character') + ` "${characterName}" ` + t('created'), 'success');
 
         // Open the editor so user can fill in properties
         document.getElementById('modal-agent-name').textContent = characterName;
@@ -7031,16 +7106,16 @@ function exportCharacter() {
 async function deleteCharacterFromEditor() {
     const charName = getEditorCharacterName();
     if (!charName) return;
-    const ok = confirm(`Character "${charName}" wirklich vollstaendig loeschen?\n\nDB-Eintraege, Outfits, Bilder, Memories und das Storage-Verzeichnis werden entfernt. Diese Aktion ist nicht umkehrbar.`);
+    const ok = confirm(t('Really completely delete character') + ` "${charName}"?\n\n` + t('DB entries, outfits, images, memories and the storage directory will be removed. This action is irreversible.'));
     if (!ok) return;
     try {
         const resp = await fetch(`/characters/${encodeURIComponent(charName)}`, {method: 'DELETE'});
         if (!resp.ok) {
             const txt = await resp.text();
-            showStatusToast(`Loeschen fehlgeschlagen: ${txt}`, 'error');
+            showStatusToast(t('Delete failed') + `: ${txt}`, 'error');
             return;
         }
-        showStatusToast(`Character "${charName}" geloescht.`, 'success');
+        showStatusToast(t('Character') + ` "${charName}" ` + t('deleted.'), 'success');
         closeCharacterModal();
         // Trigger UI refresh if the consumer page exposes a hook
         if (typeof window.refreshCharacterListsAfterDelete === 'function') {
@@ -7049,7 +7124,7 @@ async function deleteCharacterFromEditor() {
         // Fallback: hard reload (the editor was open from various contexts)
         setTimeout(() => window.location.reload(), 400);
     } catch (e) {
-        showStatusToast(`Loeschen fehlgeschlagen: ${e.message}`, 'error');
+        showStatusToast(t('Delete failed') + `: ${e.message}`, 'error');
     }
 }
 
@@ -7103,7 +7178,7 @@ async function _handleTemplateSwitch(characterName, newTemplate, selectEl) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ new_template: newTemplate, mode: 'diff' })
         });
-        if (!diffResp.ok) { showStatusToast('Fehler beim Template-Diff', 'error'); return; }
+        if (!diffResp.ok) { showStatusToast(t('Template diff error'), 'error'); return; }
         const diff = await diffResp.json();
 
         // 2. Bestaetigungsdialog wenn es Aenderungen gibt
@@ -7147,12 +7222,12 @@ async function _handleTemplateSwitch(characterName, newTemplate, selectEl) {
             const addedCount = result.added.length;
             const removedCount = result.removed.length;
             if (addedCount || removedCount) {
-                showStatusToast(`Template gewechselt: +${addedCount} neue, -${removedCount} entfernte Felder`, 'success');
+                showStatusToast(t('Template switched') + `: +${addedCount} ` + t('new,') + ` -${removedCount} ` + t('removed fields'), 'success');
             } else {
-                showStatusToast('Template gewechselt', 'success');
+                showStatusToast(t('Template switched'), 'success');
             }
         } else {
-            showStatusToast('Fehler beim Template-Wechsel', 'error');
+            showStatusToast(t('Template switch error'), 'error');
         }
 
         // 4. Editor neu rendern
@@ -7160,7 +7235,7 @@ async function _handleTemplateSwitch(characterName, newTemplate, selectEl) {
 
     } catch (error) {
         console.error('[TemplateSwitch] Fehler:', error);
-        showStatusToast('Fehler beim Template-Wechsel', 'error');
+        showStatusToast(t('Template switch error'), 'error');
     }
 }
 
@@ -7169,7 +7244,7 @@ async function _handleTemplateSwitch(characterName, newTemplate, selectEl) {
 async function renderCharacterEditor(characterName, forceTemplateName) {
     const container = document.getElementById('editor-sections');
     const badgesContainer = document.getElementById('editor-readiness-badges');
-    container.innerHTML = '<p class="scheduler-empty">Lade...</p>';
+    container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Loading…'))}</p>`;
     badgesContainer.innerHTML = '';
 
     try {
@@ -7224,7 +7299,7 @@ async function renderCharacterEditor(characterName, forceTemplateName) {
         html += `</div>`;
 
         if (!template || !template.sections) {
-            html += `<p class="scheduler-empty">Bitte ein Template waehlen um die Felder anzuzeigen.</p>`;
+            html += `<p class="scheduler-empty">${escapeHtml(t('Please choose a template to show fields.'))}</p>`;
             container.innerHTML = html;
             // Wire up template change handler
             document.getElementById('editor-template-select').addEventListener('change', async (e) => {
@@ -7478,7 +7553,7 @@ async function renderCharacterEditor(characterName, forceTemplateName) {
             let s = `<div class="modal-section editor-section">`;
             s += `<h3>${escapeHtml(title)}</h3>`;
             s += `<div id="editor-outfit-imagegen-section">`;
-            s += `<p class="scheduler-empty" style="font-size:11px;">Lade…</p>`;
+            s += `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading…'))}</p>`;
             s += `</div></div>`;
             return s;
         }
@@ -7489,7 +7564,7 @@ async function renderCharacterEditor(characterName, forceTemplateName) {
             let s = `<div class="modal-section editor-section">`;
             s += `<h3>${escapeHtml(title)}</h3>`;
             s += `<div id="editor-slot-overrides-section">`;
-            s += `<p class="scheduler-empty" style="font-size:11px;">Lade…</p>`;
+            s += `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading…'))}</p>`;
             s += `</div></div>`;
             return s;
         }
@@ -7783,7 +7858,7 @@ async function renderCharacterEditor(characterName, forceTemplateName) {
 
     } catch (error) {
         console.error('[Editor] Error loading template/profile:', error);
-        container.innerHTML = '<p class="scheduler-empty">Fehler beim Laden des Editors</p>';
+        container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading editor'))}</p>`;
     }
 }
 
@@ -7854,7 +7929,7 @@ const SoulEditor = {
             const data = await r.json();
             const files = data.files || [];
             if (files.length === 0) {
-                bar.innerHTML = '<span class="scheduler-empty">Keine Soul-Dateien fuer dieses Template aktiviert.</span>';
+                bar.innerHTML = `<span class="scheduler-empty">${escapeHtml(t('No soul files enabled for this template.'))}</span>`;
                 return;
             }
             bar.innerHTML = files.map(f => {
@@ -7998,7 +8073,7 @@ const SoulEditor = {
                 SoulEditor.state.currentRaw = content;
             }
         } catch (e) {
-            alert('Fehler: ' + e);
+            alert(t('Error') + ': ' + e);
             btn.disabled = false;
         } finally {
             btn.textContent = 'Speichern';
@@ -8017,7 +8092,7 @@ async function loadEditorSkills(characterName) {
         const skills = data.skills || [];
         const _skillLocations = data.locations || [];
         if (skills.length === 0) {
-            listContainer.innerHTML = '<p class="scheduler-empty">Keine Skills verfuegbar</p>';
+            listContainer.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No skills available'))}</p>`;
             return;
         }
         // Left column: Skill list with checkboxes
@@ -8048,7 +8123,7 @@ async function loadEditorSkills(characterName) {
             // Skills mit dynamischer Config (eigene Sektion) nicht blockieren
             const hasDynamicConfig = skill.skill_id === 'image_generation' || skill.skill_id === 'video_generation';
             if (!hasConfig && !hasDynamicConfig) {
-                ch += `<p class="scheduler-empty">Keine Konfiguration verfuegbar</p>`;
+                ch += `<p class="scheduler-empty">${escapeHtml(t('No configuration available'))}</p>`;
                 configContainer.innerHTML = ch;
                 return;
             }
@@ -8062,7 +8137,7 @@ async function loadEditorSkills(characterName) {
                     const selectedIds = Array.isArray(val) ? val : [];
                     ch += `<div class="skill-cfg-locations" data-field="${escapeHtml(fieldName)}">`;
                     if (_skillLocations.length === 0) {
-                        ch += `<p class="scheduler-empty">Keine Locations vorhanden</p>`;
+                        ch += `<p class="scheduler-empty">${escapeHtml(t('No locations available'))}</p>`;
                     } else {
                         ch += `<p style="font-size:11px;color:var(--text-muted);margin:0 0 6px;">Leer = alle erlaubten Locations</p>`;
                         for (const loc of _skillLocations) {
@@ -8466,7 +8541,7 @@ function renderEditorField(field, value, dynamicData) {
                 }
                 const totalModels = groups.reduce((sum, g) => sum + g.models.length, 0);
                 const emptyHint = totalModels === 0
-                    ? '<small class="editor-hint">Keine Models verfuegbar (Provider pruefen)</small>' : '';
+                    ? `<small class="editor-hint">${escapeHtml(t('No models available (check provider)'))}</small>` : '';
                 return `<select class="agent-status-input editor-input" data-key="${key}"${store}>${opts}</select>${emptyHint}`;
             }
             // Standard flat select (static options or other dynamic sources)
@@ -8508,7 +8583,7 @@ function renderEditorField(field, value, dynamicData) {
             }
             let emptyHint = '';
             if (field.source && options.length === 0) {
-                emptyHint = '<small class="editor-hint">Keine Eintraege vorhanden</small>';
+                emptyHint = `<small class="editor-hint">${escapeHtml(t('No entries available'))}</small>`;
             }
             return `<select class="agent-status-input editor-input" data-key="${key}"${store}>${opts}</select>${emptyHint}`;
         }
@@ -8604,7 +8679,7 @@ async function saveCharacterEditor() {
                         value = parsed;
                     }
                 } catch (e) {
-                    showStatusToast(`Ungültiges JSON in "${key}"`, 'error');
+                    showStatusToast(t('Invalid JSON in') + ` "${key}"`, 'error');
                     return;
                 }
             }
@@ -8675,7 +8750,7 @@ async function saveCharacterEditor() {
         const allOk = responses.every(r => r.ok);
 
         if (allOk) {
-            showStatusToast('Profil gespeichert', 'success');
+            showStatusToast(t('Profile saved'), 'success');
             await loadKnownInfo();
             try {
                 const readinessRes = await fetch(`/templates/readiness/${encodeURIComponent(characterName)}`);
@@ -8686,11 +8761,11 @@ async function saveCharacterEditor() {
                 }
             } catch (e) { /* ignore */ }
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (error) {
         console.error('[Editor] Save error:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -8712,7 +8787,7 @@ function _formatImagegenOptionLabel(opt) {
     const parts = [base];
     if (opt.cost != null) parts.push(`Cost ${opt.cost}`);
     if (opt.target_model) parts.push(`Style: ${opt.target_model}`);
-    if (opt.available === false) parts.push('nicht verfuegbar');
+    if (opt.available === false) parts.push(t('not available'));
     return parts.length > 1 ? `${parts[0]} — ${parts.slice(1).join(' · ')}` : base;
 }
 
@@ -8960,7 +9035,7 @@ function _reloadCurrentGallery() {
 // --- Time Grouping ---
 
 function _getTimeGroupLabel(dateStr) {
-    if (!dateStr) return 'Älter';
+    if (!dateStr) return t('Older');
     const date = new Date(dateStr);
     const now = new Date();
     const diffMs = now - date;
@@ -8989,8 +9064,8 @@ function _groupEntriesByDate(entries) {
     order.sort((a, b) => {
         const ai = fixedOrder.indexOf(a);
         const bi = fixedOrder.indexOf(b);
-        if (a === 'Älter') return 1;
-        if (b === 'Älter') return -1;
+        if (a === t('Older')) return 1;
+        if (b === t('Older')) return -1;
         if (ai >= 0 && bi >= 0) return ai - bi;
         if (ai >= 0) return -1;
         if (bi >= 0) return 1;
@@ -9019,7 +9094,7 @@ function _buildMetaTableHtml(meta, truncateAnalysis) {
         const _methodMap = { multiswap: 'MultiSwap', comfyui: 'ComfyUI ReActor', internal: 'Face Service' };
         const _m = meta.faceswap_method ? (_methodMap[meta.faceswap_method] || meta.faceswap_method) : '';
         const _icon = meta.faceswap ? '\u2714' : '\u2718';
-        const _status = meta.faceswap ? 'erfolgreich' : 'fehlgeschlagen';
+        const _status = meta.faceswap ? t('successful') : t('failed');
         const _fallback = meta.faceswap_fallback ? ' (Fallback)' : '';
         const _val = _m
             ? `${_icon} ${_m}${_fallback} \u2014 ${_status}`
@@ -9050,11 +9125,11 @@ function _buildMetaTableHtml(meta, truncateAnalysis) {
 async function _loadUserGallery() {
     const gallery = document.getElementById('gallery-images');
     if (!gallery) return;
-    gallery.innerHTML = '<p class="gallery-empty">Laden...</p>';
+    gallery.innerHTML = `<p class="gallery-empty">${escapeHtml(t('Loading…'))}</p>`;
 
     try {
         const resp = await fetch(`/user/gallery`);
-        if (!resp.ok) throw new Error('Fehler beim Laden');
+        if (!resp.ok) throw new Error('Error loading');
         const data = await resp.json();
         const images = data.images || [];
         const metadata = data.image_metadata || {};
@@ -9080,7 +9155,7 @@ async function _loadUserGallery() {
 
         _renderGalleryEntries(_galleryEntries, gallery);
     } catch (e) {
-        gallery.innerHTML = '<p class="gallery-empty">Fehler beim Laden</p>';
+        gallery.innerHTML = `<p class="gallery-empty">${escapeHtml(t('Error loading'))}</p>`;
         console.error('[UserGallery]', e);
     }
 }
@@ -9090,11 +9165,11 @@ async function _loadUserGallery() {
 async function _loadCharacterGallery(characterName) {
     const gallery = document.getElementById('gallery-images');
     if (!gallery) return;
-    gallery.innerHTML = '<p class="gallery-empty">Laden...</p>';
+    gallery.innerHTML = `<p class="gallery-empty">${escapeHtml(t('Loading…'))}</p>`;
 
     try {
         const resp = await fetch(`/characters/${characterName}/images`);
-        if (!resp.ok) throw new Error('Fehler beim Laden');
+        if (!resp.ok) throw new Error('Error loading');
         const data = await resp.json();
         const images = data.images || [];
         const imgMeta = data.image_metadata || {};
@@ -9133,7 +9208,7 @@ async function _loadCharacterGallery(characterName) {
 
         _renderGalleryEntries(_galleryEntries, gallery);
     } catch (e) {
-        gallery.innerHTML = '<p class="gallery-empty">Fehler beim Laden</p>';
+        gallery.innerHTML = `<p class="gallery-empty">${escapeHtml(t('Error loading'))}</p>`;
         console.error('[CharGallery]', e);
     }
 }
@@ -9396,14 +9471,14 @@ function _renderGalleryDetail() {
             if (!confirm('Animation wirklich l\u00f6schen? Das Bild bleibt erhalten.')) return;
             try {
                 const resp = await fetch(`/characters/${encodeURIComponent(charName)}/images/${encodeURIComponent(entry.imageName)}/animation`, { method: 'DELETE' });
-                if (!resp.ok) throw new Error('L\u00f6schen fehlgeschlagen');
-                showStatusToast('Animation gel\u00f6scht', 'success');
+                if (!resp.ok) throw new Error('Delete failed');
+                showStatusToast(t('Animation deleted'), 'success');
                 // Video-URL entfernen und Detail neu rendern
                 entry.videoUrl = '';
                 if (entry.meta) { delete entry.meta.animate_prompt; delete entry.meta.animate_created_at; }
                 _renderGalleryDetail();
             } catch (e) {
-                showStatusToast('Animation konnte nicht gel\u00f6scht werden', 'error');
+                showStatusToast(t('Could not delete animation'), 'error');
                 console.error(e);
             }
         });
@@ -9423,8 +9498,8 @@ function _renderGalleryDetail() {
                 url = `/characters/${charName}/images/${entry.imageName}`;
             }
             const resp = await fetch(url, { method: 'DELETE' });
-            if (!resp.ok) throw new Error('Loeschen fehlgeschlagen');
-            showStatusToast('Bild geloescht', 'success');
+            if (!resp.ok) throw new Error('Delete failed');
+            showStatusToast(t('Image deleted'), 'success');
 
             // Aus Cache entfernen
             _galleryEntries.splice(_galleryDetailIndex, 1);
@@ -9440,7 +9515,7 @@ function _renderGalleryDetail() {
                 _renderGalleryDetail();
             }
         } catch (e) {
-            showStatusToast('Bild konnte nicht geloescht werden', 'error');
+            showStatusToast(t('Could not delete image'), 'error');
             console.error(e);
         }
     });
@@ -9471,13 +9546,13 @@ document.getElementById('gallery-image-upload')?.addEventListener('change', asyn
         }
 
         const response = await fetch(url, { method: 'POST', body: formData });
-        if (!response.ok) throw new Error('Upload fehlgeschlagen');
+        if (!response.ok) throw new Error('Upload failed');
 
-        showStatusToast('Bild hochgeladen', 'success');
+        showStatusToast(t('Image uploaded'), 'success');
         _reloadCurrentGallery();
         await loadKnownInfo();
     } catch (error) {
-        showStatusToast('Upload fehlgeschlagen', 'error');
+        showStatusToast(t('Upload failed'), 'error');
         console.error('Error:', error);
     }
 
@@ -9510,7 +9585,7 @@ async function _saveGalleryComment(entry, comment) {
         // Update cached entry
         entry.comment = comment;
     } catch (error) {
-        showStatusToast('Beschreibung konnte nicht gespeichert werden', 'error');
+        showStatusToast(t('Could not save description'), 'error');
         console.error('Error:', error);
     }
 }
@@ -9521,11 +9596,11 @@ async function _deleteUserGalleryImage(imageName) {
     if (!confirm('Bild wirklich loeschen?')) return;
     try {
         const resp = await fetch(`/user/gallery/${imageName}`, { method: 'DELETE' });
-        if (!resp.ok) throw new Error('Loeschen fehlgeschlagen');
-        showStatusToast('Bild geloescht', 'success');
+        if (!resp.ok) throw new Error('Delete failed');
+        showStatusToast(t('Image deleted'), 'success');
         _reloadCurrentGallery();
     } catch (e) {
-        showStatusToast('Bild konnte nicht geloescht werden', 'error');
+        showStatusToast(t('Could not delete image'), 'error');
         console.error(e);
     }
 }
@@ -9604,7 +9679,7 @@ async function regenerateImage(characterName, imageName, cardElement, prevMeta) 
 
     const btn = cardElement ? cardElement.querySelector('.btn-regenerate') : null;
     if (btn) { btn.disabled = true; btn.textContent = '\u23F3'; btn.title = 'Regenerierung laeuft...'; }
-    showStatusToast('Bild wird regeneriert...', 'info');
+    showStatusToast(t('Regenerating image…'), 'info');
 
     try {
         const body = {  };
@@ -9629,24 +9704,24 @@ async function regenerateImage(characterName, imageName, cardElement, prevMeta) 
         }
 
         const resData = await response.json();
-        showStatusToast('Regenerierung gestartet...', 'info');
+        showStatusToast(t('Regeneration started…'), 'info');
 
         if (resData.track_id) {
             const imgEl = cardElement ? (cardElement.querySelector('.gallery-list-card-image') || cardElement.querySelector('.gallery-card-image')) : null;
             _pollRegenTask(resData.track_id, () => {
-                showStatusToast('Bild erfolgreich regeneriert', 'success');
+                showStatusToast(t('Image regenerated successfully'), 'success');
                 if (imgEl) imgEl.src = `/characters/${characterName}/images/${imageName}?t=${Date.now()}`;
                 if (galleryPanelOpen) _reloadCurrentGallery();
                 if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD04'; btn.title = 'Bild regenerieren'; }
             }, (err) => {
-                showStatusToast(`Regenerierung fehlgeschlagen: ${err}`, 'error');
+                showStatusToast(t('Regeneration failed') + `: ${err}`, 'error');
                 if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD04'; btn.title = 'Bild regenerieren'; }
             });
         } else {
             if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD04'; btn.title = 'Bild regenerieren'; }
         }
     } catch (error) {
-        showStatusToast(`Regenerierung fehlgeschlagen: ${error.message}`, 'error');
+        showStatusToast(t('Regeneration failed') + `: ${error.message}`, 'error');
         console.error('Regenerate error:', error);
         if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD04'; btn.title = 'Bild regenerieren'; }
     }
@@ -9673,14 +9748,14 @@ document.getElementById('btn-save-appearance')?.addEventListener('click', async 
         });
 
         if (response.ok) {
-            showStatusToast('Aussehen gespeichert', 'success');
+            showStatusToast(t('Appearance saved'), 'success');
             await loadKnownInfo(); // Aktualisiere Header
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (error) {
         console.error('Fehler:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 });
 
@@ -9703,14 +9778,14 @@ document.getElementById('btn-save-personality')?.addEventListener('click', async
         });
 
         if (response.ok) {
-            showStatusToast('Persönlichkeit gespeichert', 'success');
+            showStatusToast(t('Personality saved'), 'success');
             await loadKnownInfo(); // Aktualisiere Header
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (error) {
         console.error('Fehler:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 });
 
@@ -9722,11 +9797,11 @@ async function setProfileImage(characterName, imageName) {
 
         if (!response.ok) throw new Error('Failed to set profile image');
 
-        showStatusToast('Profilbild gesetzt', 'success');
+        showStatusToast(t('Profile image set'), 'success');
         if (galleryPanelOpen) _reloadCurrentGallery();
         await loadKnownInfo();
     } catch (error) {
-        showStatusToast('Profilbild konnte nicht gesetzt werden', 'error');
+        showStatusToast(t('Could not set profile image'), 'error');
         console.error('Error:', error);
     }
 }
@@ -9741,11 +9816,11 @@ async function deleteImage(characterName, imageName) {
 
         if (!response.ok) throw new Error('Failed to delete image');
 
-        showStatusToast('Bild geloescht', 'success');
+        showStatusToast(t('Image deleted'), 'success');
         if (galleryPanelOpen) _reloadCurrentGallery();
         await loadKnownInfo();
     } catch (error) {
-        showStatusToast('Bild konnte nicht geloescht werden', 'error');
+        showStatusToast(t('Could not delete image'), 'error');
         console.error('Error:', error);
     }
 }
@@ -9797,10 +9872,6 @@ function switchTab(tabName) {
     // Story Dev-Tab: Models laden
     if (tabName === 'storydev') {
         storyDevLoadModels();
-    }
-    // Relations-Tab: Graph laden
-    if (tabName === 'relations') {
-        relationsRefresh();
     }
     // Tabs that hide the chat-partner character (player-only context)
     const _hideCharTabs = ['worlddev', 'story', 'storydev'];
@@ -9876,24 +9947,35 @@ document.getElementById('theme-select').addEventListener('change', async (e) => 
 });
 
 // --- Language Selector (Account-level setting) ---
+// The supported-language list is loaded from /i18n/languages — single source
+// of truth in shared/config/languages.json. No client-side duplicate.
 
-const _LANGUAGES = [
-    {value: "de", label: "Deutsch"}, {value: "en", label: "English"},
-    {value: "fr", label: "Français"}, {value: "es", label: "Español"},
-    {value: "it", label: "Italiano"}, {value: "pt", label: "Português"},
-    {value: "nl", label: "Nederlands"}, {value: "pl", label: "Polski"},
-    {value: "ru", label: "Русский"}, {value: "ja", label: "日本語"},
-    {value: "zh", label: "中文"}, {value: "ko", label: "한국어"},
-];
+let _LANGUAGES = [];
 
-function initLanguageSelector() {
+async function _fetchLanguages() {
+    try {
+        const res = await fetch('/i18n/languages');
+        if (res.ok) {
+            const data = await res.json();
+            _LANGUAGES = data.languages || [];
+        }
+    } catch (e) {
+        console.warn('Failed to load language list:', e);
+    }
+    return _LANGUAGES;
+}
+
+async function initLanguageSelector() {
     const sel = document.getElementById('language-select');
     if (!sel) return;
+    if (!_LANGUAGES.length) await _fetchLanguages();
     sel.innerHTML = '';
     for (const lang of _LANGUAGES) {
         const opt = document.createElement('option');
         opt.value = lang.value;
-        opt.textContent = lang.label;
+        // Selector uses the localized native label when available (label_<uiLang>),
+        // else the English label from languages.json.
+        opt.textContent = lang[`label_${uiLang}`] || lang.label || lang.value;
         if (lang.value === (uiLang || 'de')) opt.selected = true;
         sel.appendChild(opt);
     }
@@ -9901,6 +9983,9 @@ function initLanguageSelector() {
         const newLang = e.target.value;
         uiLang = newLang;
         localStorage.setItem('uiLang', newLang);
+        await loadTranslations(newLang);
+        applyTranslations();
+        try { document.documentElement.setAttribute('lang', newLang || 'en'); } catch (_) {}
         try {
             await fetch(`/store/default/user_profile`, {
                 method: 'POST',
@@ -9908,7 +9993,8 @@ function initLanguageSelector() {
                 body: JSON.stringify({fields: {system_language: newLang}}),
             });
         } catch(e) { console.warn('Language save failed:', e); }
-        showStatusToast(`Sprache: ${_LANGUAGES.find(l => l.value === newLang)?.label || newLang}`, 'success');
+        const langName = (_LANGUAGES.find(l => l.value === newLang) || {}).label || newLang;
+        showStatusToast(`${t('Language')}: ${langName}`, 'success');
     });
 }
 
@@ -9928,7 +10014,7 @@ async function _openUserProfileModal_REMOVED() {
 
 async function renderUserProfile(forceTemplateName) {
     const container = document.getElementById('user-profile-sections');
-    container.innerHTML = '<p class="scheduler-empty">Lade...</p>';
+    container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Loading…'))}</p>`;
 
     try {
         // Load profile and user templates in parallel
@@ -10161,13 +10247,13 @@ async function renderUserProfile(forceTemplateName) {
                             img.style.cssText = 'width:100px;height:100px;border-radius:50%;object-fit:cover;border:2px solid var(--border-color, #444);';
                             preview.replaceWith(img);
                         }
-                        showStatusToast('Profilbild gespeichert', 'success');
+                        showStatusToast(t('Profile image saved'), 'success');
                     } else {
-                        showStatusToast('Fehler beim Hochladen', 'error');
+                        showStatusToast(t('Upload error'), 'error');
                     }
                 } catch (err) {
                     console.error('[UserProfile] Image upload error:', err);
-                    showStatusToast('Fehler beim Hochladen', 'error');
+                    showStatusToast(t('Upload error'), 'error');
                 }
             });
         }
@@ -10190,7 +10276,7 @@ async function renderUserProfile(forceTemplateName) {
 
     } catch (e) {
         console.error('[UserProfile] Load error:', e);
-        container.innerHTML = '<p class="scheduler-empty">Fehler beim Laden.</p>';
+        container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -10242,18 +10328,18 @@ async function saveUserProfile() {
             // If language changed, reload the page so all labels re-render
             if (fields.system_language && fields.system_language !== uiLang) {
                 localStorage.setItem('uiLang', fields.system_language);
-                showStatusToast('Sprache geändert — Seite wird neu geladen...', 'success');
+                showStatusToast(t('Language changed — reloading page…'), 'success');
                 setTimeout(() => location.reload(), 800);
                 return;
             }
-            showStatusToast('Profil gespeichert', 'success');
+            showStatusToast(t('Profile saved'), 'success');
             closeUserProfileModal();
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (e) {
         console.error('[UserProfile] Save error:', e);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 --- END REMOVED USER PROFILE CODE --- */
@@ -10280,17 +10366,17 @@ async function loadTelegramBotStatus(characterName) {
     // No token configured
     const token = tokenInput.value.trim();
     if (!token) {
-        statusEl.innerHTML = '<span style="opacity:0.5;">Kein Token konfiguriert</span>';
+        statusEl.innerHTML = `<span style="opacity:0.5;">${escapeHtml(t('No token configured'))}</span>`;
         return;
     }
 
-    statusEl.innerHTML = '<span style="opacity:0.6;">Prüfe Verbindung...</span>';
+    statusEl.innerHTML = `<span style="opacity:0.6;">${escapeHtml(t('Checking connection…'))}</span>`;
 
     try {
         const resp = await fetch('/telegram/status');
         const data = await resp.json();
         if (!data.ok) {
-            statusEl.innerHTML = '<span style="color:var(--error-color,#e74c3c);">Status nicht verfügbar</span>';
+            statusEl.innerHTML = `<span style="color:var(--error-color,#e74c3c);">${escapeHtml(t('Status unavailable'))}</span>`;
             return;
         }
 
@@ -10307,17 +10393,17 @@ async function loadTelegramBotStatus(characterName) {
         if (found && found.running) {
             statusEl.innerHTML =
                 `<span style="color:var(--success-color,#2ecc71);">` +
-                `● Verbunden — @${found.bot_username || '?'}</span>` +
+                `● ${escapeHtml(t('Connected'))} — @${found.bot_username || '?'}</span>` +
                 `<button class="btn-small" style="margin-left:8px;font-size:0.8em;padding:2px 8px;" ` +
-                `onclick="restartTelegramBot('','${characterName}')">Neu starten</button>`;
+                `onclick="restartTelegramBot('','${characterName}')">${escapeHtml(t('Restart'))}</button>`;
         } else {
             statusEl.innerHTML =
-                `<span style="color:var(--error-color,#e74c3c);">● Nicht verbunden</span>` +
+                `<span style="color:var(--error-color,#e74c3c);">● ${escapeHtml(t('Not connected'))}</span>` +
                 `<button class="btn-small" style="margin-left:8px;font-size:0.8em;padding:2px 8px;" ` +
-                `onclick="restartTelegramBot('','${characterName}')">Starten</button>`;
+                `onclick="restartTelegramBot('','${characterName}')">${escapeHtml(t('Start'))}</button>`;
         }
     } catch (e) {
-        statusEl.innerHTML = '<span style="color:var(--error-color,#e74c3c);">Fehler beim Prüfen</span>';
+        statusEl.innerHTML = `<span style="color:var(--error-color,#e74c3c);">${escapeHtml(t('Check failed'))}</span>`;
         console.error('[Telegram] Status check failed:', e);
     }
 }
@@ -10327,14 +10413,14 @@ async function restartTelegramBot(uid, characterName) {
         const resp = await fetch(`/telegram/polling/start/${encodeURIComponent(uid)}/${encodeURIComponent(characterName)}`, { method: 'POST' });
         const data = await resp.json();
         if (data.ok) {
-            showStatusToast('Telegram Bot gestartet', 'success');
+            showStatusToast(t('Telegram bot started'), 'success');
         } else {
-            showStatusToast(data.message || 'Start fehlgeschlagen', 'error');
+            showStatusToast(data.message || t('Start failed'), 'error');
         }
         // Refresh status display
         setTimeout(() => loadTelegramBotStatus(characterName), 1000);
     } catch (e) {
-        showStatusToast('Telegram Bot Start fehlgeschlagen: ' + e.message, 'error');
+        showStatusToast(t('Telegram bot start failed') + ': ' + e.message, 'error');
     }
 }
 
@@ -10370,7 +10456,7 @@ async function reloadConfig() {
             console.log('[Reload]', data);
         } else {
             btn.textContent = '✗';
-            btn.title = 'Reload fehlgeschlagen';
+            btn.title = t('Reload failed');
         }
     } catch (e) {
         btn.textContent = '✗';
@@ -10392,7 +10478,7 @@ let editingJobId = null;
 async function openSchedulerModal(targetCharacter) {
     const characterName = targetCharacter || currentCharacterName;
     if (!characterName || characterName === 'KI') {
-        alert('Bitte wähle zuerst einen Agent aus');
+        alert(t('Please choose an agent first'));
         return;
     }
 
@@ -10698,7 +10784,7 @@ async function loadSchedulerJobs() {
 
     try {
         const response = await fetch(`/scheduler/jobs?character=${encodeURIComponent(characterName)}`);
-        if (!response.ok) throw new Error('Fehler beim Laden der Jobs');
+        if (!response.ok) throw new Error('Error loading jobs');
 
         const data = await response.json();
         const jobs = data.data || [];
@@ -10750,7 +10836,7 @@ async function loadSchedulerJobs() {
 
     } catch (error) {
         console.error('[Scheduler] Fehler:', error);
-        listEl.innerHTML = '<p class="scheduler-empty">Fehler beim Laden der Jobs</p>';
+        listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading jobs'))}</p>`;
     }
 }
 
@@ -10765,7 +10851,7 @@ function _buildJobPayload() {
         const minutes = parseInt(document.getElementById('job-interval-minutes').value) || 0;
         const seconds = parseInt(document.getElementById('job-interval-seconds').value) || 0;
         if (hours === 0 && minutes === 0 && seconds === 0) {
-            showStatusToast('Bitte mindestens ein Intervall angeben', 'error');
+            showStatusToast(t('Please provide at least one interval'), 'error');
             return null;
         }
         trigger.hours = hours;
@@ -10779,7 +10865,7 @@ function _buildJobPayload() {
     } else if (triggerType === 'date') {
         const dt = document.getElementById('job-date-datetime').value;
         if (!dt) {
-            showStatusToast('Bitte Datum und Uhrzeit angeben', 'error');
+            showStatusToast(t('Please provide date and time'), 'error');
             return null;
         }
         trigger.run_date = dt;
@@ -10796,7 +10882,7 @@ function _buildJobPayload() {
     if (actionType === 'send_message') {
         const message = document.getElementById('job-message').value.trim();
         if (!message) {
-            showStatusToast('Bitte eine Nachricht eingeben', 'error');
+            showStatusToast(t('Please enter a message'), 'error');
             return null;
         }
         action.message = message;
@@ -10804,7 +10890,7 @@ function _buildJobPayload() {
         const toolName = document.getElementById('job-tool-name').value;
         const toolInput = document.getElementById('job-tool-input').value.trim();
         if (!toolInput) {
-            showStatusToast('Bitte einen Tool-Input eingeben', 'error');
+            showStatusToast(t('Please enter a tool input'), 'error');
             return null;
         }
         action.tool_name = toolName;
@@ -10814,7 +10900,7 @@ function _buildJobPayload() {
         const activity = document.getElementById('job-status-activity').value;
         const mood = document.getElementById('job-status-mood').value.trim();
         if (!location) {
-            showStatusToast('Bitte einen Ort angeben', 'error');
+            showStatusToast(t('Please provide a location'), 'error');
             return null;
         }
         action.location = location;
@@ -10860,13 +10946,13 @@ async function submitSchedulerJob() {
             throw new Error(err.detail || 'Fehler beim Speichern');
         }
 
-        showStatusToast(editingJobId ? 'Job aktualisiert' : 'Job erstellt', 'success');
+        showStatusToast(editingJobId ? t('Job updated') : t('Job created'), 'success');
         cancelJobForm();
         await loadSchedulerJobs();
 
     } catch (error) {
         console.error('[Scheduler] Speichern fehlgeschlagen:', error);
-        showStatusToast('Fehler: ' + error.message, 'error');
+        showStatusToast(t('Error') + ': ' + error.message, 'error');
     }
 }
 
@@ -10875,14 +10961,14 @@ async function toggleSchedulerJob(jobId) {
         const response = await fetch(`/scheduler/jobs/${encodeURIComponent(jobId)}/toggle`, {
             method: 'PUT'
         });
-        if (!response.ok) throw new Error('Toggle fehlgeschlagen');
+        if (!response.ok) throw new Error('Toggle failed');
 
         const data = await response.json();
         showStatusToast(data.message, 'success');
         await loadSchedulerJobs();
     } catch (error) {
         console.error('[Scheduler] Toggle-Fehler:', error);
-        showStatusToast('Fehler beim Umschalten', 'error');
+        showStatusToast(t('Toggle error'), 'error');
     }
 }
 
@@ -10893,15 +10979,15 @@ async function deleteSchedulerJob(jobId) {
         const response = await fetch(`/scheduler/jobs/${encodeURIComponent(jobId)}`, {
             method: 'DELETE'
         });
-        if (!response.ok) throw new Error('Loeschen fehlgeschlagen');
+        if (!response.ok) throw new Error('Delete failed');
 
-        showStatusToast('Job geloescht', 'success');
+        showStatusToast(t('Job deleted'), 'success');
         // Falls der geloeschte Job gerade bearbeitet wird, Formular schliessen
         if (editingJobId === jobId) cancelJobForm();
         await loadSchedulerJobs();
     } catch (error) {
         console.error('[Scheduler] Loeschen-Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -10910,12 +10996,12 @@ async function runSchedulerJobNow(jobId) {
         const response = await fetch(`/scheduler/jobs/${encodeURIComponent(jobId)}/run`, {
             method: 'POST'
         });
-        if (!response.ok) throw new Error('Ausfuehrung fehlgeschlagen');
+        if (!response.ok) throw new Error('Execution failed');
 
-        showStatusToast('Job wird ausgefuehrt', 'success');
+        showStatusToast(t('Job running'), 'success');
     } catch (error) {
         console.error('[Scheduler] Ausfuehrung-Fehler:', error);
-        showStatusToast('Fehler beim Ausfuehren', 'error');
+        showStatusToast(t('Execution error'), 'error');
     }
 }
 
@@ -10946,7 +11032,7 @@ async function loadDailySchedule() {
             fetch(`/scheduler/daily-schedule?character=${encodeURIComponent(character)}`),
             fetch(`/characters/${encodeURIComponent(character)}/config`),
         ]);
-        if (!schedResp.ok) throw new Error('Laden fehlgeschlagen');
+        if (!schedResp.ok) throw new Error('Loading failed');
         const schedData = await schedResp.json();
         const schedule = schedData.schedule || { enabled: false, slots: [] };
 
@@ -10962,7 +11048,7 @@ async function loadDailySchedule() {
     } catch (e) {
         console.error('[Tagesablauf] Fehler:', e);
         document.getElementById('tagesablauf-grid').innerHTML =
-            '<p class="scheduler-empty">Fehler beim Laden des Tagesablaufs</p>';
+            `<p class="scheduler-empty">${escapeHtml(t('Error loading daily schedule'))}</p>`;
     }
 }
 
@@ -11213,7 +11299,7 @@ async function saveDailySchedule() {
             : 'Tagesablauf gespeichert', 'success');
     } catch (e) {
         console.error('[Tagesablauf] Speichern Fehler:', e);
-        showStatusToast('Fehler: ' + e.message, 'error');
+        showStatusToast(t('Error') + ': ' + e.message, 'error');
     }
 }
 
@@ -11301,7 +11387,7 @@ async function loadInstagramFeed() {
 
     } catch (error) {
         console.error('[Instagram] Feed-Fehler:', error);
-        feedEl.innerHTML = '<p class="instagram-empty">Fehler beim Laden des Feeds.</p>';
+        feedEl.innerHTML = `<p class="instagram-empty">${escapeHtml(t('Error loading feed'))}</p>`;
     }
 }
 
@@ -11435,7 +11521,7 @@ function renderInstagramPost(post) {
                 🗑️
             </button>
         </div>
-        ${(post.liked_by && post.liked_by.length > 0) ? `<div class="instagram-liked-by" title="${post.liked_by.map(n => escapeHtml(n)).join(', ')}">Gefällt ${escapeHtml(post.liked_by.slice(0, 2).join(', '))}${post.liked_by.length > 2 ? ' und ' + (post.liked_by.length - 2) + ' weiteren' : ''}</div>` : ''}
+        ${(post.liked_by && post.liked_by.length > 0) ? `<div class="instagram-liked-by" title="${post.liked_by.map(n => escapeHtml(n)).join(', ')}">${escapeHtml(t('Liked by'))} ${escapeHtml(post.liked_by.slice(0, 2).join(', '))}${post.liked_by.length > 2 ? ` ${t('and')} ` + (post.liked_by.length - 2) + ` ${t('more')}` : ''}</div>` : ''}
         ${postReactionsHtml}
         <div class="instagram-post-caption">${captionHtml}</div>
         ${commentsHtml}
@@ -11480,12 +11566,12 @@ async function deleteCarouselImage(btn) {
 
     try {
         const resp = await fetch(`/instagram/post/${encodeURIComponent(postId)}/image/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-        if (!resp.ok) throw new Error('L\u00f6schen fehlgeschlagen');
-        showStatusToast('Bild entfernt', 'success');
+        if (!resp.ok) throw new Error('Delete failed');
+        showStatusToast(t('Image removed'), 'success');
         // Post im Feed neu laden
         if (typeof loadInstagramFeed === 'function') loadInstagramFeed();
     } catch (e) {
-        showStatusToast('Bild konnte nicht entfernt werden', 'error');
+        showStatusToast(t('Could not remove image'), 'error');
         console.error(e);
     }
 }
@@ -11516,13 +11602,13 @@ async function deleteInstagramPost(postId) {
         const response = await fetch(`/instagram/post/${encodeURIComponent(postId)}`, {
             method: 'DELETE'
         });
-        if (!response.ok) throw new Error('Loeschen fehlgeschlagen');
+        if (!response.ok) throw new Error('Delete failed');
 
-        showStatusToast('Post geloescht', 'success');
+        showStatusToast(t('Post deleted'), 'success');
         await loadInstagramFeed();
     } catch (error) {
         console.error('[Instagram] Loeschen-Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -11574,19 +11660,19 @@ async function regenerateInstagramPost(postId, btnElement) {
         }
 
         const resData = await response.json();
-        showStatusToast('Regenerierung gestartet...', 'info');
+        showStatusToast(t('Regeneration started…'), 'info');
 
         // Poll task tracker until done, then refresh image
         if (resData.track_id) {
             const postEl2 = btnElement.closest('.instagram-post');
             const img = postEl2 ? postEl2.querySelector('.instagram-post-image img') : null;
             _pollRegenTask(resData.track_id, () => {
-                showStatusToast('Bild erfolgreich regeneriert', 'success');
+                showStatusToast(t('Image regenerated successfully'), 'success');
                 if (img) img.src = img.src.split('?')[0] + '?t=' + Date.now();
                 btnElement.textContent = originalText;
                 btnElement.disabled = false;
             }, (err) => {
-                showStatusToast('Regenerierung fehlgeschlagen: ' + err, 'error');
+                showStatusToast(t('Regeneration failed') + ': ' + err, 'error');
                 btnElement.textContent = originalText;
                 btnElement.disabled = false;
             });
@@ -11597,7 +11683,7 @@ async function regenerateInstagramPost(postId, btnElement) {
         return; // don't run finally reset — polling callbacks handle it
     } catch (error) {
         console.error('[Instagram] Regenerate-Fehler:', error);
-        showStatusToast('Regenerierung fehlgeschlagen: ' + error.message, 'error');
+        showStatusToast(t('Regeneration failed') + ': ' + error.message, 'error');
         btnElement.textContent = originalText;
         btnElement.disabled = false;
     }
@@ -11800,7 +11886,7 @@ function openAnimateDialog(sourceImageUrl, defaultPrompt, opts) {
                 } else if (postId) {
                     suggestUrl = `/instagram/post/${encodeURIComponent(postId)}/suggest-animate-prompt`;
                 } else {
-                    showStatusToast('Prompt-Vorschlag nicht verfuegbar', 'error');
+                    showStatusToast(t('Prompt suggestion not available'), 'error');
                     return;
                 }
 
@@ -11822,10 +11908,10 @@ function openAnimateDialog(sourceImageUrl, defaultPrompt, opts) {
                         }
                     } else {
                         const err = await resp.json().catch(() => ({}));
-                        showStatusToast('Prompt-Vorschlag fehlgeschlagen: ' + (err.detail || 'Fehler'), 'error');
+                        showStatusToast(t('Prompt suggestion failed') + ': ' + (err.detail || 'Fehler'), 'error');
                     }
                 } catch (e) {
-                    showStatusToast('Prompt-Vorschlag fehlgeschlagen: ' + e.message, 'error');
+                    showStatusToast(t('Prompt suggestion failed') + ': ' + e.message, 'error');
                 }
                 suggestEl.disabled = false;
                 suggestEl.textContent = 'Vorschlagen';
@@ -11888,7 +11974,7 @@ async function animateGalleryImage(characterName, imageName, imageUrl, promptTex
 
     const btn = cardElement ? cardElement.querySelector('.btn-animate') : null;
     if (btn) { btn.disabled = true; btn.textContent = '\u23F3'; btn.title = 'Animation laeuft...'; }
-    showStatusToast('Animation wird generiert...', 'info');
+    showStatusToast(t('Generating animation…'), 'info');
 
     try {
         const body = { prompt, service };
@@ -11905,22 +11991,22 @@ async function animateGalleryImage(characterName, imageName, imageUrl, promptTex
         }
 
         const resData = await response.json();
-        showStatusToast('Animation gestartet...', 'info');
+        showStatusToast(t('Animation started…'), 'info');
 
         if (resData.track_id) {
             _pollRegenTask(resData.track_id, () => {
-                showStatusToast('Video erfolgreich erstellt', 'success');
+                showStatusToast(t('Video created successfully'), 'success');
                 loadGalleryImages(characterName);
                 if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDFAC'; btn.title = 'Bild animieren'; }
             }, (err) => {
-                showStatusToast('Animation fehlgeschlagen: ' + err, 'error');
+                showStatusToast(t('Animation failed') + ': ' + err, 'error');
                 if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDFAC'; btn.title = 'Bild animieren'; }
             });
         } else {
             if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDFAC'; btn.title = 'Bild animieren'; }
         }
     } catch (error) {
-        showStatusToast('Animation fehlgeschlagen: ' + error.message, 'error');
+        showStatusToast(t('Animation failed') + ': ' + error.message, 'error');
         console.error('[Animate] Gallery error:', error);
         if (btn) { btn.disabled = false; btn.textContent = '\uD83C\uDFAC'; btn.title = 'Bild animieren'; }
     }
@@ -11957,18 +12043,18 @@ async function animateInstagramImage(postId, btnElement) {
         }
 
         const resData = await response.json();
-        showStatusToast('Animation gestartet...', 'info');
+        showStatusToast(t('Animation started…'), 'info');
 
         if (resData.track_id) {
             _pollRegenTask(resData.track_id, () => {
-                showStatusToast('Video erfolgreich erstellt', 'success');
+                showStatusToast(t('Video created successfully'), 'success');
                 // Instagram Feed neu laden
                 const feedEl = document.getElementById('instagram-feed');
                 if (feedEl) loadInstagramFeed();
                 btnElement.textContent = originalText;
                 btnElement.disabled = false;
             }, (err) => {
-                showStatusToast('Animation fehlgeschlagen: ' + err, 'error');
+                showStatusToast(t('Animation failed') + ': ' + err, 'error');
                 btnElement.textContent = originalText;
                 btnElement.disabled = false;
             });
@@ -11978,7 +12064,7 @@ async function animateInstagramImage(postId, btnElement) {
         }
     } catch (error) {
         console.error('[Animate] Instagram error:', error);
-        showStatusToast('Animation fehlgeschlagen: ' + error.message, 'error');
+        showStatusToast(t('Animation failed') + ': ' + error.message, 'error');
         btnElement.textContent = originalText;
         btnElement.disabled = false;
     }
@@ -12366,7 +12452,7 @@ function _renderRoomActivityList() {
     const container = document.getElementById('room-edit-activities');
     if (!container) return;
     if (_roomActivityIds.length === 0) {
-        container.innerHTML = '<p class="scheduler-empty">Keine Aktivitaeten — auf "+ Aktivitaet" klicken</p>';
+        container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No activities — click "+ Activity"'))}</p>`;
         return;
     }
     const _actCatLabels = {normal:'Normal',secret:'Geheim',dangerous:'Gefaehrlich',social:'Sozial',creative:'Kreativ',investigation:'Ermittlung',training:'Training',rest:'Erholung'};
@@ -12399,7 +12485,7 @@ function _renderRoomActivityList() {
 
 async function _pickRoomActivity() {
     if (!editingLocationId) {
-        showStatusToast('Kein Ort/Raum gewaehlt', 'error');
+        showStatusToast(t('No location/room chosen'), 'error');
         return;
     }
     let libData = {activities: []};
@@ -12407,7 +12493,7 @@ async function _pickRoomActivity() {
         const r = await fetch('/activities/library');
         if (r.ok) libData = await r.json();
     } catch (e) {
-        showStatusToast('Bibliothek nicht erreichbar', 'error');
+        showStatusToast(t('Library not reachable'), 'error');
         return;
     }
     // Cache aktualisieren damit Render direkt nach Add die Lib-Daten hat
@@ -12450,7 +12536,7 @@ function _addRoomActivity(actId) {
     _roomActivityIds.push(actId);
     _renderRoomActivityList();
     _renderRoomLibraryBrowser();
-    showStatusToast(`"${_roomLibraryCache[actId]?.name || actId}" zugewiesen`, 'success');
+    showStatusToast(`"${_roomLibraryCache[actId]?.name || actId}" ` + t('assigned'), 'success');
 }
 
 // === ROOM ITEMS (Items im Raum platzieren) ===
@@ -12486,7 +12572,7 @@ async function _loadRoomItems(locationId, roomId) {
                     .join('');
         }
         if (items.length === 0) {
-            listEl.innerHTML = '<p class="scheduler-empty">Keine Items im Raum</p>';
+            listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No items in the room'))}</p>`;
             return;
         }
         listEl.innerHTML = items.map(entry => {
@@ -12503,7 +12589,7 @@ async function _loadRoomItems(locationId, roomId) {
         }).join('');
     } catch (e) {
         console.error('[RoomItems] Fehler:', e);
-        listEl.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+        listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -12522,11 +12608,11 @@ function _toggleRoomItemAddForm() {
 
 async function _addItemToRoom() {
     if (!_currentRoomItemsLoc || !_currentRoomItemsRoom) {
-        showStatusToast('Speichere den Raum zuerst', 'error');
+        showStatusToast(t('Save the room first'), 'error');
         return;
     }
     const itemId = document.getElementById('room-item-add-select').value;
-    if (!itemId) { showStatusToast('Bitte ein Item auswaehlen', 'error'); return; }
+    if (!itemId) { showStatusToast(t('Please choose an item'), 'error'); return; }
     const quantity = parseInt(document.getElementById('room-item-add-quantity').value) || 1;
     const hidden = document.getElementById('room-item-add-hidden').checked;
     const note = document.getElementById('room-item-add-note').value.trim();
@@ -12537,7 +12623,7 @@ async function _addItemToRoom() {
             body: JSON.stringify({ item_id: itemId, quantity, hidden, note }),
         });
         if (resp.ok) {
-            showStatusToast('Item platziert', 'success');
+            showStatusToast(t('Item placed'), 'success');
             _toggleRoomItemAddForm();
             await _loadRoomItems(_currentRoomItemsLoc, _currentRoomItemsRoom);
         } else {
@@ -12545,7 +12631,7 @@ async function _addItemToRoom() {
             showStatusToast(err.detail || 'Fehler', 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -12555,13 +12641,13 @@ async function _removeItemFromRoom(itemId) {
     try {
         const resp = await fetch(`/inventory/rooms/${encodeURIComponent(_currentRoomItemsLoc)}/${encodeURIComponent(_currentRoomItemsRoom)}/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
         if (resp.ok) {
-            showStatusToast('Entfernt', 'success');
+            showStatusToast(t('Removed'), 'success');
             await _loadRoomItems(_currentRoomItemsLoc, _currentRoomItemsRoom);
         } else {
-            showStatusToast('Fehler', 'error');
+            showStatusToast(t('Error'), 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -12623,7 +12709,7 @@ function _renderLocationTree() {
     const locations = _cachedWorldLocations || [];
     const listEl = document.getElementById('locations-list');
     if (locations.length === 0) {
-        listEl.innerHTML = '<p class="scheduler-empty">Keine Orte vorhanden</p>';
+        listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No locations'))}</p>`;
         return;
     }
     // Klone-Counter pro Template (template_location_id zaehlen)
@@ -12702,7 +12788,7 @@ async function loadLocations() {
         _buildLocationIdMap(locations);
         _renderLocationTree();
     } catch (error) {
-        console.error('[World] Fehler beim Laden der Orte:', error);
+        console.error('[World] Error loading locations:', error);
     }
 }
 
@@ -12756,7 +12842,7 @@ async function saveLocation() {
     const passable = !!(document.getElementById('location-passable')?.checked);
 
     if (!name) {
-        showStatusToast('Name fehlt', 'error');
+        showStatusToast(t('Name missing'), 'error');
         return;
     }
 
@@ -12814,11 +12900,11 @@ async function saveLocation() {
             await loadLocations();
             editLocationById(newId);
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (error) {
         console.error('[World] Fehler:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -12829,13 +12915,13 @@ async function saveRoom() {
     const imagePromptNight = (document.getElementById('room-edit-image-prompt-night')?.value || '').trim();
     const dangerLevelRaw = document.getElementById('room-edit-danger-level')?.value;
     const dangerLevel = dangerLevelRaw !== '' && dangerLevelRaw !== undefined ? parseInt(dangerLevelRaw) : undefined;
-    if (!name) { showStatusToast('Raum-Name fehlt', 'error'); return; }
+    if (!name) { showStatusToast(t('Room name missing'), 'error'); return; }
 
     // Aktivitaeten als ID-Referenzen speichern
     const activities = _roomActivityIds.filter(id => id);
 
     const loc = (_cachedWorldLocations || []).find(l => l.id === editingLocationId);
-    if (!loc) { showStatusToast('Ort nicht gefunden', 'error'); return; }
+    if (!loc) { showStatusToast(t('Location not found'), 'error'); return; }
 
     let rooms = JSON.parse(JSON.stringify(loc.rooms || []));
     const outfitType = (document.getElementById('room-edit-outfit-type')?.value || '').trim();
@@ -12873,11 +12959,11 @@ async function saveRoom() {
             }
             editRoom(editingLocationId, editingRoomId === '__new__' ? editingRoomId : savedRoomId);
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
     } catch (error) {
         console.error('[World] Fehler:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -12888,7 +12974,7 @@ async function deleteLocation(locationId) {
     try {
         const response = await fetch(`/world/locations/${encodeURIComponent(locationId)}`, { method: 'DELETE' });
         if (response.ok) {
-            showStatusToast('Ort geloescht', 'success');
+            showStatusToast(t('Location deleted'), 'success');
             if (editingLocationId === locationId) {
                 editingLocationId = null;
                 editingLocationName = null;
@@ -12901,11 +12987,11 @@ async function deleteLocation(locationId) {
             _cachedWorldLocations = null;
             await loadLocations();
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[World] Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -12924,7 +13010,7 @@ async function deleteRoom(locId, roomId) {
             body: JSON.stringify({ name: loc.name, description: loc.description || '', rooms })
         });
         if (response.ok) {
-            showStatusToast('Raum geloescht', 'success');
+            showStatusToast(t('Room deleted'), 'success');
             if (editingRoomId === roomId) {
                 editingRoomId = null;
                 document.getElementById('location-form').style.display = 'none';
@@ -12935,7 +13021,7 @@ async function deleteRoom(locId, roomId) {
             _cachedWorldLocations = null;
             await loadLocations();
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[World] Fehler:', error);
@@ -12952,7 +13038,7 @@ async function generateLocationBackground(locationId) {
     const dialogResult = await showRegenerateDialog(`Hintergrund: ${displayName}`, currentCharacterName, 'location');
     if (dialogResult === null) return;
 
-    showStatusToast(`Generiere Hintergrund fuer "${displayName}"...`, 'success');
+    showStatusToast(t('Generating background for') + ` "${displayName}"…`, 'success');
     try {
         const body = {  };
         if (dialogResult.workflow) body.workflow = dialogResult.workflow;
@@ -12966,14 +13052,14 @@ async function generateLocationBackground(locationId) {
             body: JSON.stringify(body)
         });
         if (response.ok) {
-            showStatusToast(`Bild fuer "${displayName}" generiert!`, 'success');
+            showStatusToast(t('Image for') + ` "${displayName}" ` + t('generated!'), 'success');
         } else {
             const err = await response.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler bei Generierung', 'error');
         }
     } catch (error) {
         console.error('[Gallery] Fehler:', error);
-        showStatusToast('Fehler bei Bildgenerierung', 'error');
+        showStatusToast(t('Image generation error'), 'error');
     }
 }
 
@@ -13067,7 +13153,7 @@ function _announceRoomEntry(data) {
     const names = silent.slice(0, 3).join(', ');
     const more = silent.length > 3 ? ` (+${silent.length - 3} weitere)` : '';
     const verb = silent.length > 1 ? 'haben Dich bemerkt' : 'hat Dich bemerkt';
-    showStatusToast(`${names}${more} ${verb}, sagt aber nichts.`, 'info');
+    showStatusToast(`${names}${more} ${verb}, ` + t('but says nothing.'), 'info');
 }
 
 async function refreshAfterAvatarMove() {
@@ -13208,7 +13294,7 @@ async function loadLocationGallery(locationId, displayName, cacheBust) {
     document.getElementById('btn-gallery-generate').style.display = '';
     document.getElementById('btn-gallery-generate-all').style.display = '';
     const content = document.getElementById('location-gallery-content');
-    content.innerHTML = '<p class="scheduler-empty">Lade...</p>';
+    content.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Loading…'))}</p>`;
     const cacheSuffix = cacheBust ? `&t=${Date.now()}` : '';
 
     try {
@@ -13295,7 +13381,7 @@ async function loadLocationGallery(locationId, displayName, cacheBust) {
         content.innerHTML = html;
     } catch (error) {
         console.error('[Gallery] Fehler:', error);
-        content.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+        content.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -13360,7 +13446,7 @@ async function _loadImagegenWorkflowModels(characterName) {
         const activeWorkflow = wfData.active_workflow || '';
         let html = `<div class="skill-config-field" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">`;
         html += `<label style="font-weight:600;margin-bottom:8px;display:block;">Standard-Service</label>`;
-        html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">Der Standard-Workflow für die Bildgenerierung dieses Characters.</p>`;
+        html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">${escapeHtml(t('Default image-generation workflow for this character.'))}</p>`;
         const serviceOpts = allWorkflowOptions.map(o => {
             const sel = o.name === activeWorkflow ? ' selected' : '';
             return `<option value="${escapeHtml(o.name)}"${sel}>${escapeHtml(o.label || o.name)}</option>`;
@@ -13372,7 +13458,7 @@ async function _loadImagegenWorkflowModels(characterName) {
         // Modell pro Workflow
         html += `<div class="skill-config-field" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">`;
         html += `<label style="font-weight:600;margin-bottom:8px;display:block;">Modell pro Workflow</label>`;
-        html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">Überschreibt den .env-Default für diesen Character.</p>`;
+        html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">${escapeHtml(t('Overrides the .env default for this character.'))}</p>`;
         for (const wf of workflows) {
             const currentModel = wf.char_model || '';
             const envModel = wf.env_model || '';
@@ -13399,7 +13485,7 @@ async function _loadImagegenWorkflowModels(characterName) {
         if (loraWorkflows.length > 0) {
             html += `<div class="skill-config-field" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">`;
             html += `<label style="font-weight:600;margin-bottom:8px;display:block;">LoRAs pro Workflow</label>`;
-            html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">Überschreibt die .env-Default LoRAs für diesen Character. Leer = .env Default.</p>`;
+            html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">${escapeHtml(t('Overrides the .env default LoRAs for this character. Empty = .env default.'))}</p>`;
             for (const wf of loraWorkflows) {
                 const charLoras = wf.char_loras;
                 const envLoras = wf.default_loras || [];
@@ -13444,7 +13530,7 @@ async function _loadImagegenWorkflowModels(characterName) {
             html += `<p style="font-size:12px;color:var(--text-muted);margin:0 0 10px 0;">0 = wird automatisch generiert und gespeichert.</p>`;
             html += `<div style="display:flex;gap:6px;align-items:center;">`;
             html += `<input type="number" id="imagegen-comfy-seed" class="agent-status-input" value="${currentSeed}" min="0" style="width:100%;font-size:13px;padding:5px 8px;">`;
-            html += `<button class="save-btn" onclick="_randomizeComfySeed()" title="Zufällig" style="padding:5px 10px;white-space:nowrap;">&#x1f3b2;</button>`;
+            html += `<button class="save-btn" onclick="_randomizeComfySeed()" title="${escapeHtml(t('Random'))}" style="padding:5px 10px;white-space:nowrap;">&#x1f3b2;</button>`;
             html += `</div>`;
             html += `<button class="save-btn" onclick="_saveComfySeed('${escapeHtml(characterName)}')" style="margin-top:6px;">Speichern</button>`;
             html += `</div>`;
@@ -13471,11 +13557,11 @@ async function _saveImagegenDefaultService(characterName) {
             body: JSON.stringify({ workflow: workflow }),
         });
         if (resp.ok) {
-            showStatusToast(`Standard-Service: ${workflow}`, 'success');
+            showStatusToast(t('Default service') + `: ${workflow}`, 'success');
         } else {
-            showStatusToast('Fehler beim Speichern', 'error');
+            showStatusToast(t('Save error'), 'error');
         }
-    } catch (e) { showStatusToast('Fehler beim Speichern', 'error'); }
+    } catch (e) { showStatusToast(t('Save error'), 'error'); }
 }
 
 async function _saveImagegenWorkflowModels(characterName) {
@@ -13491,7 +13577,7 @@ async function _saveImagegenWorkflowModels(characterName) {
             body: JSON.stringify({ workflow_name: wfName, model_name: modelName }),
         });
     }
-    showStatusToast('Modell-Einstellungen gespeichert', 'success');
+    showStatusToast(t('Model settings saved'), 'success');
 }
 
 async function _saveImagegenWorkflowLoras(characterName) {
@@ -13517,7 +13603,7 @@ async function _saveImagegenWorkflowLoras(characterName) {
             body: JSON.stringify({ workflow_name: wfName, loras }),
         });
     }
-    showStatusToast('LoRA-Einstellungen gespeichert', 'success');
+    showStatusToast(t('LoRA settings saved'), 'success');
 }
 
 async function _saveComfySeed(characterName) {
@@ -13529,7 +13615,7 @@ async function _saveComfySeed(characterName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ seed: seed }),
     });
-    showStatusToast(`Seed gespeichert: ${seed === 0 ? 'Auto' : seed}`, 'success');
+    showStatusToast(t('Seed saved') + `: ${seed === 0 ? t('Auto') : seed}`, 'success');
 }
 
 function _randomizeComfySeed() {
@@ -13764,10 +13850,10 @@ async function _saveVideoGenConfig(characterName) {
                 animate_loras_low: animate_loras_low || [],
             }),
         });
-        showStatusToast('VideoGen-Einstellungen gespeichert', 'success');
+        showStatusToast(t('Video-gen settings saved'), 'success');
     } catch (e) {
         console.error('[VideoGenConfig] Speichern fehlgeschlagen:', e);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -14019,7 +14105,7 @@ async function generateProfileImage(characterName, appearance) {
     const dialogResult = await showImageGenerateDialog(defaultPrompt, 'Profilbild generieren', characterName);
     if (!dialogResult) return;
 
-    showStatusToast('Profilbild wird generiert...', 'info');
+    showStatusToast(t('Generating profile image…'), 'info');
     try {
         const body = { prompt: dialogResult.prompt };
         if (dialogResult.workflow) body.workflow = dialogResult.workflow;
@@ -14036,14 +14122,14 @@ async function generateProfileImage(characterName, appearance) {
             // Profilbild im Header aktualisieren
             const mediaUrl = `/characters/${characterName}/images/${data.image}?t=${Date.now()}`;
             setProfileMedia(mediaUrl, false);
-            showStatusToast('Profilbild generiert und gesetzt', 'success');
+            showStatusToast(t('Profile image generated and set'), 'success');
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler bei Profilbild-Generierung', 'error');
         }
     } catch (e) {
         console.error('[ProfileImage] Fehler:', e);
-        showStatusToast('Fehler bei Profilbild-Generierung', 'error');
+        showStatusToast(t('Profile image generation error'), 'error');
     }
 }
 
@@ -14746,7 +14832,7 @@ async function generateGalleryImage() {
     if (dialogResult === null) return;
 
     const roomLabel = dialogResult.roomName ? ` (${dialogResult.roomName})` : '';
-    showStatusToast(`Generiere Bild fuer "${locName}${roomLabel}"...`, 'success');
+    showStatusToast(t('Generating image for') + ` "${locName}${roomLabel}"…`, 'success');
 
     const body = {  };
     if (dialogResult.room_id) body.room_id = dialogResult.room_id;
@@ -14762,7 +14848,7 @@ async function generateGalleryImage() {
         body: JSON.stringify(body)
     }).then(async resp => {
         if (resp.ok) {
-            showStatusToast('Bild generiert!', 'success');
+            showStatusToast(t('Image generated!'), 'success');
             await loadLocationGallery(locId, locName);
             await loadLocations();
         } else {
@@ -14771,7 +14857,7 @@ async function generateGalleryImage() {
         }
     }).catch(error => {
         console.error('[Gallery] Fehler:', error);
-        showStatusToast('Fehler bei Bildgenerierung', 'error');
+        showStatusToast(t('Image generation error'), 'error');
     });
 }
 
@@ -14822,7 +14908,7 @@ async function generateAllGalleryImages() {
         jobs.push({ label: 'Ortsbeschreibung', prompt_type: 'description' });
     }
 
-    showStatusToast(`Starte ${jobs.length} Bildgenerierungen fuer "${locName}" im Hintergrund...`, 'success');
+    showStatusToast(t('Starting') + ` ${jobs.length} ` + t('image generations for') + ` "${locName}" ` + t('in the background…'), 'success');
 
     // Batch-Request an Backend (laeuft im Hintergrund)
     const batchBody = {
@@ -14841,14 +14927,14 @@ async function generateAllGalleryImages() {
     }).then(async resp => {
         if (resp.ok) {
             const data = await resp.json();
-            showStatusToast(`${data.job_count} Bilder werden im Hintergrund generiert...`, 'success');
+            showStatusToast(`${data.job_count} ` + t('images are being generated in the background…'), 'success');
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler beim Starten der Batch-Generierung', 'error');
         }
     }).catch(error => {
         console.error('[Gallery] Batch-Fehler:', error);
-        showStatusToast('Fehler beim Starten der Batch-Generierung', 'error');
+        showStatusToast(t('Error starting batch generation'), 'error');
     });
 }
 
@@ -15247,22 +15333,22 @@ async function deleteGalleryImage(locationId, imageName) {
             { method: 'DELETE' }
         );
         if (resp.ok) {
-            showStatusToast('Bild geloescht', 'success');
+            showStatusToast(t('Image deleted'), 'success');
             await loadLocationGallery(locationId);
             await loadLocations();
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[Gallery] Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
 async function generateTimeVariant(locationId, imageName, targetType) {
     const label = targetType === 'day' ? 'Tagansicht' : 'Nachtansicht';
     if (!confirm(`${label} aus diesem Bild erzeugen?`)) return;
-    showStatusToast(`Erzeuge ${label}...`, 'success');
+    showStatusToast(t('Generating') + ` ${label}…`, 'success');
     try {
         const resp = await fetch(
             `/world/locations/${encodeURIComponent(locationId)}/gallery/${encodeURIComponent(imageName)}/time-variant`,
@@ -15273,7 +15359,7 @@ async function generateTimeVariant(locationId, imageName, targetType) {
             }
         );
         if (resp.ok) {
-            showStatusToast(`${label} erstellt!`, 'success');
+            showStatusToast(`${label} ` + t('created!'), 'success');
             await loadLocationGallery(locationId, null, true);
             await loadLocations();
         } else {
@@ -15282,7 +15368,7 @@ async function generateTimeVariant(locationId, imageName, targetType) {
         }
     } catch (error) {
         console.error('[Gallery] Time-Variant Fehler:', error);
-        showStatusToast(`Fehler bei ${label}-Generierung`, 'error');
+        showStatusToast(t('Error during') + ` ${label}-` + t('generation'), 'error');
     }
 }
 
@@ -15301,18 +15387,18 @@ async function toggleGalleryBackground(locationId, imageName, btn) {
             if (data.is_background) {
                 btn.classList.add('active-bg');
                 btn.title = 'Hintergrund-faehig (klicken zum Entfernen)';
-                showStatusToast('Als Hintergrund markiert', 'success');
+                showStatusToast(t('Marked as background'), 'success');
             } else {
                 btn.classList.remove('active-bg');
                 btn.title = 'Als Hintergrund markieren';
-                showStatusToast('Hintergrund-Markierung entfernt', 'success');
+                showStatusToast(t('Background marker removed'), 'success');
             }
         } else {
-            showStatusToast('Fehler', 'error');
+            showStatusToast(t('Error'), 'error');
         }
     } catch (error) {
         console.error('[Gallery] Fehler:', error);
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -15328,13 +15414,13 @@ async function setGalleryImageRoom(locationId, imageName, roomId) {
         );
         if (resp.ok) {
             const roomName = roomId ? _resolveRoomName(_galleryLocationId, roomId) : 'Keiner';
-            showStatusToast(`Raum: ${roomName}`, 'success');
+            showStatusToast(t('Room') + `: ${roomName}`, 'success');
         } else {
-            showStatusToast('Fehler beim Setzen des Raums', 'error');
+            showStatusToast(t('Error setting room'), 'error');
         }
     } catch (error) {
         console.error('[Gallery] Room-Fehler:', error);
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -15350,13 +15436,13 @@ async function setGalleryImageType(locationId, imageName, imageType) {
         );
         if (resp.ok) {
             const labels = { day: 'Tag', night: 'Nacht', map: 'Karte', '': 'Keiner' };
-            showStatusToast(`Typ: ${labels[imageType] || imageType}`, 'success');
+            showStatusToast(t('Type') + `: ${labels[imageType] || imageType}`, 'success');
         } else {
-            showStatusToast('Fehler beim Setzen des Typs', 'error');
+            showStatusToast(t('Error setting type'), 'error');
         }
     } catch (error) {
         console.error('[Gallery] Type-Fehler:', error);
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -15465,7 +15551,7 @@ async function _loadEditorActivities(charName) {
             } catch(e) {}
         }
 
-        listEl.innerHTML = html || '<p class="scheduler-empty">Keine Aktivitaeten zugewiesen</p>';
+        listEl.innerHTML = html || `<p class="scheduler-empty">${escapeHtml(t('No activities assigned'))}</p>`;
     } catch (error) {
         console.error('[EditorAct] Fehler:', error);
     }
@@ -15483,14 +15569,14 @@ async function _seedTemplateActivities(cName) {
         });
         if (!r.ok) {
             const t = await r.text();
-            showStatusToast('Seeding fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            showStatusToast(t('Seeding failed') + ': ' + t.slice(0, 80), 'error');
             return;
         }
         const data = await r.json();
-        showStatusToast(`${data.count} Stub(s) angelegt: ${(data.created||[]).join(', ')}`, 'success');
+        showStatusToast(`${data.count} ` + t('stub(s) created') + `: ${(data.created||[]).join(', ')}`, 'success');
         await _loadEditorActivities(cName);
     } catch (e) {
-        showStatusToast('Fehler beim Seeding: ' + e.message, 'error');
+        showStatusToast(t('Seeding error') + ': ' + e.message, 'error');
     }
 }
 
@@ -15519,7 +15605,7 @@ const _editorOutfitImagegenState = {
 async function _loadEditorOutfitImagegen(charName) {
     const section = document.getElementById('editor-outfit-imagegen-section');
     if (!section || !charName) return;
-    section.innerHTML = '<p class="scheduler-empty" style="font-size:11px;">Lade…</p>';
+    section.innerHTML = `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading…'))}</p>`;
 
     try {
         const [wfResp, ckptResp, loraResp, ovResp] = await Promise.all([
@@ -15551,7 +15637,7 @@ async function _loadEditorOutfitImagegen(charName) {
 
         _renderEditorOutfitImagegen(initialWorkflow);
     } catch (e) {
-        section.innerHTML = '<p class="scheduler-empty" style="font-size:11px;">Laden fehlgeschlagen</p>';
+        section.innerHTML = `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading failed'))}</p>`;
     }
 }
 
@@ -15686,9 +15772,9 @@ async function _saveEditorOutfitImagegen() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ workflow, model, loras }),
         });
-        if (r.ok) showStatusToast('Outfit-Imagegen-Override gespeichert', 'success');
-        else showStatusToast('Speichern fehlgeschlagen', 'error');
-    } catch (e) { showStatusToast('Speichern fehlgeschlagen', 'error'); }
+        if (r.ok) showStatusToast(t('Outfit imagegen override saved'), 'success');
+        else showStatusToast(t('Save failed'), 'error');
+    } catch (e) { showStatusToast(t('Save failed'), 'error'); }
 }
 
 // ---- Slot-Overrides Matrix (Prompt + LoRA pro leerem Slot) ----
@@ -15716,7 +15802,7 @@ const _SLOT_LABELS = {
 async function _loadEditorSlotOverrides(charName) {
     const section = document.getElementById('editor-slot-overrides-section');
     if (!section || !charName) return;
-    section.innerHTML = '<p class="scheduler-empty" style="font-size:11px;">Lade…</p>';
+    section.innerHTML = `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading…'))}</p>`;
     try {
         const [ovResp, loraResp] = await Promise.all([
             fetch(`/characters/${encodeURIComponent(charName)}/slot-overrides`),
@@ -15731,7 +15817,7 @@ async function _loadEditorSlotOverrides(charName) {
         _editorSlotOverridesState.filter = loraData.filter || '';
         _renderEditorSlotOverrides();
     } catch (e) {
-        section.innerHTML = '<p class="scheduler-empty" style="font-size:11px;">Laden fehlgeschlagen</p>';
+        section.innerHTML = `<p class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading failed'))}</p>`;
     }
 }
 
@@ -15811,9 +15897,9 @@ async function _saveEditorSlotOverrides() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ slots: payload }),
         });
-        if (r.ok) showStatusToast('Slot-Overrides gespeichert', 'success');
-        else showStatusToast('Speichern fehlgeschlagen', 'error');
-    } catch (e) { showStatusToast('Speichern fehlgeschlagen', 'error'); }
+        if (r.ok) showStatusToast(t('Slot overrides saved'), 'success');
+        else showStatusToast(t('Save failed'), 'error');
+    } catch (e) { showStatusToast(t('Save failed'), 'error'); }
 }
 
 async function _clearEditorOutfitImagegen() {
@@ -15826,10 +15912,10 @@ async function _clearEditorOutfitImagegen() {
             body: JSON.stringify({ workflow: '', model: '', loras: [] }),
         });
         if (r.ok) {
-            showStatusToast('Override entfernt — Workflow-Default aktiv', 'success');
+            showStatusToast(t('Override removed — workflow default active'), 'success');
             _loadEditorOutfitImagegen(charName);
-        } else showStatusToast('Entfernen fehlgeschlagen', 'error');
-    } catch (e) { showStatusToast('Entfernen fehlgeschlagen', 'error'); }
+        } else showStatusToast(t('Remove failed'), 'error');
+    } catch (e) { showStatusToast(t('Remove failed'), 'error'); }
 }
 
 async function _loadEditorHomeLocation(charName) {
@@ -15898,7 +15984,7 @@ async function _saveHomeLocation() {
                 home_room: roomSelect.value
             })
         });
-        if (resp.ok) showStatusToast('Zuhause gespeichert', 'success');
+        if (resp.ok) showStatusToast(t('Home saved'), 'success');
     } catch (e) { console.error('[HomeLocation] Speichern fehlgeschlagen:', e); }
 }
 
@@ -15919,7 +16005,7 @@ async function _loadLibraryActivities() {
         const groups = data.groups || {};
         const charOverrides = ovResp && ovResp.ok ? (await ovResp.json()).activity_overrides || {} : {};
         if (Object.keys(groups).length === 0) {
-            container.innerHTML = '<p class="scheduler-empty">Keine Aktivitaeten in der Bibliothek</p>';
+            container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No activities in the library'))}</p>`;
             return;
         }
         let html = '';
@@ -15948,7 +16034,7 @@ async function _loadLibraryActivities() {
         container.innerHTML = html;
     } catch (e) {
         console.error('[Library] Fehler:', e);
-        container.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+        container.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -15960,14 +16046,14 @@ async function _loadLibraryActivities() {
 async function _pickExtraActivity() {
     const charName = getEditorCharacterName();
     if (!charName) {
-        showStatusToast('Kein Character ausgewaehlt', 'error');
+        showStatusToast(t('No character selected'), 'error');
         return;
     }
     const [libResp, extraResp] = await Promise.all([
         fetch('/activities/library'),
         fetch(`/activities/extra/${encodeURIComponent(charName)}`),
     ]);
-    if (!libResp.ok) { showStatusToast('Bibliothek nicht erreichbar', 'error'); return; }
+    if (!libResp.ok) { showStatusToast(t('Library not reachable'), 'error'); return; }
     const libData = await libResp.json();
     const extraData = extraResp.ok ? await extraResp.json() : {};
     const alreadyCharExtras = new Set(extraData.extra_activities || []);
@@ -16009,14 +16095,14 @@ async function _assignLibraryActivity(activityId) {
             body: JSON.stringify({ activity_id: activityId })
         });
         if (saveResp.ok) {
-            showStatusToast(`"${activityId}" zugewiesen (Referenz)`, 'success');
+            showStatusToast(`"${activityId}" ` + t('assigned (reference)'), 'success');
             await _loadEditorActivities();
         } else {
-            showStatusToast('Fehler beim Zuweisen', 'error');
+            showStatusToast(t('Assignment error'), 'error');
         }
     } catch (e) {
         console.error('[Library] Assign Fehler:', e);
-        showStatusToast('Fehler beim Zuweisen', 'error');
+        showStatusToast(t('Assignment error'), 'error');
     }
 }
 
@@ -16032,7 +16118,7 @@ async function _assignLibraryToTemplate(activityId) {
         });
         if (resp.ok) {
             const data = await resp.json();
-            showStatusToast(`"${activityId}" an ${data.count} Characters zugewiesen`, 'success');
+            showStatusToast(`"${activityId}" ` + t('assigned to') + ` ${data.count} ` + t('characters'), 'success');
             await _loadEditorActivities();
         } else {
             const err = await resp.json().catch(() => ({}));
@@ -16040,7 +16126,7 @@ async function _assignLibraryToTemplate(activityId) {
         }
     } catch (e) {
         console.error('[Library] Broadcast Fehler:', e);
-        showStatusToast('Fehler beim Zuweisen', 'error');
+        showStatusToast(t('Assignment error'), 'error');
     }
 }
 
@@ -16051,10 +16137,10 @@ async function _removeExtraActivity(activityId) {
     try {
         const resp = await fetch(`/activities/extra/${encodeURIComponent(charName)}/${encodeURIComponent(activityId)}`, { method: 'DELETE' });
         if (resp.ok) {
-            showStatusToast('Referenz entfernt', 'success');
+            showStatusToast(t('Reference removed'), 'success');
             await _loadEditorActivities();
         } else {
-            showStatusToast('Fehler', 'error');
+            showStatusToast(t('Error'), 'error');
         }
     } catch(e) {
         console.error('[Library] Remove Fehler:', e);
@@ -16121,12 +16207,19 @@ function _loadFollowUps(activity) {
 }
 
 function openGameAdminModal(tab) {
-    document.getElementById('game-admin-modal').style.display = 'flex';
-    switchGameAdminTab(tab || 'activities');
+    // Game-Admin moved to its own React SPA at /game-admin. The old in-page
+    // modal is no longer used — its markup and tab-specific render functions
+    // remain in this file as dead code until the next cleanup pass.
+    // Translate legacy tab names to the React app's tab IDs.
+    const tabAliases = { prompt_filters: 'states' };
+    const raw = (tab && typeof tab === 'string' ? tab : 'activities');
+    const t = tabAliases[raw] || raw.replace('_', '-');
+    window.location.href = '/game-admin#/' + t;
 }
 
 function closeGameAdminModal() {
-    document.getElementById('game-admin-modal').style.display = 'none';
+    // No-op — the modal is gone. Kept so legacy onclick handlers in the
+    // existing markup don't throw before that markup is removed.
 }
 
 function switchGameAdminTab(tabName) {
@@ -16204,7 +16297,7 @@ async function _loadActivityLibraryList() {
         const groups = data.groups || {};
         _libActivityGroups = groups;
         if (Object.keys(groups).length === 0) {
-            listEl.innerHTML = '<p class="scheduler-empty">Keine Aktivitaeten</p>';
+            listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No activities'))}</p>`;
             return;
         }
         let html = '';
@@ -16238,7 +16331,7 @@ async function _loadActivityLibraryList() {
         }
     } catch (e) {
         console.error('[LibModal] Fehler:', e);
-        listEl.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+        listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -16304,7 +16397,7 @@ async function copyLibraryActivity() {
     // Editor wechselt in den "Neu"-Modus damit beim Save ein NEUER
     // Eintrag entsteht (statt das Original zu ueberschreiben).
     if (!_libEditingId) {
-        showStatusToast('Bitte erst eine Aktivitaet auswaehlen', 'error');
+        showStatusToast(t('Please choose an activity first'), 'error');
         return;
     }
     const sourceId = _libEditingId;
@@ -16334,7 +16427,7 @@ async function copyLibraryActivity() {
         nameEl.value = `${nameEl.value} (Kopie)`;
     }
     document.getElementById('activity-library-form-title').textContent = 'Aktivitaet duplizieren';
-    showStatusToast(`Kopiert von "${sourceId}" — ID anpassen + Speichern`, 'success');
+    showStatusToast(t('Copied from') + ` "${sourceId}" — ` + t('adjust ID + save'), 'success');
 }
 
 async function newLibraryActivity() {
@@ -16546,7 +16639,7 @@ async function editLibraryActivity(actId) {
 async function saveLibraryActivity() {
     const id = document.getElementById('lib-act-id').value.trim();
     const name = document.getElementById('lib-act-name').value.trim();
-    if (!id || !name) { showStatusToast('ID und Name sind Pflichtfelder', 'error'); return; }
+    if (!id || !name) { showStatusToast(t('ID and name are required'), 'error'); return; }
     // Effects parsen
     const effectsText = document.getElementById('lib-act-effects').value || '';
     const effects = {};
@@ -16627,7 +16720,7 @@ async function saveLibraryActivity() {
             body: JSON.stringify({ activity, target })
         });
         if (resp.ok) {
-            showStatusToast(`"${name}" gespeichert`, 'success');
+            showStatusToast(`"${name}" ` + t('saved'), 'success');
             _libEditingId = id;
             document.getElementById('activity-library-form-title').textContent = 'Aktivitaet bearbeiten';
             await _loadActivityLibraryList();
@@ -16638,7 +16731,7 @@ async function saveLibraryActivity() {
         }
     } catch (e) {
         console.error('[LibModal] Save Fehler:', e);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -16650,7 +16743,7 @@ async function deleteLibraryActivity(actId) {
             // Versuche shared
             await fetch(`/activities/library/${encodeURIComponent(actId)}?target=shared`, { method: 'DELETE' });
         }
-        showStatusToast('Geloescht', 'success');
+        showStatusToast(t('Deleted'), 'success');
         await _loadActivityLibraryList();
     } catch (e) {
         console.error('[LibModal] Delete Fehler:', e);
@@ -16699,7 +16792,7 @@ function _renderItemsList() {
     const listEl = document.getElementById('items-list');
     if (!listEl) return;
     const items = _itemsCache || [];
-    if (!items.length) { listEl.innerHTML = '<p class="scheduler-empty">Keine Items</p>'; return; }
+    if (!items.length) { listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No items'))}</p>`; return; }
 
     const search = (document.getElementById('items-search')?.value || '').trim().toLowerCase();
     const filterCat = document.getElementById('items-filter-category')?.value || '';
@@ -16716,7 +16809,7 @@ function _renderItemsList() {
         return true;
     });
 
-    if (!filtered.length) { listEl.innerHTML = '<p class="scheduler-empty">Keine Treffer</p>'; return; }
+    if (!filtered.length) { listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No matches'))}</p>`; return; }
 
     const cardHtml = (item, scope, cat) => {
         const icon = _ITEM_CAT_ICONS[cat] || '📦';
@@ -16818,7 +16911,7 @@ function _renderItemsList() {
             const r = await fetch(`/inventory/items/${encodeURIComponent(b.dataset.item)}/move-to-shared`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
             });
-            if (r.ok) { showStatusToast('→ Shared verschoben', 'success'); _loadItemsList(); }
+            if (r.ok) { showStatusToast(t('→ Moved to shared'), 'success'); _loadItemsList(); }
             else { const d = await r.json().catch(() => ({})); showStatusToast(d.detail || 'Move fehlgeschlagen', 'error'); }
         };
     });
@@ -16829,7 +16922,7 @@ function _renderItemsList() {
             const r = await fetch(`/inventory/items/${encodeURIComponent(b.dataset.item)}/move-to-world`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
             });
-            if (r.ok) { showStatusToast('← Welt uebernommen', 'success'); _loadItemsList(); }
+            if (r.ok) { showStatusToast(t('← World adopted'), 'success'); _loadItemsList(); }
             else { const d = await r.json().catch(() => ({})); showStatusToast(d.detail || 'Move fehlgeschlagen', 'error'); }
         };
     });
@@ -16841,7 +16934,7 @@ async function _loadItemOwners(itemId) {
     if (!panel || !listEl) return;
     if (!itemId) { panel.style.display = 'none'; return; }
     panel.style.display = '';
-    listEl.innerHTML = '<span class="scheduler-empty" style="font-size:11px;">Lade...</span>';
+    listEl.innerHTML = `<span class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Loading…'))}</span>`;
     // Add-Picker mit Charakteren befuellen (parallel — der Picker veraltet nicht zwischen Items)
     _populateItemOwnerAddPicker();
     try {
@@ -16865,7 +16958,7 @@ async function _loadItemOwners(itemId) {
             b.onclick = (e) => { e.stopPropagation(); _removeItemOwner(b.dataset.character); };
         });
     } catch (e) {
-        listEl.innerHTML = '<span class="scheduler-empty" style="font-size:11px;">Fehler beim Laden</span>';
+        listEl.innerHTML = `<span class="scheduler-empty" style="font-size:11px;">${escapeHtml(t('Error loading'))}</span>`;
     }
 }
 
@@ -16889,7 +16982,7 @@ async function _addItemOwner() {
     const qtyEl = document.getElementById('item-owners-add-qty');
     const character = (sel?.value || '').trim();
     const qty = Math.max(1, parseInt(qtyEl?.value || '1', 10) || 1);
-    if (!character) { showStatusToast('Character waehlen', 'error'); return; }
+    if (!character) { showStatusToast(t('Choose a character'), 'error'); return; }
     try {
         const r = await fetch(`/inventory/characters/${encodeURIComponent(character)}`, {
             method: 'POST',
@@ -16897,7 +16990,7 @@ async function _addItemOwner() {
             body: JSON.stringify({ item_id: _editingItemId, quantity: qty, obtained_method: 'manual' }),
         });
         if (r.ok) {
-            showStatusToast(`An ${character} gegeben`, 'success');
+            showStatusToast(t('Given to') + ` ${character}`, 'success');
             if (sel) sel.value = '';
             if (qtyEl) qtyEl.value = '1';
             _loadItemOwners(_editingItemId);
@@ -16905,7 +16998,7 @@ async function _addItemOwner() {
             const d = await r.json().catch(() => ({}));
             showStatusToast(d.detail || 'Fehler', 'error');
         }
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 async function _removeItemOwner(character) {
@@ -16916,13 +17009,13 @@ async function _removeItemOwner(character) {
             method: 'DELETE',
         });
         if (r.ok) {
-            showStatusToast('Entfernt', 'success');
+            showStatusToast(t('Removed'), 'success');
             _loadItemOwners(_editingItemId);
         } else {
             const d = await r.json().catch(() => ({}));
             showStatusToast(d.detail || 'Fehler', 'error');
         }
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 let _editingItemId = null;
@@ -17385,7 +17478,7 @@ async function _saveItem() {
         item.fail_text = null;
         item.cast_activity = null;
     }
-    if (!item.name) { showStatusToast('Name fehlt', 'error'); return; }
+    if (!item.name) { showStatusToast(t('Name missing'), 'error'); return; }
     try {
         const url = _editingItemId ? `/inventory/items/${_editingItemId}` : '/inventory/items';
         const method = _editingItemId ? 'PUT' : 'POST';
@@ -17394,11 +17487,11 @@ async function _saveItem() {
         if (resp.ok) {
             const data = await resp.json();
             _editingItemId = data.item?.id || _editingItemId;
-            showStatusToast('Item gespeichert', 'success');
+            showStatusToast(t('Item saved'), 'success');
             _showItemImagePanel(true);
             await _loadItemsList();  // refresht _itemsCache automatisch
-        } else showStatusToast('Fehler', 'error');
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+        } else showStatusToast(t('Error'), 'error');
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 async function _deleteItemById(itemId) {
@@ -17411,13 +17504,13 @@ async function _deleteItemById(itemId) {
             document.getElementById('item-placeholder').style.display = 'block';
             _showItemImagePanel(false);
         }
-        showStatusToast('Geloescht', 'success');
+        showStatusToast(t('Deleted'), 'success');
         await _loadItemsList();
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 async function _generateItemImage() {
-    if (!_editingItemId) { showStatusToast('Bitte zuerst Item speichern', 'error'); return; }
+    if (!_editingItemId) { showStatusToast(t('Please save the item first'), 'error'); return; }
     // Item-Daten fuer Default-Prompt holen
     let item = null;
     try {
@@ -17453,7 +17546,7 @@ async function _generateItemImage() {
         });
         if (resp.ok) {
             const data = await resp.json();
-            showStatusToast('Bild generiert', 'success');
+            showStatusToast(t('Image generated'), 'success');
             if (data.image) {
                 _setItemImagePreview(`/inventory/items/${encodeURIComponent(_editingItemId)}/image?t=${Date.now()}`);
             }
@@ -17461,7 +17554,7 @@ async function _generateItemImage() {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler', 'error');
         }
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
     finally { if (btn) { btn.disabled = false; btn.textContent = 'Bild generieren'; } }
 }
 
@@ -17474,7 +17567,7 @@ async function _loadRulesList() {
         const resp = await fetch('/rules');
         const data = await resp.json();
         const rules = data.rules || [];
-        if (!rules.length) { listEl.innerHTML = '<p class="scheduler-empty">Keine Regeln</p>'; return; }
+        if (!rules.length) { listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No rules'))}</p>`; return; }
         const blocks = rules.filter(r => r.type === 'block');
         const forces = rules.filter(r => r.type === 'force');
         const discovers = rules.filter(r => r.type === 'discover');
@@ -17694,7 +17787,7 @@ async function _saveRule() {
     const type = document.getElementById('rule-edit-type').value;
     const name = document.getElementById('rule-edit-name').value.trim();
     if (!name) {
-        showStatusToast('Name ist Pflichtfeld', 'error');
+        showStatusToast(t('Name is required'), 'error');
         document.getElementById('rule-edit-name').focus();
         return;
     }
@@ -17755,15 +17848,15 @@ async function _saveRule() {
         }
         const resp = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({rule, target}) });
         if (resp.ok) {
-            showStatusToast(`Regel gespeichert (${target === 'shared' ? 'Allgemein' : 'Weltspezifisch'})`, 'success');
+            showStatusToast(t('Rule saved') + ` (${target === 'shared' ? t('Shared') : t('World-specific')})`, 'success');
             await _loadRulesList();
         } else {
             let detail = `HTTP ${resp.status}`;
             try { const err = await resp.json(); if (err?.detail) detail = err.detail; } catch (_) {}
-            showStatusToast(`Fehler: ${detail}`, 'error');
+            showStatusToast(t('Error') + `: ${detail}`, 'error');
         }
     } catch (e) {
-        showStatusToast(`Fehler: ${e.message || e}`, 'error');
+        showStatusToast(t('Error') + `: ${e.message || e}`, 'error');
     }
 }
 
@@ -17780,9 +17873,9 @@ async function _deleteRuleById(ruleId) {
     if (!confirm('Regel loeschen? (Shared baseline wird bei reinem World-Eintrag nicht angetastet.)')) return;
     try {
         await fetch(`/rules/${ruleId}`, { method: 'DELETE' });
-        showStatusToast('Geloescht', 'success');
+        showStatusToast(t('Deleted'), 'success');
         await _loadRulesList();
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 async function _deleteRuleOverride() {
@@ -17793,7 +17886,7 @@ async function _deleteRuleOverride() {
     try {
         const resp = await fetch(`/rules/${_editingRuleId}?target=world`, { method: 'DELETE' });
         if (resp.ok) {
-            showStatusToast('Override entfernt — Shared-Baseline aktiv', 'success');
+            showStatusToast(t('Override removed — shared baseline active'), 'success');
             _editingRuleId = null;
             _editingRuleOrigin = '';
             document.getElementById('rule-edit-form').style.display = 'none';
@@ -17802,9 +17895,9 @@ async function _deleteRuleOverride() {
         } else {
             let detail = `HTTP ${resp.status}`;
             try { const err = await resp.json(); if (err?.detail) detail = err.detail; } catch (_) {}
-            showStatusToast(`Fehler: ${detail}`, 'error');
+            showStatusToast(t('Error') + `: ${detail}`, 'error');
         }
-    } catch (e) { showStatusToast('Fehler', 'error'); }
+    } catch (e) { showStatusToast(t('Error'), 'error'); }
 }
 
 function _updateRuleRoomDropdown() {
@@ -17831,14 +17924,14 @@ async function _loadPromptFiltersList() {
     try {
         const resp = await fetch('/admin/prompt-filters/data');
         if (!resp.ok) {
-            listEl.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+            listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
             return;
         }
         const data = await resp.json();
         _pfBlockKeys = data.block_keys || [];
         _pfCachedFilters = data.filters || [];
         if (!_pfCachedFilters.length) {
-            listEl.innerHTML = '<p class="scheduler-empty">Keine Filter</p>';
+            listEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No filters'))}</p>`;
             return;
         }
         let html = '';
@@ -18018,9 +18111,9 @@ function _editPromptFilter(idx) {
 async function _savePromptFilter() {
     const idEl = document.getElementById('pf-edit-id');
     const id = (idEl.value || '').trim();
-    if (!id) { showStatusToast('id fehlt', 'error'); return; }
+    if (!id) { showStatusToast(t('id missing'), 'error'); return; }
     if (!/^[a-z0-9_]+$/i.test(id)) {
-        showStatusToast('id darf nur Buchstaben/Zahlen/_ enthalten', 'error');
+        showStatusToast(t('id may only contain letters/numbers/_'), 'error');
         return;
     }
     // condition optional — Filter-id triggert ueber den Profil-Tag,
@@ -18042,14 +18135,14 @@ async function _savePromptFilter() {
         });
         if (!resp.ok) {
             const t = await resp.text();
-            showStatusToast('Save fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            showStatusToast(t('Save failed') + ': ' + t.slice(0, 80), 'error');
             return;
         }
-        showStatusToast('Filter gespeichert', 'success');
+        showStatusToast(t('Filter saved'), 'success');
         _invalidateConditionsCache();
         await _loadPromptFiltersList();
     } catch (e) {
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -18065,16 +18158,16 @@ async function _deletePromptFilter() {
         const resp = await fetch('/admin/prompt-filters/' + encodeURIComponent(id), {method: 'DELETE'});
         if (!resp.ok) {
             const t = await resp.text();
-            showStatusToast('Delete fehlgeschlagen: ' + t.slice(0, 80), 'error');
+            showStatusToast(t('Delete failed') + ': ' + t.slice(0, 80), 'error');
             return;
         }
         document.getElementById('prompt-filter-edit-form').style.display = 'none';
         document.getElementById('prompt-filter-placeholder').style.display = 'block';
-        showStatusToast('Geloescht', 'success');
+        showStatusToast(t('Deleted'), 'success');
         _invalidateConditionsCache();
         await _loadPromptFiltersList();
     } catch (e) {
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -18126,7 +18219,7 @@ async function _loadOverrides() {
                 html += `</div>`;
             }
         }
-        listEl.innerHTML = html || '<p class="scheduler-empty">Keine Overrides</p>';
+        listEl.innerHTML = html || `<p class="scheduler-empty">${escapeHtml(t('No overrides'))}</p>`;
     } catch(e) {
         console.error('[Overrides] Fehler:', e);
     }
@@ -18272,7 +18365,7 @@ async function _saveOverrideForm() {
     const actId = document.getElementById('override-act-id').value;
     const type = document.getElementById('override-type').value;
     const target = document.getElementById('override-target').value;
-    if (!actId || !target) { showStatusToast('Aktivitaet und Ziel sind Pflichtfelder', 'error'); return; }
+    if (!actId || !target) { showStatusToast(t('Activity and target are required'), 'error'); return; }
 
     const override = {};
     // Effects parsen
@@ -18320,14 +18413,14 @@ async function _saveOverrideForm() {
             body: JSON.stringify({ activity_id: actId, override })
         });
         if (resp.ok) {
-            showStatusToast('Override gespeichert', 'success');
+            showStatusToast(t('Override saved'), 'success');
             _overrideEditing = { type, target, actId };
             await _loadOverrides();
         } else {
-            showStatusToast('Fehler', 'error');
+            showStatusToast(t('Error'), 'error');
         }
     } catch(e) {
-        showStatusToast('Fehler: ' + e, 'error');
+        showStatusToast(t('Error') + ': ' + e, 'error');
     }
 }
 
@@ -18339,7 +18432,7 @@ async function _deleteOverride(type, target, actId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ activity_id: actId, override: {} })
         });
-        showStatusToast('Override geloescht', 'success');
+        showStatusToast(t('Override deleted'), 'success');
         // Wenn aktuell bearbeiteter Override geloescht wurde, Formular schliessen
         if (_overrideEditing && _overrideEditing.type === type && _overrideEditing.target === target && _overrideEditing.actId === actId) {
             _cancelOverrideEdit();
@@ -18452,7 +18545,7 @@ async function _populateEditorInventoryItemDropdown() {
                 </div>`;
         };
     } catch (error) {
-        console.error('[EditorInventory] Fehler beim Laden der Items:', error);
+        console.error('[EditorInventory] Error loading items:', error);
     }
 }
 
@@ -18477,11 +18570,11 @@ async function saveEditorInventoryItem() {
     const itemId = document.getElementById('editor-inventory-item-select').value;
     const quantity = parseInt(document.getElementById('editor-inventory-quantity').value) || 1;
     if (!itemId) {
-        showStatusToast('Bitte ein Item auswaehlen', 'error');
+        showStatusToast(t('Please choose an item'), 'error');
         return;
     }
     const charName = _getInventoryCharName();
-    if (!charName) { showStatusToast('Kein Character gebunden', 'error'); return; }
+    if (!charName) { showStatusToast(t('No character bound'), 'error'); return; }
     try {
         const response = await fetch(`/inventory/characters/${encodeURIComponent(charName)}`, {
             method: 'POST',
@@ -18489,7 +18582,7 @@ async function saveEditorInventoryItem() {
             body: JSON.stringify({ item_id: itemId, quantity, obtained_method: 'manual' })
         });
         if (response.ok) {
-            showStatusToast('Item hinzugefuegt', 'success');
+            showStatusToast(t('Item added'), 'success');
             toggleEditorInventoryForm();
             await _loadEditorInventory(charName);
         } else {
@@ -18498,7 +18591,7 @@ async function saveEditorInventoryItem() {
         }
     } catch (error) {
         console.error('[EditorInventory] Fehler:', error);
-        showStatusToast('Fehler beim Hinzufuegen', 'error');
+        showStatusToast(t('Add error'), 'error');
     }
 }
 
@@ -18509,10 +18602,10 @@ async function removeEditorInventoryItem(itemId) {
     try {
         const response = await fetch(`/inventory/characters/${encodeURIComponent(charName)}/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
         if (response.ok) {
-            showStatusToast('Item entfernt', 'success');
+            showStatusToast(t('Item removed'), 'success');
             await _loadEditorInventory(charName);
         } else {
-            showStatusToast('Fehler beim Entfernen', 'error');
+            showStatusToast(t('Remove error'), 'error');
         }
     } catch (error) {
         console.error('[EditorInventory] Fehler:', error);
@@ -18549,14 +18642,14 @@ async function useEditorInventoryItem(itemId) {
         });
         if (resp.ok) {
             const data = await resp.json();
-            showStatusToast(`'${data.item_name}' verbraucht`, 'success');
+            showStatusToast(`'${data.item_name}' ` + t('consumed'), 'success');
             await _loadEditorInventory(charName);
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler', 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler beim Verbrauchen', 'error');
+        showStatusToast(t('Consume error'), 'error');
     }
 }
 
@@ -18586,7 +18679,7 @@ async function castSpellOnSelf(itemId, itemName) {
             showStatusToast(err.detail || 'Cast fehlgeschlagen', 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler beim Cast', 'error');
+        showStatusToast(t('Cast error'), 'error');
     }
 }
 
@@ -18606,12 +18699,12 @@ async function giveEditorInventoryItem(itemId, itemName) {
         }
     } catch (e) { console.warn('[Give] chars load failed', e); }
 
-    if (!chars.length) { showStatusToast('Keine anderen Characters verfuegbar', 'error'); return; }
+    if (!chars.length) { showStatusToast(t('No other characters available'), 'error'); return; }
 
     const recipient = prompt(`'${itemName}' verschenken an:\n\n${chars.map((c, i) => `${i+1}. ${c}`).join('\n')}\n\nName eingeben:`);
     if (!recipient) return;
     const target = chars.find(c => c.toLowerCase() === recipient.trim().toLowerCase());
-    if (!target) { showStatusToast(`Character '${recipient}' nicht gefunden`, 'error'); return; }
+    if (!target) { showStatusToast(t('Character') + ` '${recipient}' ` + t('not found'), 'error'); return; }
 
     try {
         const resp = await fetch(`/inventory/characters/${encodeURIComponent(charName)}/${encodeURIComponent(itemId)}/give`, {
@@ -18621,14 +18714,14 @@ async function giveEditorInventoryItem(itemId, itemName) {
         });
         if (resp.ok) {
             const data = await resp.json();
-            showStatusToast(`'${data.item_name}' an ${target} verschenkt (Beziehungs-Boost +${data.boost})`, 'success');
+            showStatusToast(`'${data.item_name}' ` + t('gifted to') + ` ${target} (` + t('relationship boost') + ` +${data.boost})`, 'success');
             await _loadEditorInventory(charName);
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler', 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler beim Verschenken', 'error');
+        showStatusToast(t('Gift error'), 'error');
     }
 }
 
@@ -18739,7 +18832,7 @@ async function saveEditorSecret() {
     const knownBy = document.getElementById('editor-secret-known-by').value.split(',').map(s => s.trim()).filter(Boolean);
 
     if (!content) {
-        showStatusToast('Geheimnis-Text ist ein Pflichtfeld', 'error');
+        showStatusToast(t('Secret text is required'), 'error');
         return;
     }
     try {
@@ -18751,9 +18844,9 @@ async function saveEditorSecret() {
                 body: JSON.stringify({ content, category, severity, related_characters: relatedChars, consequences_if_revealed: consequences, known_by: knownBy })
             });
             if (response.ok) {
-                showStatusToast('Geheimnis aktualisiert', 'success');
+                showStatusToast(t('Secret updated'), 'success');
             } else {
-                showStatusToast('Fehler beim Aktualisieren', 'error');
+                showStatusToast(t('Update error'), 'error');
                 return;
             }
         } else {
@@ -18764,9 +18857,9 @@ async function saveEditorSecret() {
                 body: JSON.stringify({ content, category, severity, related_characters: relatedChars, consequences_if_revealed: consequences, known_by: knownBy })
             });
             if (response.ok) {
-                showStatusToast('Geheimnis gespeichert', 'success');
+                showStatusToast(t('Secret saved'), 'success');
             } else {
-                showStatusToast('Fehler beim Speichern', 'error');
+                showStatusToast(t('Save error'), 'error');
                 return;
             }
         }
@@ -18775,7 +18868,7 @@ async function saveEditorSecret() {
         await _loadEditorSecrets();
     } catch (error) {
         console.error('[EditorSecrets] Fehler:', error);
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -18784,14 +18877,14 @@ async function deleteEditorSecret(secretId) {
     try {
         const response = await fetch(`/secrets/${encodeURIComponent(getEditorCharacterName())}/${encodeURIComponent(secretId)}`, { method: 'DELETE' });
         if (response.ok) {
-            showStatusToast('Geheimnis geloescht', 'success');
+            showStatusToast(t('Secret deleted'), 'success');
             await _loadEditorSecrets();
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[EditorSecrets] Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -18814,7 +18907,7 @@ async function generateEditorSecrets() {
         });
         if (response.ok) {
             const data = await response.json();
-            showStatusToast(`${data.count} Geheimnis(se) generiert`, 'success');
+            showStatusToast(`${data.count} ` + t('secret(s) generated'), 'success');
             await _loadEditorSecrets();
         } else {
             const err = await response.json().catch(() => ({}));
@@ -18823,11 +18916,11 @@ async function generateEditorSecrets() {
         }
     } catch (error) {
         console.error('[EditorSecrets] Generierung fehlgeschlagen:', error);
-        showStatusToast('Generierung fehlgeschlagen', 'error');
+        showStatusToast(t('Generation failed'), 'error');
         if (listEl) listEl.innerHTML = prevHtml;
     } finally {
         _secretGenerating = false;
-        btns.forEach(b => { b.disabled = false; b.textContent = 'Generieren'; });
+        btns.forEach(b => { b.disabled = false; b.textContent = t('Generate'); });
     }
 }
 
@@ -18850,7 +18943,7 @@ let _historySubtab = 'daily';
 function openKnowledgeModal(targetCharacter) {
     const characterName = targetCharacter || currentCharacterName;
     if (!characterName || characterName === 'KI') {
-        showStatusToast('Kein Character ausgewaehlt', 'error');
+        showStatusToast(t('No character selected'), 'error');
         return;
     }
     _modalCharacter = characterName;
@@ -18893,6 +18986,7 @@ function _loadMemoryTabIfNeeded(tabName) {
     if (_loadedMemoryTabs.has(tabName)) return;
     _loadedMemoryTabs.add(tabName);
     if (tabName === 'today') loadMemoryToday();
+    else if (tabName === 'locations') loadMemoryLocations();
     else if (tabName === 'memories') loadMemoryList();
     else if (tabName === 'relationships') loadMemoryRelationships();
     else if (tabName === 'history') loadMemoryHistory(_historySubtab);
@@ -18902,8 +18996,9 @@ function _loadMemoryTabIfNeeded(tabName) {
 function _memoryTypeIcon(t) {
     return ({episodic:'\uD83C\uDF1F', semantic:'\uD83D\uDCA1', commitment:'\uD83E\uDD1D'})[t] || '\uD83D\uDCA1';
 }
-function _memoryTypeLabel(t) {
-    return ({episodic:'Erlebnis', semantic:'Fakt', commitment:'Versprechen'})[t] || t;
+function _memoryTypeLabel(typ) {
+    const labels = {episodic: t('Experience'), semantic: t('Fact'), commitment: t('Promise')};
+    return labels[typ] || typ;
 }
 function _decayBar(decay) {
     const pct = Math.round((decay || 1) * 100);
@@ -18915,17 +19010,17 @@ function _fmtRelative(iso) {
     const dt = new Date(iso);
     const ms = Date.now() - dt.getTime();
     const min = Math.floor(ms / 60000);
-    if (min < 1) return 'gerade eben';
-    if (min < 60) return `vor ${min}min`;
+    if (min < 1) return t('just now');
+    if (min < 60) return `${min}` + t('min ago');
     const hr = Math.floor(min / 60);
-    if (hr < 24) return `vor ${hr}h`;
+    if (hr < 24) return `${hr}` + t('h ago');
     const d = Math.floor(hr / 24);
-    if (d < 7) return `vor ${d}d`;
-    return dt.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'});
+    if (d < 7) return `${d}` + t('d ago');
+    return dt.toLocaleDateString(uiLang || 'en', {day:'2-digit', month:'2-digit'});
 }
 function _fmtDateTime(iso) {
     if (!iso) return '';
-    return new Date(iso).toLocaleString('de-DE', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+    return new Date(iso).toLocaleString(uiLang || 'en', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 function _moodToSentiment(mood) {
     const sentimentMap = {
@@ -18960,13 +19055,12 @@ async function loadMemoryToday() {
         if (!r.ok) throw new Error('today fetch failed');
         const d = await r.json();
         _renderTodayStatus(d.status);
-        _renderKnownLocations(d.known_locations);
         _renderTodayLanes(d.lanes_24h, d.now);
         _renderActiveMemories(d.active_memories);
     } catch (e) {
         console.error('[Memory/today]', e);
         document.getElementById('today-status').innerHTML =
-            `<p class="scheduler-empty">Fehler beim Laden</p>`;
+            `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -18991,23 +19085,132 @@ function _renderTodayStatus(status) {
     document.getElementById('today-status').innerHTML = html;
 }
 
-function _renderKnownLocations(known) {
-    const el = document.getElementById('today-known-locations');
-    const items = (known && known.items) || [];
-    if (!items.length) {
-        el.innerHTML = '<p class="scheduler-empty">Keine Orte</p>';
+// === Wiederverwendbarer 2D-Karten-Renderer ===
+//
+// Rendert eine flache 2D-Karte aus Orten mit grid_x/grid_y in einen Container.
+// Orte ohne Koordinaten landen in einer "Ohne Koordinaten"-Liste darunter.
+//
+// container : HTMLElement
+// options   : {
+//   locations:        [{id, name, grid_x, grid_y, is_known, is_current,
+//                       visit_count, last_visit, passable, ...}],
+//   showOnlyKnown:    bool   \u2014 true: ungekannte ausblenden; false: gedimmt zeigen
+//   onClick:          fn(loc)? \u2014 optional Click-Handler
+//   showVisitCount:   bool   \u2014 Visit-Badge anzeigen (default true)
+// }
+function renderLocationMap(container, options) {
+    const opts = options || {};
+    const locs = opts.locations || [];
+    const showOnlyKnown = !!opts.showOnlyKnown;
+    const showVisits = opts.showVisitCount !== false;
+    const onClick = typeof opts.onClick === 'function' ? opts.onClick : null;
+
+    const visible = locs.filter(loc => !(showOnlyKnown && !loc.is_known));
+    const placed = visible.filter(l => l.grid_x != null && l.grid_y != null
+                                      && l.grid_x >= 0 && l.grid_y >= 0);
+    const unplaced = visible.filter(l => !(l.grid_x != null && l.grid_y != null
+                                          && l.grid_x >= 0 && l.grid_y >= 0));
+
+    if (!visible.length) {
+        container.innerHTML = '<p class="scheduler-empty" data-i18n="No places">No places</p>';
         return;
     }
-    const hint = known.unrestricted
-        ? '<span class="section-hint">(uneingeschr\u00E4nkt \u2014 alle Welt-Orte)</span>'
-        : '';
-    el.innerHTML = hint + items.map(loc => {
-        const cls = loc.is_current ? 'known-loc current' : 'known-loc';
-        const visit = loc.visit_count > 0
-            ? `<span class="known-loc-visits" title="Letzter Besuch: ${escapeHtml(_fmtDateTime(loc.last_visit))}">${loc.visit_count}\u00D7</span>`
-            : '<span class="known-loc-visits muted">nie</span>';
-        return `<div class="${cls}"><span class="known-loc-name">${escapeHtml(loc.name)}</span>${visit}</div>`;
-    }).join('');
+
+    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+    if (placed.length) {
+        minX = Math.min(...placed.map(l => l.grid_x));
+        maxX = Math.max(...placed.map(l => l.grid_x));
+        minY = Math.min(...placed.map(l => l.grid_y));
+        maxY = Math.max(...placed.map(l => l.grid_y));
+    }
+    const cols = placed.length ? maxX - minX + 1 : 0;
+    const rows = placed.length ? maxY - minY + 1 : 0;
+    const byPos = new Map();
+    for (const l of placed) {
+        byPos.set(`${l.grid_x - minX},${l.grid_y - minY}`, l);
+    }
+
+    function locTile(loc) {
+        const cls = [
+            'loc-tile',
+            loc.is_known ? 'known' : 'unknown',
+            loc.is_current ? 'current' : '',
+            loc.passable ? 'passable' : '',
+        ].filter(Boolean).join(' ');
+        const visitTitle = loc.last_visit ? _fmtDateTime(loc.last_visit) : '';
+        const visit = (showVisits && loc.is_known && loc.visit_count > 0)
+            ? `<span class="loc-tile-visits" title="${escapeHtml(visitTitle)}">${loc.visit_count}\u00D7</span>` : '';
+        const icon = loc.is_current ? '\uD83D\uDCCD' : (loc.passable ? '\uD83D\uDEB6' : '\uD83C\uDFE0');
+        const click = onClick ? ` data-click-id="${escapeHtml(loc.id)}"` : '';
+        return `<div class="${cls}" title="${escapeHtml(loc.name)}"${click}>
+            <div class="loc-tile-icon">${icon}</div>
+            <div class="loc-tile-name">${escapeHtml(loc.name)}</div>
+            ${visit}
+        </div>`;
+    }
+
+    let html = '';
+    if (placed.length) {
+        html += `<div class="loc-map-grid" style="grid-template-columns:repeat(${cols},minmax(80px,1fr));">`;
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                const loc = byPos.get(`${x},${y}`);
+                html += loc ? locTile(loc) : '<div class="loc-tile empty"></div>';
+            }
+        }
+        html += '</div>';
+    }
+    if (unplaced.length) {
+        html += `<div class="loc-map-unplaced">
+            <div class="loc-map-unplaced-title" data-i18n="Without coordinates">Without coordinates</div>
+            <div class="loc-map-unplaced-list">${unplaced.map(locTile).join('')}</div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+
+    if (onClick) {
+        container.querySelectorAll('[data-click-id]').forEach(el => {
+            el.addEventListener('click', () => {
+                const id = el.dataset.clickId;
+                const loc = locs.find(l => l.id === id);
+                if (loc) onClick(loc);
+            });
+        });
+    }
+}
+
+// === Tab "Bekannte Orte" ===
+async function loadMemoryLocations() {
+    if (!_modalCharacter) return;
+    const mapEl = document.getElementById('locations-map');
+    const countEl = document.getElementById('locations-count');
+    try {
+        const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/locations`);
+        if (!r.ok) throw new Error('locations fetch failed');
+        const d = await r.json();
+        const items = d.items || [];
+        const known = items.filter(it => it.is_known);
+        const showAllEl = document.getElementById('locations-show-all');
+        const renderNow = () => {
+            const showAll = showAllEl.checked;
+            countEl.textContent = showAll
+                ? `${known.length} bekannt / ${items.length} gesamt`
+                : `${known.length} bekannte Orte`;
+            renderLocationMap(mapEl, {
+                locations: items,
+                showOnlyKnown: !showAll,
+            });
+        };
+        if (!showAllEl._wired) {
+            showAllEl._wired = true;
+            showAllEl.addEventListener('change', renderNow);
+        }
+        renderNow();
+    } catch (e) {
+        console.error('[Memory/locations]', e);
+        mapEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
+    }
 }
 
 function _renderTodayLanes(lanes, nowIso) {
@@ -19049,7 +19252,7 @@ function _renderLanesList(el, lanes) {
         </div>`;
     }
     el.innerHTML =
-        laneRow('Aktivität', 'Aktivität', lanes.activity.points, 'var(--primary)') +
+        laneRow(t('Activity (lane)'), t('Activity (lane)'), lanes.activity.points, 'var(--primary)') +
         laneRow('Ort', 'Ort', lanes.location.points, 'var(--primary)') +
         laneRow('Stimmung', 'Stimmung', lanes.mood.points, '#eab308');
 
@@ -19213,7 +19416,7 @@ function _drawLanes(canvas, lanes, nowIso, highlight) {
                 ys: laneYs[0] - laneH * 0.35, ye: laneYs[0] + laneH * 0.35,
             })),
             ...lanes.activity.points.map((p, i, a) => ({
-                lane: 'Aktivität', label: p.value, ts: p.ts, count: p.count,
+                lane: t('Activity (lane)'), label: p.value, ts: p.ts, count: p.count,
                 xs: x(p.ts), xe: bandEndX(a, i, true),
                 ys: laneYs[1] - laneH * 0.30, ye: laneYs[1] + laneH * 0.30,
             })),
@@ -19278,7 +19481,7 @@ function _lanesTooltipHide() {
 function _renderActiveMemories(items) {
     const el = document.getElementById('today-active-memories');
     if (!items.length) {
-        el.innerHTML = '<p class="scheduler-empty">Keine relevanten Erinnerungen</p>';
+        el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No relevant memories'))}</p>`;
         return;
     }
     el.innerHTML = items.map(m => {
@@ -19347,7 +19550,7 @@ async function _fetchMemList(populateRelated) {
     } catch (e) {
         console.error('[Memory/list]', e);
         document.getElementById('memory-list').innerHTML =
-            '<p class="scheduler-empty">Fehler beim Laden</p>';
+            `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -19355,7 +19558,7 @@ function _renderMemList(d, populateRelated) {
     const list = document.getElementById('memory-list');
     const count = document.getElementById('memlist-count');
     const pag = document.getElementById('memlist-pagination');
-    count.textContent = `${d.total} / ${d.total_unfiltered} Erinnerungen`;
+    count.textContent = `${d.total} / ${d.total_unfiltered} ${t('memories')}`;
     if (populateRelated) {
         const sel = document.getElementById('memlist-related');
         const current = sel.value;
@@ -19366,7 +19569,7 @@ function _renderMemList(d, populateRelated) {
         sel.value = current;
     }
     if (!d.items.length) {
-        list.innerHTML = '<p class="scheduler-empty">Keine Erinnerungen mit diesen Filtern</p>';
+        list.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No memories match these filters'))}</p>`;
         pag.innerHTML = '';
         return;
     }
@@ -19427,14 +19630,14 @@ async function loadMemoryRelationships() {
     } catch (e) {
         console.error('[Memory/relationships]', e);
         document.getElementById('relationships-list').innerHTML =
-            '<p class="scheduler-empty">Fehler beim Laden</p>';
+            `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
 function _renderRelationships(items) {
     const el = document.getElementById('relationships-list');
     if (!items.length) {
-        el.innerHTML = '<p class="scheduler-empty">Keine Beziehungen</p>';
+        el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No relationships'))}</p>`;
         return;
     }
     el.innerHTML = items.map((it, idx) => {
@@ -19447,8 +19650,8 @@ function _renderRelationships(items) {
         const tens = it.romantic_tension > 0
             ? `<span class="rel-tension" title="Romantische Spannung">\uD83D\uDC95 ${it.romantic_tension.toFixed(2)}</span>` : '';
         const memChip = it.memories_count
-            ? `<button class="rel-mem-chip" onclick="memlistOpenForRelated('${escapeHtml(it.partner)}')">${it.memories_count} Erinnerungen</button>`
-            : '<span class="rel-mem-chip muted">0 Erinnerungen</span>';
+            ? `<button class="rel-mem-chip" onclick="memlistOpenForRelated('${escapeHtml(it.partner)}')">${it.memories_count} ${escapeHtml(t('memories'))}</button>`
+            : `<span class="rel-mem-chip muted">0 ${escapeHtml(t('memories'))}</span>`;
         const histRows = (it.history_recent || []).map(h => `
             <div class="rel-hist-row">
                 <span class="rel-hist-type">${escapeHtml(h.type || '')}</span>
@@ -19475,7 +19678,7 @@ function _renderRelationships(items) {
                 ${memChip}
                 <button class="rel-expand-btn" onclick="this.parentElement.parentElement.querySelector('.rel-history').classList.toggle('open')">Verlauf</button>
             </div>
-            <div class="rel-history">${histRows || '<p class="scheduler-empty">Keine Events</p>'}</div>
+            <div class="rel-history">${histRows || `<p class="scheduler-empty">${escapeHtml(t('No events'))}</p>`}</div>
         </div>`;
     }).join('');
 }
@@ -19502,7 +19705,7 @@ function switchHistorySubtab(kind) {
 async function loadMemoryHistory(kind) {
     if (!_modalCharacter) return;
     const el = document.getElementById('history-content');
-    el.innerHTML = '<p class="scheduler-empty">Lade...</p>';
+    el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Loading…'))}</p>`;
     try {
         const r = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/memory/history?kind=${encodeURIComponent(kind)}&limit=200`);
         if (!r.ok) throw new Error('history fetch failed');
@@ -19510,7 +19713,7 @@ async function loadMemoryHistory(kind) {
         _renderHistory(d);
     } catch (e) {
         console.error('[Memory/history]', e);
-        el.innerHTML = '<p class="scheduler-empty">Fehler beim Laden</p>';
+        el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -19522,11 +19725,11 @@ function _renderHistory(d) {
                  <div class="knowledge-entry-header"><span class="knowledge-type">\uD83D\uDCDC Chat-History</span></div>
                  <div class="knowledge-content">${escapeHtml(d.content)}</div>
                </div>`
-            : '<p class="scheduler-empty">Keine Chat-Summary</p>';
+            : `<p class="scheduler-empty">${escapeHtml(t('No chat summary'))}</p>`;
         return;
     }
     if (d.kind === 'daily') {
-        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Tagessummaries</p>'; return; }
+        if (!d.items.length) { el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No daily summaries'))}</p>`; return; }
         // Gruppieren nach Monat
         const byMonth = {};
         for (const it of d.items) {
@@ -19550,7 +19753,7 @@ function _renderHistory(d) {
         return;
     }
     if (d.kind === 'weekly' || d.kind === 'monthly') {
-        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Eintr\u00E4ge</p>'; return; }
+        if (!d.items.length) { el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No entries'))}</p>`; return; }
         const key = d.kind === 'weekly' ? 'week' : 'month';
         const icon = d.kind === 'weekly' ? '\uD83D\uDCC6' : '\uD83D\uDDD3\uFE0F';
         el.innerHTML = d.items.map(it => `
@@ -19577,7 +19780,7 @@ function _renderHistory(d) {
         return;
     }
     if (d.kind === 'evolution') {
-        if (!d.items.length) { el.innerHTML = '<p class="scheduler-empty">Keine Selbstbild-Snapshots</p>'; return; }
+        if (!d.items.length) { el.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No self-image snapshots'))}</p>`; return; }
         el.innerHTML = d.items.map((s, i) => {
             const diff = s.diff;
             const renderField = (field, label) => {
@@ -19610,38 +19813,38 @@ async function deleteKnowledgeEntry(entryId) {
     try {
         const response = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/knowledge/${entryId}`, { method: 'DELETE' });
         if (response.ok) {
-            showStatusToast('Eintrag geloescht', 'success');
+            showStatusToast(t('Entry deleted'), 'success');
             // Aktuelle Tab neu laden (Liste / Heute betroffen)
             _loadedMemoryTabs.delete('memories');
             _loadedMemoryTabs.delete('today');
             const active = document.querySelector('.memory-tab.active')?.dataset.tab;
             if (active) _loadMemoryTabIfNeeded(active);
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[Memory] Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
 async function clearAllKnowledge() {
     if (!_modalCharacter) return;
-    if (!confirm(`Alle Erinnerungen von ${_modalCharacter} wirklich loeschen?`)) return;
+    if (!confirm(t('Really delete all memories of') + ` ${_modalCharacter}?`)) return;
     try {
         const response = await fetch(`/characters/${encodeURIComponent(_modalCharacter)}/knowledge`, { method: 'DELETE' });
         if (response.ok) {
             const data = await response.json();
-            showStatusToast(`${data.deleted_count} Eintr\u00e4ge geloescht`, 'success');
+            showStatusToast(`${data.deleted_count} ` + t('entries deleted'), 'success');
             _loadedMemoryTabs.clear();
             const active = document.querySelector('.memory-tab.active')?.dataset.tab || 'today';
             _loadMemoryTabIfNeeded(active);
         } else {
-            showStatusToast('Fehler beim Loeschen', 'error');
+            showStatusToast(t('Delete error'), 'error');
         }
     } catch (error) {
         console.error('[Memory] Fehler:', error);
-        showStatusToast('Fehler beim Loeschen', 'error');
+        showStatusToast(t('Delete error'), 'error');
     }
 }
 
@@ -19679,7 +19882,7 @@ async function _fetchWorldLocations() {
             return _cachedWorldLocations;
         }
     } catch (error) {
-        console.error('[Location] Fehler beim Laden der Orte:', error);
+        console.error('[Location] Error loading locations:', error);
     }
     return [];
 }
@@ -20119,12 +20322,12 @@ async function loadStoryList() {
 
     try {
         const resp = await fetch(`/story/list?character_name=${encodeURIComponent(_storyChar)}`);
-        if (!resp.ok) throw new Error('Fehler beim Laden');
+        if (!resp.ok) throw new Error('Error loading');
         const data = await resp.json();
         const stories = data.stories || [];
 
         if (stories.length === 0) {
-            cardsEl.innerHTML = '<p class="story-empty">Keine passenden Geschichten fuer diesen Character.</p>';
+            cardsEl.innerHTML = `<p class="story-empty">${escapeHtml(t('No matching stories for this character.'))}</p>`;
             return;
         }
 
@@ -20149,7 +20352,7 @@ async function loadStoryList() {
         }).join('');
     } catch (error) {
         console.error('[Story] Fehler:', error);
-        cardsEl.innerHTML = '<p class="story-empty">Fehler beim Laden der Geschichten.</p>';
+        cardsEl.innerHTML = `<p class="story-empty">${escapeHtml(t('Error loading stories'))}</p>`;
     }
 }
 
@@ -20179,7 +20382,7 @@ async function startStory(filename) {
         playSection(sectionId, null);
     } catch (error) {
         console.error('[Story] Start-Fehler:', error);
-        showStatusToast('Fehler beim Laden der Story', 'error');
+        showStatusToast(t('Error loading story'), 'error');
     }
 }
 
@@ -20191,7 +20394,7 @@ async function playSection(sectionId, userChoice) {
     const optionsEl = document.getElementById('story-options');
 
     // Reset
-    contentEl.innerHTML = '<div class="story-loading">Lade...</div>';
+    contentEl.innerHTML = `<div class="story-loading">${escapeHtml(t('Loading…'))}</div>`;
     imageEl.innerHTML = '';
     optionsEl.innerHTML = '';
     // Remove previous speak button and audio player
@@ -20348,7 +20551,7 @@ async function playSection(sectionId, userChoice) {
                 }
             } catch (e) {
                 console.error('[Story TTS] Error:', e);
-                showStatusToast('Audio-Generierung fehlgeschlagen', 'error');
+                showStatusToast(t('Audio generation failed'), 'error');
             }
             speakBtn.innerHTML = '&#128266; Vorlesen';
             speakBtn.disabled = false;
@@ -20358,7 +20561,7 @@ async function playSection(sectionId, userChoice) {
     } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('[Story] Stream-Fehler:', error);
-        contentEl.innerHTML = '<div class="story-error">Fehler beim Laden der Szene.</div>';
+        contentEl.innerHTML = `<div class="story-error">${escapeHtml(t('Error loading scene'))}</div>`;
     }
 }
 
@@ -20448,7 +20651,7 @@ async function restartStory() {
         playSection('start', null);
     } catch (error) {
         console.error('[Story] Restart-Fehler:', error);
-        showStatusToast('Fehler beim Neustart', 'error');
+        showStatusToast(t('Restart error'), 'error');
     }
 }
 
@@ -20465,11 +20668,11 @@ async function restartStoryFromList(filename) {
                 story_filename: filename,
             }),
         });
-        showStatusToast('Fortschritt geloescht', 'success');
+        showStatusToast(t('Progress cleared'), 'success');
         loadStoryList();
     } catch (error) {
         console.error('[Story] Restart-Fehler:', error);
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     }
 }
 
@@ -20483,7 +20686,7 @@ async function loadStoryIntoDev(filename) {
         const selectEl = document.getElementById('storydev-model-select');
         const modelJson = selectEl.value;
         if (!modelJson) {
-            showStatusToast('Bitte zuerst im Story Dev Tab ein Modell waehlen', 'error');
+            showStatusToast(t('Please choose a model in the Story Dev tab first'), 'error');
             switchTab('storydev');
             return;
         }
@@ -20511,10 +20714,10 @@ async function loadStoryIntoDev(filename) {
         document.getElementById('storydev-result-content').innerHTML = marked.parse(stripExternalImages(data.content));
         document.getElementById('storydev-overwrite-btn').style.display = '';
 
-        showStatusToast('Story in Dev geladen - jetzt verfeinern', 'success');
+        showStatusToast(t('Story loaded into Dev — refine now'), 'success');
     } catch (error) {
         console.error('[Story] Load-into-Dev Fehler:', error);
-        showStatusToast('Fehler: ' + error.message, 'error');
+        showStatusToast(t('Error') + ': ' + error.message, 'error');
     }
 }
 
@@ -20528,13 +20731,13 @@ async function randomizeActivity() {
         // Aktuelle Location ermitteln
         const locResp = await fetch(`/characters/${currentCharacterName}/current-location`);
         if (!locResp.ok) {
-            showStatusToast('Kein Ort gesetzt', 'error');
+            showStatusToast(t('No location set'), 'error');
             return;
         }
         const locData = await locResp.json();
         const locationName = locData.current_location || '';
         if (!locationName) {
-            showStatusToast('Erst einen Ort waehlen', 'error');
+            showStatusToast(t('Choose a location first'), 'error');
             return;
         }
 
@@ -20557,7 +20760,7 @@ async function randomizeActivity() {
         }
 
         if (activities.length === 0) {
-            showStatusToast('Keine Aktivitaeten vorhanden', 'error');
+            showStatusToast(t('No activities available'), 'error');
             return;
         }
 
@@ -20595,7 +20798,7 @@ async function randomizeActivity() {
         showStatusToast(`🎲 ${randomActivity}`, 'success');
     } catch (error) {
         console.error('[RandomActivity] Fehler:', error);
-        showStatusToast('Fehler', 'error');
+        showStatusToast(t('Error'), 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -20726,7 +20929,7 @@ async function cancelQueueTask(taskId) {
         if (data.status === 'cancelled') {
             showToast('Task abgebrochen', 'success');
         } else {
-            showToast('Task nicht gefunden oder läuft bereits', 'warning');
+            showToast(t('Task not found or already running'), 'warning');
         }
         fetchQueueStatus();
     } catch (e) {
@@ -20815,7 +21018,7 @@ function _renderTaskEstimate(t) {
     const est = t.estimated_duration_s;
     if (!est || est <= 0) return '';
     const samples = t.estimated_samples || 0;
-    const title = `geschätzt aus ${samples} historischen Calls`;
+    const title = `${t('estimated from')} ${samples} ${t('historic calls')}`;
     return `<span class="queue-task-estimate" title="${escapeHtml(title)}">~${est.toFixed(1)}s</span>`;
 }
 
@@ -21031,7 +21234,7 @@ function renderQueueStatus(data) {
             }
 
             if (!runningTasks.length && !pendingTasks.length) {
-                html += `<div class="queue-bg-empty">Keine wartenden Tasks</div>`;
+                html += `<div class="queue-bg-empty">${escapeHtml(t('No waiting tasks'))}</div>`;
             }
             html += `</div>`;
         }
@@ -21146,11 +21349,11 @@ function renderQueueStatus(data) {
     // ── FORCE-RESUME (nur wenn Chat-Tasks registriert sind) ───────────
     if (chatActive.length > 0) {
         html += `<div class="queue-force-resume-hint">
-            Queue hängt? <button class="queue-force-resume-btn" onclick="forceResumeQueues()" title="Verwaiste Chat-Registrierungen bereinigen">Queue entstören</button>
+            ${t('Queue stuck?')} <button class="queue-force-resume-btn" onclick="forceResumeQueues()" title="${escapeHtml(t('Clean up orphaned chat registrations'))}">${escapeHtml(t('Unstick queue'))}</button>
         </div>`;
     }
 
-    container.innerHTML = html || '<p class="queue-empty">Keine aktiven Tasks</p>';
+    container.innerHTML = html || `<p class="queue-empty">${escapeHtml(t('No active tasks'))}</p>`;
     _tickQueueTimers();
 }
 
@@ -21213,7 +21416,7 @@ function renderEvents(events) {
     const container = document.getElementById('events-content');
     if (!container) return;
     if (!events || events.length === 0) {
-        container.innerHTML = '<p class="events-empty">Keine Ereignisse vorhanden.</p>';
+        container.innerHTML = `<p class="events-empty">${escapeHtml(t('No events available.'))}</p>`;
         return;
     }
     // Location-ID -> Name Mapping
@@ -21272,7 +21475,7 @@ function renderEvents(events) {
                 ${attemptsBlock}
                 <span class="events-card-meta">${escapeHtml(locName)} · ${escapeHtml(ts)} · ${escapeHtml(expiry)}</span>
             </div>
-            <button class="events-card-delete" onclick="deleteEvent('${escapeHtml(evt.id)}')" title="Löschen">&times;</button>
+            <button class="events-card-delete" onclick="deleteEvent('${escapeHtml(evt.id)}')" title="${escapeHtml(t('Delete'))}">&times;</button>
         </div>`;
     }
     container.innerHTML = html;
@@ -21313,7 +21516,7 @@ async function addEvent() {
     const locEl = document.getElementById('events-location');
     const ttlEl = document.getElementById('events-ttl');
     const text = (textEl?.value || '').trim();
-    if (!text) { showStatusToast('Text fehlt', 'error'); return; }
+    if (!text) { showStatusToast(t('Text missing'), 'error'); return; }
     try {
         const resp = await fetch('/events', {
             method: 'POST',
@@ -21329,7 +21532,7 @@ async function addEvent() {
             textEl.value = '';
             fetchEvents();
         } else {
-            showStatusToast('Fehler beim Erstellen', 'error');
+            showStatusToast(t('Create error'), 'error');
         }
     } catch (e) {
         console.error('[Events] Add error:', e);
@@ -21452,7 +21655,7 @@ function renderAssignments(assignments) {
     const container = document.getElementById('events-content');
     if (!container) return;
     if (!assignments.length) {
-        container.innerHTML = '<p class="events-empty">Keine Aufgaben vorhanden.</p>';
+        container.innerHTML = `<p class="events-empty">${escapeHtml(t('No tasks available.'))}</p>`;
         return;
     }
     let html = '';
@@ -21513,9 +21716,9 @@ async function addAssignment() {
     const priority = parseInt(document.getElementById('assignment-priority')?.value || '3', 10);
     const duration = parseInt(document.getElementById('assignment-duration')?.value || '120', 10);
 
-    if (!title) { showStatusToast('Titel fehlt', 'error'); return; }
+    if (!title) { showStatusToast(t('Title missing'), 'error'); return; }
     const selectedChars = Object.keys(_assignmentSelectedChars);
-    if (!selectedChars.length) { showStatusToast('Mindestens einen Character ausw\u00e4hlen', 'error'); return; }
+    if (!selectedChars.length) { showStatusToast(t('Choose at least one character'), 'error'); return; }
 
     const participants = {};
     for (const name of selectedChars) {
@@ -21540,9 +21743,9 @@ async function addAssignment() {
             _assignmentSelectedChars = {};
             _populateAssignmentCharacters();
             fetchAssignments();
-            showStatusToast('Aufgabe erstellt', 'success');
+            showStatusToast(t('Task created'), 'success');
         } else {
-            showStatusToast('Fehler beim Erstellen', 'error');
+            showStatusToast(t('Create error'), 'error');
         }
     } catch (e) {
         console.error('[Assignments] Add error:', e);
@@ -21567,7 +21770,7 @@ async function reactivateAssignment(id) {
     const choice = prompt('Neue Dauer w\u00e4hlen (Minuten):\n60 = 1h, 120 = 2h, 480 = 8h, 1440 = 1 Tag, 4320 = 3 Tage', '120');
     if (!choice) return;
     const minutes = parseInt(choice, 10);
-    if (isNaN(minutes) || minutes <= 0) { showStatusToast('Ung\u00fcltige Dauer', 'error'); return; }
+    if (isNaN(minutes) || minutes <= 0) { showStatusToast(t('Invalid duration'), 'error'); return; }
     const expires_at = new Date(Date.now() + minutes * 60000).toISOString();
     try {
         const resp = await fetch(`/assignments/default/${id}`, {
@@ -21577,7 +21780,7 @@ async function reactivateAssignment(id) {
         });
         if (resp.ok) {
             fetchAssignments();
-            showStatusToast('Aufgabe neugestartet (Fortschritt zur\u00fcckgesetzt)', 'success');
+            showStatusToast(t('Task restarted (progress reset)'), 'success');
         }
     } catch (e) {
         console.error('[Assignments] Reactivate error:', e);
@@ -21653,7 +21856,7 @@ async function saveAssignmentEdit() {
     const priority = parseInt(document.getElementById('assignment-priority')?.value || '3', 10);
     const durationMin = parseInt(document.getElementById('assignment-duration')?.value || '120', 10);
 
-    if (!title) { showStatusToast('Titel fehlt', 'error'); return; }
+    if (!title) { showStatusToast(t('Title missing'), 'error'); return; }
 
     const participants = {};
     for (const [name, role] of Object.entries(_assignmentSelectedChars)) {
@@ -21679,7 +21882,7 @@ async function saveAssignmentEdit() {
         if (resp.ok) {
             _cancelAssignmentEdit();
             fetchAssignments();
-            showStatusToast('Aufgabe gespeichert', 'success');
+            showStatusToast(t('Task saved'), 'success');
         }
     } catch (e) {
         console.error('[Assignments] Save error:', e);
@@ -21771,7 +21974,7 @@ function renderStoryArcStatus(data) {
     if (!container) return;
 
     if (!data || !data.arcs || data.arcs.length === 0) {
-        container.innerHTML = '<p class="storyarc-empty">Keine Story Arcs vorhanden.<br>Klicke + um einen zu generieren.</p>';
+        container.innerHTML = `<p class="storyarc-empty">${escapeHtml(t('No story arcs yet.'))}<br>${escapeHtml(t('Click + to generate one.'))}</p>`;
         return;
     }
 
@@ -21802,7 +22005,7 @@ function renderStoryArcStatus(data) {
 }
 
 async function deleteStoryArc(arcId) {
-    if (!confirm('Diesen Story Arc wirklich löschen?')) return;
+    if (!confirm(t('Really delete this story arc?'))) return;
     try {
         const resp = await fetch(`/queue/story-arc/${encodeURIComponent(arcId)}`, { method: 'DELETE' });
         if (resp.ok) {
@@ -21863,7 +22066,7 @@ function renderArcCard(arc) {
     if (isActive && state) {
         stateHtml = `<div class="arc-state"><strong>Stand:</strong> ${escapeHtml(state)}</div>`;
         if (hint) {
-            stateHtml += `<div class="arc-hint"><strong>Nächster Schritt:</strong> ${escapeHtml(hint)}</div>`;
+            stateHtml += `<div class="arc-hint"><strong>${escapeHtml(t('Next step:'))}</strong> ${escapeHtml(hint)}</div>`;
         }
     } else if (!isActive && resolution) {
         stateHtml = `<div class="arc-resolution"><strong>Abschluss:</strong> ${escapeHtml(resolution)}</div>`;
@@ -21880,7 +22083,7 @@ function renderArcCard(arc) {
     }
 
     // Delete button
-    const deleteBtn = `<button class="arc-delete-btn" onclick="deleteStoryArc('${arc.id}')" title="Arc löschen">🗑</button>`;
+    const deleteBtn = `<button class="arc-delete-btn" onclick="deleteStoryArc('${arc.id}')" title="${escapeHtml(t('Delete arc'))}">🗑</button>`;
 
     // Created date
     const created = arc.created_at ? new Date(arc.created_at).toLocaleDateString('de-DE', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '';
@@ -21944,7 +22147,7 @@ async function loadCharacterSidebar(prefetched) {
         }
 
         if (!userLocationId) {
-            container.innerHTML = '<div class="character-sidebar-empty">Kein Ort gewaehlt. Oeffne die Weltkarte.</div>';
+            container.innerHTML = `<div class="character-sidebar-empty">${escapeHtml(t('No location selected. Open the world map.'))}</div>`;
             return;
         }
 
@@ -21961,7 +22164,7 @@ async function loadCharacterSidebar(prefetched) {
             chatbots = botData.characters || [];
         } catch (e) {
             console.error('[Sidebar] Fehler:', e);
-            container.innerHTML = '<div class="character-sidebar-empty">Fehler beim Laden</div>';
+            container.innerHTML = `<div class="character-sidebar-empty">${escapeHtml(t('Error loading'))}</div>`;
             return;
         }
 
@@ -21979,13 +22182,13 @@ async function loadCharacterSidebar(prefetched) {
 
     // Edge-Case: kein Ort gewaehlt (sowohl prefetched als auch Standalone)
     if (!userLocationId) {
-        container.innerHTML = '<div class="character-sidebar-empty">Kein Ort gewaehlt. Oeffne die Weltkarte.</div>';
+        container.innerHTML = `<div class="character-sidebar-empty">${escapeHtml(t('No location selected. Open the world map.'))}</div>`;
         return;
     }
 
     try {
         if (characters.length === 0 && chatbots.length === 0) {
-            container.innerHTML = '<div class="character-sidebar-empty">Keine Characters verfuegbar</div>';
+            container.innerHTML = `<div class="character-sidebar-empty">${escapeHtml(t('No characters available'))}</div>`;
             return;
         }
 
@@ -22050,7 +22253,7 @@ async function loadCharacterSidebar(prefetched) {
         }
 
         if (!_locRendered && !_bots.length) {
-            html += '<div class="character-sidebar-empty">Keine Characters an diesem Ort</div>';
+            html += `<div class="character-sidebar-empty">${escapeHtml(t('No characters at this location'))}</div>`;
         }
         container.innerHTML = html;
 
@@ -22059,7 +22262,7 @@ async function loadCharacterSidebar(prefetched) {
             btn.addEventListener('click', async (ev) => {
                 const name = btn.dataset.character;
                 if (isChatBusy) {
-                    showStatusToast('Character-Wechsel nicht moeglich waehrend Chat aktiv ist', 'error');
+                    showStatusToast(t('Character switch not possible while chat is active'), 'error');
                     return;
                 }
 
@@ -22109,11 +22312,7 @@ async function loadCharacterSidebar(prefetched) {
                 // wo er ist — Raumwechsel macht der User explizit ueber den
                 // Room-Picker oder die Weltkarte.
 
-                // Relations-Graph aktualisieren falls Tab aktiv
-                if (document.getElementById('tab-relations')?.classList.contains('tab-content-active')) {
-                    relationsRefresh();
-                }
-                showStatusToast(`Character gewechselt: ${name}`, 'success');
+                showStatusToast(t('Character switched') + `: ${name}`, 'success');
             });
         });
         // Group-Toggle Handler
@@ -22135,7 +22334,7 @@ async function loadCharacterSidebar(prefetched) {
 
     } catch (e) {
         console.error('[Sidebar] Fehler:', e);
-        container.innerHTML = '<div class="character-sidebar-empty">Fehler beim Laden</div>';
+        container.innerHTML = `<div class="character-sidebar-empty">${escapeHtml(t('Error loading'))}</div>`;
     }
 }
 
@@ -22168,7 +22367,7 @@ async function loadWorldPanel() {
     const content = document.getElementById('worldmap-content');
     if (!content) return;
 
-    content.innerHTML = '<p class="queue-empty">Lade Weltkarte...</p>';
+    content.innerHTML = `<p class="queue-empty">${escapeHtml(t('Loading world map…'))}</p>`;
 
     try {
         // Parallel: locations, characters list, user profile (fuer User-Location)
@@ -22226,7 +22425,7 @@ async function loadWorldPanel() {
         }
     } catch (e) {
         console.error('[WorldMap] Error:', e);
-        content.innerHTML = '<p class="queue-empty">Fehler beim Laden</p>';
+        content.innerHTML = `<p class="queue-empty">${escapeHtml(t('Error loading'))}</p>`;
     }
 }
 
@@ -22250,7 +22449,7 @@ function _isoPos(gridX, gridY) {
 
 function renderWorldPanelGrid(locations, charData, currentLocation, container) {
     if (!locations.length && !charData.length) {
-        container.innerHTML = '<p class="queue-empty" style="padding:14px">Keine Orte vorhanden. Orte anlegen über das ⚙ Zahnrad.</p>';
+        container.innerHTML = `<p class="queue-empty" style="padding:14px">${escapeHtml(t('No locations available. Create locations via the ⚙ gear icon.'))}</p>`;
         return;
     }
 
@@ -22762,7 +22961,7 @@ document.getElementById('worldmap-content')?.addEventListener('click', function(
 async function onWorldPanelLocationClick(locationId) {
     // auth guard removed
     if (isChatBusy) {
-        showStatusToast('Ortswechsel nicht moeglich waehrend Chat aktiv ist', 'error');
+        showStatusToast(t('Location switch not possible while chat is active'), 'error');
         return;
     }
 
@@ -22844,7 +23043,7 @@ async function onWorldPanelLocationClick(locationId) {
         loadConditionBadges();
         updateStoryTabVisibility();
 
-        showStatusToast(`📍 Du bist jetzt: ${locationIdToName(locationId)}`, 'success');
+        showStatusToast(`📍 ` + t('You are now:') + ` ${locationIdToName(locationId)}`, 'success');
 
         // Weltkarte schliessen
         const panel = document.getElementById('worldmap-panel');
@@ -22854,14 +23053,14 @@ async function onWorldPanelLocationClick(locationId) {
         await refreshAfterAvatarMove();
     } catch (error) {
         console.error('[WorldMap] Fehler:', error);
-        showStatusToast('Fehler beim Setzen des Orts', 'error');
+        showStatusToast(t('Error setting location'), 'error');
     }
 }
 
 async function onHomelessCharacterClick(characterName) {
     if (characterName === currentCharacterName) return;
     if (isChatBusy) {
-        showStatusToast('Character-Wechsel nicht moeglich waehrend Chat aktiv ist', 'error');
+        showStatusToast(t('Character switch not possible while chat is active'), 'error');
         return;
     }
 
@@ -22884,10 +23083,10 @@ async function onHomelessCharacterClick(characterName) {
         await loadChatHistory();
         loadInitialPrompt();
         loadCharacterSidebar();
-        showStatusToast(`Character gewechselt: ${characterName}`, 'success');
+        showStatusToast(t('Character switched') + `: ${characterName}`, 'success');
     } catch (error) {
         console.error('[WorldMap] Fehler:', error);
-        showStatusToast('Fehler beim Character-Wechsel', 'error');
+        showStatusToast(t('Character switch error'), 'error');
     }
 }
 
@@ -22948,13 +23147,13 @@ async function storyDevGenerate() {
     const selectEl = document.getElementById('storydev-model-select');
     const modelJson = selectEl.value;
     if (!modelJson) {
-        showStatusToast('Bitte ein Modell waehlen', 'error');
+        showStatusToast(t('Please choose a model'), 'error');
         return;
     }
 
     const thema = document.getElementById('storydev-thema').value.trim();
     if (!thema) {
-        showStatusToast('Bitte ein Thema eingeben', 'error');
+        showStatusToast(t('Please enter a topic'), 'error');
         return;
     }
 
@@ -23074,9 +23273,9 @@ async function storyDevRefine() {
             throw new Error(err.detail || 'Server-Fehler');
         }
         await _storyDevProcessStream(response, contentEl);
-        showStatusToast('Story aktualisiert', 'success');
+        showStatusToast(t('Story updated'), 'success');
     } catch (e) {
-        showStatusToast('Fehler beim Verbessern: ' + e.message, 'error');
+        showStatusToast(t('Refine error') + ': ' + e.message, 'error');
     } finally {
         _storyDevBusy = false;
         document.getElementById('storydev-refine-btn').disabled = false;
@@ -23085,7 +23284,7 @@ async function storyDevRefine() {
 
 async function storyDevSave(overwrite) {
     if (!_storyDevSessionId || !_storyDevRawResult) {
-        showStatusToast('Keine Story zum Speichern', 'error');
+        showStatusToast(t('No story to save'), 'error');
         return;
     }
 
@@ -23098,9 +23297,9 @@ async function storyDevSave(overwrite) {
                 body: JSON.stringify({ content: _storyDevRawResult }),
             });
             if (!res.ok) throw new Error('Speichern fehlgeschlagen');
-            showStatusToast('Story ueberschrieben: ' + _storyDevSourceFilename, 'success');
+            showStatusToast(t('Story overwritten') + ': ' + _storyDevSourceFilename, 'success');
         } catch (e) {
-            showStatusToast('Fehler beim Ueberschreiben', 'error');
+            showStatusToast(t('Overwrite error'), 'error');
         }
         return;
     }
@@ -23113,12 +23312,12 @@ async function storyDevSave(overwrite) {
         });
         const data = await res.json();
         if (data.status === 'success') {
-            showStatusToast('Story gespeichert: ' + data.filename, 'success');
+            showStatusToast(t('Story saved') + ': ' + data.filename, 'success');
         } else {
             showStatusToast(data.detail || 'Speichern fehlgeschlagen', 'error');
         }
     } catch (e) {
-        showStatusToast('Fehler beim Speichern', 'error');
+        showStatusToast(t('Save error'), 'error');
     }
 }
 
@@ -23217,7 +23416,7 @@ function renderNotifications(notifications) {
     const container = document.getElementById('notifications-content');
     if (!container) return;
     if (!notifications.length) {
-        container.innerHTML = '<p class="notification-empty">Keine Nachrichten</p>';
+        container.innerHTML = `<p class="notification-empty">${escapeHtml(t('No messages'))}</p>`;
         return;
     }
     // Expired IDs aus dem Expand-Set bereinigen
@@ -23337,12 +23536,12 @@ async function onNotificationClick(notificationId, characterName) {
                 await loadKnownInfo();
                 await loadChatHistory(historyLimit);
                 loadCharacterSidebar();
-                showStatusToast(`Character: ${characterName}`, 'success');
+                showStatusToast(t('Character') + `: ${characterName}`, 'success');
             } catch (e) {
                 console.error('[Notifications] Character switch error:', e);
             }
         } else {
-            showStatusToast('Chat ist gerade beschäftigt — bitte kurz warten', 'warning');
+            showStatusToast(t('Chat is busy right now — please wait a moment'), 'warning');
         }
     } else if (characterName) {
         // Same character — just ensure chat is loaded and panels closed
@@ -23362,7 +23561,7 @@ async function markAllNotificationsRead() {
         updateNotificationBadge(0);
         // Remove all unread styling
         document.querySelectorAll('.notification-item.unread').forEach(el => el.classList.remove('unread'));
-        showStatusToast('Alle Nachrichten gelesen', 'success');
+        showStatusToast(t('All messages read'), 'success');
     } catch (e) {
         console.error('[Notifications] Mark all read error:', e);
     }
@@ -24018,7 +24217,7 @@ async function worldDevApplyOutfit() {
     try {
         const r = await _worldDevPostJson('/world-dev/apply-outfit', data, 'Apply outfit');
         _worldDevAppendMessage('assistant',
-            `Outfit **"${r.name}"** für ${r.character} uebernommen — ${r.pieces_created} neue Pieces, ${r.pieces_reused} wiederverwendet.`);
+            `${t('Outfit')} **"${r.name}"** ${t('for')} ${r.character} ${t('applied')} — ${r.pieces_created} ${t('new pieces,')} ${r.pieces_reused} ${t('reused.')}`);
         _worldDevLastOutfitData = null;
         document.querySelectorAll('.worlddev-apply-btn').forEach(b => b.remove());
     } catch (e) {
@@ -24036,7 +24235,7 @@ async function worldDevApplySoul() {
     try {
         const r = await _worldDevPostJson('/world-dev/apply-soul', data, 'Apply soul');
         _worldDevAppendMessage('assistant',
-            `Soul **"${r.section}"** für ${r.character} uebernommen (${r.size} Zeichen).`);
+            `Soul **"${r.section}"** ${t('for')} ${r.character} ${t('applied')} (${r.size} ${t('characters')}).`);
         _worldDevLastSoulData = null;
         document.querySelectorAll('.worlddev-apply-btn').forEach(b => b.remove());
     } catch (e) {
@@ -24054,7 +24253,7 @@ async function worldDevApplyProfilePatch() {
     try {
         const r = await _worldDevPostJson('/world-dev/apply-profile-patch', data, 'Apply profile patch');
         _worldDevAppendMessage('assistant',
-            `Profil-Patch für ${r.character} uebernommen (Felder: ${(r.applied_fields || []).join(', ')}).`);
+            `${t('Profile patch')} ${t('for')} ${r.character} ${t('applied')} (${t('Fields:')} ${(r.applied_fields || []).join(', ')}).`);
         _worldDevLastProfilePatchData = null;
         document.querySelectorAll('.worlddev-apply-btn').forEach(b => b.remove());
     } catch (e) {
@@ -24224,236 +24423,6 @@ async function worldDevJsonApply() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ── Relations / Social Graph ──
-// ═══════════════════════════════════════════════════════════════════════════
-
-let _relNetwork = null;
-let _relGraphData = null;  // {nodes:[], edges:[]}
-let _relSelectedEdge = null;
-
-const _REL_TYPE_COLORS = {
-    friend:      '#4fc3f7',
-    romantic:    '#e91e63',
-    rival:       '#ff9800',
-    acquaintance:'#78909c',
-    enemy:       '#f44336',
-    neutral:     '#555',
-};
-const _REL_TYPE_LABELS = {
-    friend: 'Freund', romantic: 'Romantisch', rival: 'Rivale',
-    acquaintance: 'Bekannt', enemy: 'Feind', neutral: 'Neutral',
-};
-
-async function relationsRefresh() {
-    const container = document.getElementById('relations-graph');
-    if (!container) return;
-
-    const activeChar = (currentCharacterName || '').trim();
-    try {
-        let url = `/relationships/graph`;
-        if (activeChar) url += `?character=${encodeURIComponent(activeChar)}`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(resp.statusText);
-        _relGraphData = await resp.json();
-    } catch (e) {
-        console.error('Relations graph load failed:', e);
-        container.innerHTML = '<p style="padding:20px;color:#888;">Keine Beziehungsdaten vorhanden.</p>';
-        return;
-    }
-
-    // Vis-network expects DataSets
-    if (typeof vis === 'undefined') {
-        container.innerHTML = '<p style="padding:20px;color:#f88;">vis-network Bibliothek nicht geladen.</p>';
-        return;
-    }
-
-    const _fallbackSvg = 'data:image/svg+xml,' + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70">' +
-        '<circle cx="35" cy="35" r="34" fill="#2a2a4a" stroke="#4fc3f7" stroke-width="2"/>' +
-        '<text x="35" y="44" text-anchor="middle" fill="#aaa" font-size="28">?</text></svg>'
-    );
-
-    // Server already filtered to focus_character — just render all nodes/edges
-    const _playerName = getPlayerCharacterName();
-    const nodes = new vis.DataSet(_relGraphData.nodes.map(n => {
-        const isFocus = n.is_focus === true;
-        const isPlayer = n.id === _playerName;
-        return {
-            id: n.id,
-            label: n.label,
-            shape: 'circularImage',
-            image: `/characters/${encodeURIComponent(n.id)}/images/profile`,
-            brokenImage: _fallbackSvg,
-            size: isFocus ? 50 : (isPlayer ? 45 : 35),
-            borderWidth: isFocus ? 5 : (isPlayer ? 4 : 3),
-            color: {
-                border: isFocus ? '#fff' : (isPlayer ? '#ffd54f' : '#4fc3f7'),
-                background: '#1a1a2e',
-                highlight: { border: '#fff' },
-            },
-            font: { color: isPlayer ? '#ffd54f' : '#eee', size: isFocus ? 16 : 14 },
-            ...(isFocus ? { x: 0, y: 0, fixed: { x: true, y: true } } : {}),
-        };
-    }));
-
-    const edges = new vis.DataSet(_relGraphData.edges.map((e, i) => {
-        const color = _REL_TYPE_COLORS[e.type] || '#555';
-        const width = Math.max(1, Math.min(8, e.strength / 15));
-        const hasRomanticPotential = e.romantic_potential === true;
-        let label = _REL_TYPE_LABELS[e.type] || e.type;
-        if (hasRomanticPotential && e.type !== 'romantic') {
-            label += ' \u2661';  // hollow heart = potential
-        }
-        return {
-            id: 'e' + i,
-            from: e.from,
-            to: e.to,
-            color: { color, highlight: '#fff', opacity: 0.9 },
-            width,
-            label,
-            dashes: hasRomanticPotential && e.type !== 'romantic' ? [8, 4] : false,
-            font: { color: hasRomanticPotential ? '#e91e63' : '#aaa', size: 10, strokeWidth: 0 },
-            smooth: { type: 'continuous' },
-            _data: e,
-        };
-    }));
-
-    const options = {
-        physics: {
-            solver: 'forceAtlas2Based',
-            forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.01, springLength: 150, springConstant: 0.04 },
-            stabilization: { iterations: 120 },
-        },
-        interaction: { hover: true, tooltipDelay: 200 },
-        edges: { smooth: { type: 'continuous' } },
-    };
-
-    if (_relNetwork) _relNetwork.destroy();
-    _relNetwork = new vis.Network(container, { nodes, edges }, options);
-
-    // After stabilization, focus on the active character
-    _relNetwork.once('stabilizationIterationsDone', () => {
-        if (activeChar) {
-            _relNetwork.focus(activeChar, { scale: 1.0, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
-        }
-    });
-
-    _relNetwork.on('selectEdge', (params) => {
-        if (params.edges.length === 1) {
-            const edgeId = params.edges[0];
-            const edgeData = edges.get(edgeId);
-            if (edgeData && edgeData._data) {
-                _relShowDetail(edgeData._data);
-            }
-        }
-    });
-    _relNetwork.on('deselectEdge', () => relationsCloseDetail());
-
-    // Show message if no edges returned
-    if (_relGraphData.edges.length === 0) {
-        container.insertAdjacentHTML('beforeend',
-            `<p style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#666;pointer-events:none;">${activeChar || 'Character'} hat noch keine Beziehungen.</p>`
-        );
-    }
-}
-
-function _relShowDetail(edgeData) {
-    _relSelectedEdge = edgeData;
-    const panel = document.getElementById('relations-detail');
-    if (!panel) return;
-    panel.style.display = '';
-
-    const a = edgeData.from, b = edgeData.to;
-    document.getElementById('rel-detail-title').textContent = `${a} \u2194 ${b}`;
-    document.getElementById('rel-detail-type').value = edgeData.type || 'neutral';
-
-    const strength = Math.round(edgeData.strength || 0);
-    document.getElementById('rel-strength-bar').style.width = strength + '%';
-    document.getElementById('rel-strength-val').textContent = strength + '/100';
-
-    const romantic = Math.round((edgeData.romantic_tension || 0) * 100);
-    document.getElementById('rel-romantic-bar').style.width = romantic + '%';
-    document.getElementById('rel-romantic-val').textContent = romantic + '%';
-
-    document.getElementById('rel-sent-a-label').textContent = `${a} \u2192 ${b}:`;
-    document.getElementById('rel-sent-a-val').textContent = _relSentimentLabel(edgeData.sentiment_a_to_b || 0);
-    document.getElementById('rel-sent-b-label').textContent = `${b} \u2192 ${a}:`;
-    document.getElementById('rel-sent-b-val').textContent = _relSentimentLabel(edgeData.sentiment_b_to_a || 0);
-
-    document.getElementById('rel-interaction-count').textContent = edgeData.interaction_count || 0;
-    document.getElementById('rel-last-interaction').textContent = _relFormatTime(edgeData.last_interaction);
-
-    // Romantic potential indicator
-    const potentialEl = document.getElementById('rel-romantic-potential');
-    if (potentialEl) {
-        potentialEl.textContent = edgeData.romantic_potential ? '\u2665 Ja' : 'Nein';
-        potentialEl.style.color = edgeData.romantic_potential ? '#e91e63' : '#888';
-    }
-
-}
-
-function _relSentimentLabel(val) {
-    const v = parseFloat(val);
-    if (v > 0.5) return `sehr positiv (${v.toFixed(2)})`;
-    if (v > 0.1) return `positiv (${v.toFixed(2)})`;
-    if (v < -0.5) return `sehr negativ (${v.toFixed(2)})`;
-    if (v < -0.1) return `negativ (${v.toFixed(2)})`;
-    return `neutral (${v.toFixed(2)})`;
-}
-
-function _relFormatTime(iso) {
-    if (!iso) return '—';
-    try {
-        const d = new Date(iso);
-        const now = new Date();
-        const diffMs = now - d;
-        const diffH = Math.floor(diffMs / 3600000);
-        if (diffH < 1) return 'gerade eben';
-        if (diffH < 24) return `vor ${diffH}h`;
-        const diffD = Math.floor(diffH / 24);
-        if (diffD === 1) return 'gestern';
-        if (diffD < 7) return `vor ${diffD} Tagen`;
-        return d.toLocaleDateString('de-DE');
-    } catch { return iso; }
-}
-
-
-function relationsCloseDetail() {
-    const panel = document.getElementById('relations-detail');
-    if (panel) panel.style.display = 'none';
-    _relSelectedEdge = null;
-}
-
-async function relationsTypeChanged() {
-    if (!_relSelectedEdge) return;
-    const newType = document.getElementById('rel-detail-type').value;
-    try {
-        await fetch(`/relationships/${encodeURIComponent(_relSelectedEdge.from)}/${encodeURIComponent(_relSelectedEdge.to)}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ type: newType }),
-        });
-        relationsRefresh();
-    } catch (e) {
-        console.error('Relationship update failed:', e);
-    }
-}
-
-async function relationsMigrate() {
-    try {
-        const resp = await fetch(`/relationships/migrate`, { method: 'POST' });
-        if (resp.ok) {
-            const data = await resp.json();
-            alert(`${data.migrated || 0} Beziehungen importiert.`);
-            relationsRefresh();
-        }
-    } catch (e) {
-        console.error('Migration failed:', e);
-    }
-}
-
-
 // ============================================================
 // GROUP CHAT
 // ============================================================
@@ -24529,7 +24498,7 @@ async function _initGroupSession() {
         console.warn('[GroupChat] User-Location laden fehlgeschlagen:', e);
     }
     if (!userLocation) {
-        showStatusToast('Kein Ort gewaehlt — Weltkarte oeffnen', 'error');
+        showStatusToast(t('No location chosen — open the world map'), 'error');
         chatMode = 'direct';
         return;
     }
@@ -24576,7 +24545,7 @@ async function _initGroupSession() {
         const _pnames = (_groupSession.participants || [])
             .map(p => typeof p === 'string' ? p : (p && p.name) || '')
             .filter(Boolean);
-        showStatusToast(`Gruppenchat: ${_pnames.join(', ')}`, 'success');
+        showStatusToast(t('Group chat') + `: ${_pnames.join(', ')}`, 'success');
     } catch (e) {
         console.error('[GroupChat] Session-Fehler:', e);
         chatMode = 'direct';
@@ -24604,10 +24573,10 @@ async function _resetGroupSession() {
         // Clear chat and reload with empty history
         chatMessages.innerHTML = '';
         _updateGroupHeader(true);
-        showStatusToast('Neuer Gruppenchat gestartet', 'success');
+        showStatusToast(t('New group chat started'), 'success');
     } catch (e) {
         console.error('[GroupChat] Reset-Fehler:', e);
-        showStatusToast('Reset fehlgeschlagen', 'error');
+        showStatusToast(t('Reset failed'), 'error');
     }
 }
 
@@ -24704,40 +24673,70 @@ function _updateGroupHeader(isGroup) {
 }
 
 async function _loadGroupCharacterScene(charName, imgEl) {
-    /**Load expression/outfit image for a character into the given img element.*/
-    try {
-        const outfitsRes = await fetch(`/characters/${encodeURIComponent(charName)}/outfits`);
-        const outfits = outfitsRes.ok ? (await outfitsRes.json()).outfits || [] : [];
-        const target = outfits.find(o => o.image);
+    /**Load DEFAULT-pose/expression variant for a group chat tile.
 
-        if (target) {
-            // Try expression variant (mit fallback=default — wenn noch nicht
-            // generiert, liefert das Backend das Profilbild als Platzhalter).
-            const exprUrl = `/characters/${encodeURIComponent(charName)}/outfit-expression?fallback=default&t=${Date.now()}`;
-            const exprResp = await fetch(exprUrl);
-            if (exprResp.status === 200) {
+    Strategie:
+      1. /outfit-expression mit mood='', activity='', override=1 + den
+         tatsaechlich equipped Pieces — liefert die Default-Pose-Variant
+         (kein Profilbild-Fallback ueber X-Variant-Status=fallback-default).
+      2. Wenn das nicht klappt: aktuelles outfit-Bild ohne Pose/Expression.
+      3. Letzter Fallback (NICHT Profilbild): generierter Default-Avatar.
+    */
+    try {
+        // Equipped-State holen, sonst rendert das Backend im override-Mode nackt.
+        let pieces = '', items = '', piece_colors = '';
+        try {
+            const eqRes = await fetch(`/inventory/characters/${encodeURIComponent(charName)}/equipped`);
+            if (eqRes.ok) {
+                const eq = await eqRes.json();
+                const ep = eq.equipped_pieces || {};
+                pieces = Object.entries(ep)
+                    .filter(([, iid]) => !!iid)
+                    .map(([slot, iid]) => `${slot}:${iid}`)
+                    .join(',');
+                const ei = (eq.equipped_items || []).filter(Boolean);
+                items = ei.join(',');
+                const meta = eq.equipped_pieces_meta || {};
+                piece_colors = Object.entries(meta)
+                    .filter(([slot, m]) => m && m.color && !!ep[slot])
+                    .map(([slot, m]) => `${slot}:${m.color}`)
+                    .join(',');
+            }
+        } catch (_) { /* fallthrough — equipped optional */ }
+
+        const params = `mood=&activity=&override=1`
+            + `&pieces=${encodeURIComponent(pieces)}`
+            + `&items=${encodeURIComponent(items)}`
+            + `&piece_colors=${encodeURIComponent(piece_colors)}`
+            + `&t=${Date.now()}`;
+        // KEIN fallback=default hier — der wuerde das Profilbild liefern,
+        // genau das wollen wir vermeiden (User-Wunsch).
+        const exprUrl = `/characters/${encodeURIComponent(charName)}/outfit-expression?${params}`;
+        const exprResp = await fetch(exprUrl);
+        if (exprResp.status === 200) {
+            // Sicherheits-Check: wenn das Backend doch ein Profilbild
+            // als Platzhalter geliefert hat (X-Variant-Status fallback-*),
+            // ueberspringen — der Outfit-Fallback unten ist passender.
+            const _vs = (exprResp.headers.get('X-Variant-Status') || '').toLowerCase();
+            if (!_vs.startsWith('fallback-')) {
                 const blob = await exprResp.blob();
                 imgEl.src = URL.createObjectURL(blob);
                 return;
             }
-            // Fallback: base outfit image
-            imgEl.src = `/characters/${encodeURIComponent(charName)}/outfits/${target.image}?t=${Date.now()}`;
-            return;
         }
 
-        // Fallback: profile image
-        const res = await fetch(`/characters/${encodeURIComponent(charName)}/images`);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.profile_image) {
-                imgEl.src = `/characters/${encodeURIComponent(charName)}/images/${data.profile_image}`;
-                return;
-            }
+        // Fallback 1: Outfit-Basisbild (gleiche Pose wie aufgenommen, kein Mood)
+        const outfitsRes = await fetch(`/characters/${encodeURIComponent(charName)}/outfits`);
+        const outfits = outfitsRes.ok ? (await outfitsRes.json()).outfits || [] : [];
+        const target = outfits.find(o => o.image);
+        if (target) {
+            imgEl.src = `/characters/${encodeURIComponent(charName)}/outfits/${target.image}?t=${Date.now()}`;
+            return;
         }
     } catch (e) {
         console.warn(`[GroupScene] Fehler bei ${charName}:`, e);
     }
-    // Ultimate fallback: generated avatar
+    // Letzter Fallback: generierter Default-Avatar (NICHT Profilbild).
     imgEl.src = generateDefaultAvatar(charName);
 }
 
@@ -25169,7 +25168,7 @@ function _renderDiary(entries) {
     const container = document.getElementById('diary-content');
     if (!container) return;
     if (!entries.length) {
-        container.innerHTML = '<p class="diary-empty">Keine Eintr\u00e4ge f\u00fcr diesen Tag</p>';
+        container.innerHTML = `<p class="diary-empty">${escapeHtml(t('No entries for this day'))}</p>`;
         return;
     }
 
