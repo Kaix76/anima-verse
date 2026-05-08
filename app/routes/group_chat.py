@@ -397,14 +397,35 @@ async def group_chat(request: Request):
     location_id = session["location_id"]
     loc_name = get_location_name(location_id) or location_id
 
-    # Refresh participants (characters may have moved)
-    chars_at_loc = get_characters_at_location(location_id)
-    # Spieler-Avatar aus der Teilnehmerliste filtern — der Avatar ist der User,
-    # nicht ein NPC der "zuhoert" oder antwortet.
+    # Refresh participants (characters may have moved). Same-room filter
+    # wie im /group/session-Endpoint: Char-Sidebar zeigt nur Same-Room,
+    # also soll der Group-Chat auch nur Same-Room ansprechen — sonst
+    # wuerde ein NPC in einem anderen Raum am gleichen Ort als
+    # "passiv zuhoeren" erscheinen oder ungewollt mitreden.
     _player_char = get_active_character()
-    participant_names = [c["name"] for c in chars_at_loc if c["name"] != _player_char]
+    avatar_room = ""
+    if _player_char:
+        try:
+            from app.models.character import get_character_current_room
+            avatar_room = (get_character_current_room(_player_char) or "").strip()
+        except Exception:
+            avatar_room = ""
+    chars_at_loc = get_characters_at_location(location_id)
+    participant_names: List[str] = []
+    for c in chars_at_loc:
+        if c["name"] == _player_char:
+            continue
+        if avatar_room:
+            try:
+                from app.models.character import get_character_current_room
+                _cr = (get_character_current_room(c["name"]) or "").strip()
+            except Exception:
+                _cr = ""
+            if _cr and _cr != avatar_room:
+                continue
+        participant_names.append(c["name"])
     if len(participant_names) < 1:
-        raise HTTPException(status_code=400, detail="No characters at this location")
+        raise HTTPException(status_code=400, detail="No characters in this room")
 
     # Persist updated participants if changed
     if set(session.get("participants", [])) != set(participant_names):
