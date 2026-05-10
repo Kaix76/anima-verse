@@ -139,6 +139,23 @@ body { font-family: var(--font); margin: 0; background: var(--bg); color: var(--
 
 /* Header */
 .chat-header { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; padding: 4px 10px; background: var(--header-bg); color: var(--header-text); border-radius: var(--radius) var(--radius) 0 0; overflow: visible; position: relative; z-index: 12; flex-shrink: 0; }
+/* Persistenter Hinweis-Banner: Block-Meldungen, Force-Warnings, kritische Events.
+   Zentriert ueber dem Header-Grid via absolute, mit grossen Side-Insets damit
+   die Profilbilder links/rechts nicht ueberdeckt werden. Max 3 Zeilen. */
+.char-notice-banner { position: absolute; top: 4px; left: 160px; right: 320px; z-index: 11; pointer-events: auto; display: flex; flex-direction: column; gap: 4px; }
+.char-notice-list { display: flex; flex-direction: column; gap: 4px; max-height: calc(3 * (1.3em + 8px) + 16px); overflow: hidden; }
+.char-notice-item { padding: 4px 10px; border-radius: 6px; font-size: 12px; line-height: 1.3em; box-shadow: 0 2px 6px rgba(0,0,0,0.18); display: flex; align-items: flex-start; gap: 6px; }
+.char-notice-item .char-notice-icon { flex: 0 0 auto; font-size: 14px; }
+.char-notice-item .char-notice-text { flex: 1 1 auto; }
+.char-notice-item .char-notice-title { font-weight: 600; margin-right: 4px; }
+.char-notice-item.notice-block   { background: #c0392b; color: #fff; }
+.char-notice-item.notice-force   { background: #d68910; color: #fff; }
+.char-notice-item.notice-event-danger     { background: #b03a2e; color: #fff; }
+.char-notice-item.notice-event-disruption { background: #cb6f1c; color: #fff; }
+.char-notice-action { margin-left: auto; flex: 0 0 auto; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.4); color: inherit; padding: 1px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.char-notice-action:hover { background: rgba(255,255,255,0.32); }
+@media (max-width: 1100px) { .char-notice-banner { left: 120px; right: 240px; } }
+@media (max-width: 800px)  { .char-notice-banner { left: 100px; right: 100px; } }
 .chat-header h1 { margin: 0; font-size: 20px; }
 .header-character-float { grid-row: 1 / 3; grid-column: 1; display: flex; flex-direction: column; gap: 2px; margin-bottom: -80px; z-index: 10; min-height: 60px; pointer-events: none; }
 .header-character-float > * { pointer-events: auto; }
@@ -1718,7 +1735,8 @@ body[data-worlddev="1"] .worlddev-container { padding-top: 10px; }
 .wardrobe-set-row .reset-btn { background: var(--form-reset-bg); color: var(--text); border: 1px solid var(--border); }
 .wardrobe-equipped-actions .reset-btn:hover,
 .wardrobe-set-row .reset-btn:hover { background: var(--bg-hover); }
-.wardrobe-available-filter { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.wardrobe-available-filter { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.wardrobe-filter-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .wardrobe-available-filter button { padding: 3px 10px; font-size: 11px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; transition: all 0.15s; }
 .wardrobe-available-filter button:hover { filter: brightness(1.15); }
 .wardrobe-available-filter button.active { background: var(--accent, #58a6ff); color: #fff; border-color: var(--accent, #58a6ff); }

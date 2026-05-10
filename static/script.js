@@ -593,7 +593,22 @@ async function openAvatarRoomPicker(avatarName) {
                 _announceRoomEntry(_data);
             } else {
                 const err = await resp.json().catch(() => ({}));
-                showStatusToast(err.detail || 'Ort konnte nicht gesetzt werden', 'error');
+                let msg = 'Ort konnte nicht gesetzt werden';
+                let blocked = false;
+                if (err && err.detail) {
+                    if (typeof err.detail === 'object' && err.detail.message) {
+                        msg = String(err.detail.message);
+                        blocked = err.detail.reason && String(err.detail.reason).startsWith('block_');
+                    } else {
+                        msg = String(err.detail);
+                    }
+                }
+                if (resp.status === 403 || blocked) {
+                    overlay.remove();
+                    if (typeof showCharNoticeBlock === 'function') showCharNoticeBlock(msg);
+                } else {
+                    showStatusToast(msg, 'error');
+                }
             }
         } catch (e) {
             showStatusToast(t('Could not set location'), 'error');
@@ -784,6 +799,7 @@ const _wardrobeState = {
     liveColorDraft: {}, // reserved
     // Filter in Spalte 3 (Inventar): "" = alle, sonst outfit_type-Wert
     availableFilter: '',
+    availableOutfitTypeFilter: '',
 };
 
 function openWardrobeModal(characterName, startTab) {
@@ -792,6 +808,7 @@ function openWardrobeModal(characterName, startTab) {
     _wardrobeState.autoSyncDone = false;
     _wardrobeState.setRemoveSlots = new Set();
     _wardrobeState.availableFilter = '';
+    _wardrobeState.availableOutfitTypeFilter = '';
     // (Slot-Wechsel-Binding entfaellt — _renderWpcSlots verdrahtet die
     // Cover-Aktualisierung jetzt direkt ueber den onChange-Callback der
     // Slot-Tag-Picker.)
@@ -1049,29 +1066,58 @@ function _updateWardrobePreviewLabel() {
 function _renderWardrobeAvailableFilter() {
     const el = document.getElementById('wardrobe-available-filter');
     if (!el) return;
-    // Slots aus den Pieces im Inventar sammeln (nur was tatsaechlich da ist).
-    // Reihenfolge folgt SLOT_ORDER, damit die Buttons immer gleich angeordnet sind.
+    // Zwei Filter-Reihen:
+    //   Reihe 1: Slot-Filter (top, head, chest, ...) — nur Slots die tatsaechlich
+    //            in den Inventar-Pieces vorkommen, in SLOT_ORDER-Reihenfolge.
+    //   Reihe 2: Outfit-Type-Filter (casual, formal, athletic, ...) — alle
+    //            Outfit-Types die in den Inventar-Pieces vorkommen, alphabetisch.
     const presentSlots = new Set();
+    const presentOutfitTypes = new Set();
     for (const it of _wardrobeState.inventory) {
         if (it.item_category !== 'outfit_piece') continue;
         for (const s of ((it.outfit_piece && it.outfit_piece.slots) || [])) {
             if (s) presentSlots.add(s);
         }
+        for (const ot of ((it.outfit_piece && it.outfit_piece.outfit_types) || [])) {
+            const _t = (ot || '').toString().trim();
+            if (_t) presentOutfitTypes.add(_t);
+        }
     }
     const slots = SLOT_ORDER.filter(s => presentSlots.has(s));
-    const current = _wardrobeState.availableFilter || '';
-    const btns = [
-        `<button class="${!current ? 'active' : ''}" data-filter="">Alle</button>`,
-        ...slots.map(s => {
-            const active = current === s;
-            const label = SLOT_LABELS_DE[s] || s;
-            return `<button class="${active ? 'active' : ''}" data-filter="${escapeHtml(s)}">${escapeHtml(label)}</button>`;
-        }),
-    ];
-    el.innerHTML = btns.join('');
-    el.querySelectorAll('button').forEach(b => {
+    const outfitTypes = Array.from(presentOutfitTypes).sort(
+        (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const curSlot = _wardrobeState.availableFilter || '';
+    const curType = _wardrobeState.availableOutfitTypeFilter || '';
+
+    let html = '<div class="wardrobe-filter-row">';
+    html += `<button class="${!curSlot ? 'active' : ''}" data-slot="">${escapeHtml(t('All'))}</button>`;
+    for (const s of slots) {
+        const active = curSlot === s;
+        const label = SLOT_LABELS_DE[s] || s;
+        html += `<button class="${active ? 'active' : ''}" data-slot="${escapeHtml(s)}">${escapeHtml(label)}</button>`;
+    }
+    html += '</div>';
+
+    if (outfitTypes.length) {
+        html += '<div class="wardrobe-filter-row">';
+        html += `<button class="${!curType ? 'active' : ''}" data-otype="">${escapeHtml(t('All types'))}</button>`;
+        for (const ot of outfitTypes) {
+            const active = curType === ot;
+            html += `<button class="${active ? 'active' : ''}" data-otype="${escapeHtml(ot)}">${escapeHtml(ot)}</button>`;
+        }
+        html += '</div>';
+    }
+    el.innerHTML = html;
+
+    el.querySelectorAll('button[data-slot]').forEach(b => {
         b.onclick = () => {
-            _wardrobeState.availableFilter = b.dataset.filter || '';
+            _wardrobeState.availableFilter = b.dataset.slot || '';
+            _renderWardrobeStudio();
+        };
+    });
+    el.querySelectorAll('button[data-otype]').forEach(b => {
+        b.onclick = () => {
+            _wardrobeState.availableOutfitTypeFilter = b.dataset.otype || '';
             _renderWardrobeStudio();
         };
     });
@@ -1492,11 +1538,18 @@ function _renderWardrobeStudio() {
             ? new Set()
             : new Set(_wardrobeState.equipped.equipped_items || []);
         const filter = (_wardrobeState.availableFilter || '').trim();
+        const otypeFilter = (_wardrobeState.availableOutfitTypeFilter || '').trim();
         const allItems = _wardrobeState.inventory.filter(it => {
             if (it.item_category !== 'outfit_piece') return false;
-            if (!filter) return true;
-            const slots = (it.outfit_piece && it.outfit_piece.slots) || [];
-            return slots.includes(filter);
+            if (filter) {
+                const slots = (it.outfit_piece && it.outfit_piece.slots) || [];
+                if (!slots.includes(filter)) return false;
+            }
+            if (otypeFilter) {
+                const types = (it.outfit_piece && it.outfit_piece.outfit_types) || [];
+                if (!types.includes(otypeFilter)) return false;
+            }
+            return true;
         });
         if (!allItems.length) {
             availEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No outfit-suitable items in inventory. Create some in the "Inventory (outfit pieces)" tab.'))}</p>`;
@@ -4255,6 +4308,8 @@ async function populateActiveCharacterDropdown() {
 }
 
 async function loadPlayerAvatar() {
+    // Notice-Banner mitziehen — Avatar-Wechsel = anderer Force/Event-Kontext.
+    if (typeof refreshCharNotice === 'function') refreshCharNotice();
     const img = document.getElementById('player-profile-image');
     const barsDiv = document.getElementById('player-status-bars');
     const genBtn = document.getElementById('btn-player-gen-image');
@@ -13339,9 +13394,23 @@ async function _avatarStep(direction) {
         });
         if (!resp.ok) {
             let msg = 'Bewegung nicht moeglich';
-            try { const e = await resp.json(); if (e && e.detail) msg = String(e.detail); } catch (_) {}
-            // 404 "no location in that direction" ist erwartbar — silent
-            if (resp.status !== 404) showStatusToast(msg, 'error');
+            let blocked = false;
+            try {
+                const e = await resp.json();
+                if (e && e.detail) {
+                    if (typeof e.detail === 'object' && e.detail.message) {
+                        msg = String(e.detail.message);
+                        blocked = e.detail.reason && String(e.detail.reason).startsWith('block_');
+                    } else {
+                        msg = String(e.detail);
+                    }
+                }
+            } catch (_) {}
+            if (resp.status === 403 || blocked) {
+                if (typeof showCharNoticeBlock === 'function') showCharNoticeBlock(msg);
+            } else if (resp.status !== 404) {
+                showStatusToast(msg, 'error');
+            }
             return;
         }
         const data = await resp.json().catch(() => null);
@@ -13382,11 +13451,17 @@ async function _refreshDpad() {
         if (!resp.ok) return;
         const data = await resp.json();
         const map = { north: 'dpad-n', south: 'dpad-s', east: 'dpad-e', west: 'dpad-w' };
+        // Avatar darf eine Location nur vom Entry-Room aus verlassen — wenn
+        // er anderswo steht, blenden wir die Richtungs-Pfeile aus. Den
+        // Center-Button (Raum-Picker) lassen wir sichtbar, damit der User
+        // zum Entry-Room wechseln kann.
+        const atEntry = (data && data.at_entry_room !== false);
+        const entryName = (data && data.entry_room_name) || '';
         for (const [dir, cls] of Object.entries(map)) {
             const btn = document.querySelector(`.chat-dpad-btn.${cls}`);
             if (!btn) continue;
             const target = data[dir];
-            if (target && target.name) {
+            if (target && target.name && atEntry) {
                 btn.classList.remove('hidden');
                 btn.title = `${({north:'Norden',south:'Sueden',east:'Osten',west:'Westen'})[dir]}: ${target.name}`;
                 btn.disabled = false;
@@ -13398,13 +13473,138 @@ async function _refreshDpad() {
         const centerBtn = document.getElementById('chat-dpad-room');
         if (centerBtn) {
             const locName = (data && data.current_location_name) || '';
-            centerBtn.title = locName ? `Raum wechseln (${locName})` : 'Raum wechseln';
+            let label = locName ? `Raum wechseln (${locName})` : 'Raum wechseln';
+            if (!atEntry && entryName) {
+                label += ` — zum Verlassen erst nach "${entryName}"`;
+            }
+            centerBtn.title = label;
             centerBtn.classList.toggle('hidden', !locName);
         }
     } catch (e) {
         // Silent — Default-Sichtbarkeit (alle Buttons) bleibt
     }
 }
+
+// ---------------------------------------------------------------------------
+// Character-Header-Notice-Banner: Block-Meldungen, Force-Warnings, kritische
+// Events. Bleibt sichtbar bis die Ursache weg ist (Polling alle 30s + nach
+// Avatar-Moves). Block-Meldungen (transient) werden zusaetzlich client-seitig
+// einquetscht und nach 12s automatisch ausgeblendet — der User soll sie lesen
+// koennen, aber sie sollen nicht ewig stehen wenn er anderswo hingeht.
+// ---------------------------------------------------------------------------
+let _charNoticeTransient = null;  // {kind:'block', message, ts}
+let _charNoticeTimer = null;
+
+function _renderCharNotice(force, criticalEvents) {
+    const banner = document.getElementById('char-notice-banner');
+    const list = document.getElementById('char-notice-list');
+    if (!banner || !list) return;
+    const items = [];
+    if (_charNoticeTransient && _charNoticeTransient.kind === 'block') {
+        items.push({
+            cls: 'notice-block',
+            icon: '⛔',
+            title: t('Blocked'),
+            text: _charNoticeTransient.message || t('Access denied.'),
+        });
+    }
+    if (force && force.message) {
+        items.push({
+            cls: 'notice-force',
+            icon: '⚠️',
+            title: force.rule_name || t('Forced rule'),
+            text: force.message,
+            action: { label: t('Apply'), kind: 'force_apply', payload: force },
+        });
+    }
+    for (const ev of (criticalEvents || [])) {
+        items.push({
+            cls: ev.category === 'danger' ? 'notice-event-danger' : 'notice-event-disruption',
+            icon: ev.category === 'danger' ? '🔥' : '❗',
+            title: ev.category === 'danger' ? t('Danger') : t('Event'),
+            text: ev.text || '',
+        });
+    }
+    if (!items.length) {
+        banner.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+    list.innerHTML = items.map(it => {
+        const action = it.action
+            ? `<button class="char-notice-action" data-kind="${escapeHtml(it.action.kind)}">${escapeHtml(it.action.label)}</button>`
+            : '';
+        return `<div class="char-notice-item ${it.cls}">
+            <span class="char-notice-icon">${it.icon}</span>
+            <span class="char-notice-text"><span class="char-notice-title">${escapeHtml(it.title)}:</span>${escapeHtml(it.text)}</span>
+            ${action}
+        </div>`;
+    }).join('');
+    banner.style.display = '';
+    // Force-Apply-Button: ruft Force-Action manuell aus (User-Wahl).
+    list.querySelectorAll('.char-notice-action[data-kind="force_apply"]').forEach(btn => {
+        btn.onclick = async () => {
+            try {
+                const av = (typeof getPlayerCharacterName === 'function') ? getPlayerCharacterName() : '';
+                if (!av || !force) return;
+                if (force.set_activity) {
+                    await fetch(`/characters/${encodeURIComponent(av)}/current-activity`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ current_activity: force.set_activity }),
+                    });
+                }
+                if (force.go_to && force.go_to !== 'stay' && force.go_to_location_id) {
+                    await fetch(`/characters/${encodeURIComponent(av)}/current-location`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            current_location: force.go_to_location_id,
+                            current_room: force.go_to_room_id || '',
+                        }),
+                    });
+                    if (typeof refreshAfterAvatarMove === 'function') await refreshAfterAvatarMove();
+                }
+                refreshCharNotice();
+            } catch (e) {
+                showStatusToast(t('Could not apply rule'), 'error');
+            }
+        };
+    });
+}
+
+async function refreshCharNotice() {
+    const avatar = (typeof getPlayerCharacterName === 'function') ? getPlayerCharacterName() : '';
+    if (!avatar) {
+        _renderCharNotice(null, []);
+        return;
+    }
+    try {
+        const r = await fetch(`/characters/${encodeURIComponent(avatar)}/notice`);
+        if (!r.ok) {
+            _renderCharNotice(null, []);
+            return;
+        }
+        const d = await r.json();
+        _renderCharNotice(d.force_warning || null, d.critical_events || []);
+    } catch (e) {
+        // Silent — Banner zeigt nur den transienten Block-Hinweis falls vorhanden.
+        _renderCharNotice(null, []);
+    }
+}
+
+function showCharNoticeBlock(message) {
+    _charNoticeTransient = { kind: 'block', message: message || '', ts: Date.now() };
+    refreshCharNotice();
+    if (_charNoticeTimer) clearTimeout(_charNoticeTimer);
+    _charNoticeTimer = setTimeout(() => {
+        _charNoticeTransient = null;
+        refreshCharNotice();
+    }, 12000);
+}
+
+// Periodisch refreshen — Force/Events koennen sich ohne User-Aktion aendern.
+setInterval(() => { try { refreshCharNotice(); } catch (e) {} }, 30000);
 
 async function refreshAfterAvatarMove() {
     const avatar = (typeof getPlayerCharacterName === 'function')
@@ -13497,6 +13697,8 @@ async function refreshAfterAvatarMove() {
     if (typeof _triggerImmediateTick === 'function') _triggerImmediateTick();
     // D-Pad: erreichbare Richtungen neu pruefen
     if (typeof _refreshDpad === 'function') _refreshDpad();
+    // Notice-Banner neu laden — Force/Events koennen sich am neuen Ort aendern.
+    if (typeof refreshCharNotice === 'function') refreshCharNotice();
 }
 
 async function updateLocationBackground(locationId, roomId) {
@@ -22722,25 +22924,16 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
         return;
     }
 
-    // Placed vs unplaced locations.
-    // - Klone (template_location_id gesetzt): immer auf dem Grid, nie im Tray.
-    // - Passable Templates (passable=true, kein template_location_id): immer
-    //   im Tray (als Stempel), nie auf dem Grid platziert.
-    // - Normale Orte: existing behavior (Tray nur wenn unplaced).
+    // Placed locations only — placement (unplaced + passable templates)
+    // moved to the Game Admin "Map" tab. Clones (template_location_id set)
+    // and normal placed locations both render here; everything else is
+    // hidden from the main UI map.
     const placedMap = {};
-    const unplaced = [];
-    const passableTemplates = [];
     for (const loc of locations) {
-        const isClone = !!(loc.template_location_id || '').trim();
-        const isPassableTemplate = !!loc.passable && !isClone;
-        if (isPassableTemplate) {
-            passableTemplates.push(loc);
-            continue;
-        }
-        if (loc.grid_x != null && loc.grid_y != null && loc.grid_x >= 0 && loc.grid_y >= 0) {
+        if (loc.passable && !(loc.template_location_id || '').trim()) continue;
+        if (loc.grid_x != null && loc.grid_y != null
+            && loc.grid_x >= 0 && loc.grid_y >= 0) {
             placedMap[`${loc.grid_x},${loc.grid_y}`] = loc;
-        } else {
-            unplaced.push(loc);
         }
     }
 
@@ -22770,18 +22963,16 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
             const zIdx = baseZ + zOffset * 10000;
 
             const passableCls = (loc && loc.passable) ? ' worldmap-tile-passable' : '';
-            const isClone = !!(loc && (loc.template_location_id || '').trim());
             html += `<div class="worldmap-grid-cell${loc ? ' occupied' : ''}${isActive ? ' worldmap-tile-active' : ''}${passableCls}" `;
             html += `style="left:${left}px;top:${top}px;z-index:${zIdx}" `;
             html += `data-grid-x="${x}" data-grid-y="${y}"`;
             if (loc) html += ` data-location="${escapeHtml(locId)}"`;
-            if (isClone) html += ` data-clone="1"`;
             html += `>`;
 
             if (loc) {
                 const mapIconUrl = `/world/locations/${encodeURIComponent(locId)}/map-icon`;
                 const fallbackEmoji = isActive ? '📍' : '🏠';
-                html += `<div class="worldmap-cell-content" draggable="true" data-location-id="${escapeHtml(locId)}">`;
+                html += `<div class="worldmap-cell-content" data-location-id="${escapeHtml(locId)}">`;
                 html += `<img class="worldmap-map-bg" src="${mapIconUrl}" alt="" onload="this.closest('.worldmap-grid-cell').classList.add('has-map-bg')" onerror="this.style.display='none';this.nextElementSibling.style.display=''">`;
                 html += `<div class="worldmap-cell-emoji" style="display:none">${fallbackEmoji}</div>`;
                 html += `</div>`;
@@ -22818,32 +23009,10 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
     const sleepingChars = charData.filter(_isSleepingOffmap);
     const homelessChars = charData.filter(c => !_isSleepingOffmap(c) && (!c.location || !locationIds.has(c.location)));
 
-    if (unplaced.length || passableTemplates.length || homelessChars.length || sleepingChars.length) {
+    // Tray: only homeless / sleeping characters now. Unplaced locations
+    // and passable-template stamps moved to the Game Admin "Map" tab.
+    if (homelessChars.length || sleepingChars.length) {
         html += '<div class="worldmap-tray">';
-        if (unplaced.length) {
-            html += '<div class="worldmap-tray-title">Nicht platziert</div>';
-            html += '<div class="worldmap-tray-items">';
-            for (const loc of unplaced) {
-                const locId = loc.id || loc.name;
-                const trayMapUrl = `/world/locations/${encodeURIComponent(locId)}/map-icon`;
-                html += `<div class="worldmap-tray-item" draggable="true" data-location-id="${escapeHtml(locId)}" data-location="${escapeHtml(locId)}">`;
-                html += `<span><img class="worldmap-map-icon-tray" src="${trayMapUrl}" alt="" onerror="this.replaceWith(document.createTextNode('🏠'))"></span><span>${escapeHtml(loc.name)}</span>`;
-                html += `</div>`;
-            }
-            html += '</div>';
-        }
-        if (passableTemplates.length) {
-            html += '<div class="worldmap-tray-title">Durchgangsorte (mehrfach platzierbar)</div>';
-            html += '<div class="worldmap-tray-items">';
-            for (const tmpl of passableTemplates) {
-                const tmplId = tmpl.id;
-                const trayMapUrl = `/world/locations/${encodeURIComponent(tmplId)}/map-icon`;
-                html += `<div class="worldmap-tray-item worldmap-tray-template" draggable="true" data-template-id="${escapeHtml(tmplId)}" title="Auf die Karte ziehen, um eine Kopie zu setzen">`;
-                html += `<span><img class="worldmap-map-icon-tray" src="${trayMapUrl}" alt="" onerror="this.replaceWith(document.createTextNode('🛤️'))"></span><span>${escapeHtml(tmpl.name)}</span><span class="worldmap-tray-stamp-badge">∞</span>`;
-                html += `</div>`;
-            }
-            html += '</div>';
-        }
         if (homelessChars.length) {
             html += `<div class="worldmap-homeless">`;
             html += `<div class="worldmap-homeless-title">Ohne Ort</div>`;
@@ -22879,237 +23048,12 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
     _worldmapAbort = new AbortController();
 
     container.innerHTML = html;
-    _attachWorldmapDragDrop(container);
+    // Placement (drag&drop, clone-stamping, unplace) lives in the Game
+    // Admin "Map" tab now. The main UI map is display-only — pan & zoom
+    // remain so the user can explore.
     _attachWorldmapPan(container, _worldmapAbort.signal);
     _attachWorldmapZoom(container);
     _centerWorldmapScroll(container);
-}
-
-function _attachWorldmapDragDrop(container) {
-    // Payload format: "loc:<id>" fuer Location-Drag, "char:<name>" fuer Character-Drag.
-    let draggedPayload = null;
-
-    container.addEventListener('dragstart', (e) => {
-        const draggable = e.target.closest('[draggable="true"]');
-        if (!draggable) return;
-        // Character-Drag wurde entfernt — homeless-btn ist nicht mehr draggable.
-        const tmplId = draggable.dataset.templateId;
-        const locId = draggable.dataset.locationId;
-        if (tmplId) {
-            draggedPayload = `tmpl:${tmplId}`;
-        } else if (locId) {
-            draggedPayload = `loc:${locId}`;
-        } else {
-            return;
-        }
-        e.dataTransfer.setData('text/plain', draggedPayload);
-        e.dataTransfer.effectAllowed = 'move';
-        setTimeout(() => {
-            const parentCell = draggable.closest('.worldmap-grid-cell');
-            if (parentCell) parentCell.style.opacity = '0.4';
-            if (draggable.classList.contains('worldmap-tray-item') ||
-                draggable.classList.contains('worldmap-homeless-btn')) {
-                draggable.classList.add('dragging');
-            }
-        }, 0);
-    });
-
-    container.addEventListener('dragend', (e) => {
-        container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-        container.querySelectorAll('.worldmap-grid-cell').forEach(el => el.style.opacity = '');
-        container.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
-        draggedPayload = null;
-    });
-
-    container.addEventListener('dragover', (e) => {
-        const cell = e.target.closest('.worldmap-grid-cell');
-        if (!cell) return;
-        const isTmplDrag = draggedPayload && draggedPayload.startsWith('tmpl:');
-        if (isTmplDrag) {
-            // Template-Klon: nur auf leeres Feld
-            if (cell.classList.contains('occupied')) return;
-        } else {
-            // Location-Drag: nicht auf andere besetzte Zelle, nur auf leere oder eigene
-            const draggedLocId = draggedPayload && draggedPayload.startsWith('loc:')
-                ? draggedPayload.slice(4) : '';
-            if (cell.classList.contains('occupied') && cell.dataset.location !== draggedLocId) return;
-        }
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        cell.classList.add('drag-over');
-    });
-
-    container.addEventListener('dragleave', (e) => {
-        const cell = e.target.closest('.worldmap-grid-cell');
-        if (cell && !cell.contains(e.relatedTarget)) cell.classList.remove('drag-over');
-    });
-
-    container.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        const cell = e.target.closest('.worldmap-grid-cell');
-        if (!cell) return;
-        cell.classList.remove('drag-over');
-        const payload = e.dataTransfer.getData('text/plain');
-        if (!payload) return;
-        // Char-Drop wurde entfernt — Characters werden nicht mehr per Drag
-        // auf die Karte platziert. Templates und Location-Verschieben bleiben.
-        if (payload.startsWith('tmpl:')) {
-            if (cell.classList.contains('occupied')) return;
-            const templateId = payload.slice(5);
-            const gridX = parseInt(cell.dataset.gridX);
-            const gridY = parseInt(cell.dataset.gridY);
-            await _cloneTemplateOnMap(templateId, gridX, gridY);
-            return;
-        }
-        if (payload.startsWith('loc:')) {
-            const locationId = payload.slice(4);
-            if (cell.classList.contains('occupied') && cell.dataset.location !== locationId) return;
-            const gridX = parseInt(cell.dataset.gridX);
-            const gridY = parseInt(cell.dataset.gridY);
-            await _saveWorldmapPosition(locationId, gridX, gridY);
-        }
-    });
-
-    // Drop on tray: Klone werden geloescht, normale Locations unplatziert.
-    // Character- und Template-Drops auf Tray werden ignoriert.
-    const tray = container.querySelector('.worldmap-tray');
-    if (tray) {
-        tray.addEventListener('dragover', (e) => {
-            if (draggedPayload && draggedPayload.startsWith('tmpl:')) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-        });
-        tray.addEventListener('drop', async (e) => {
-            const payload = e.dataTransfer.getData('text/plain');
-            if (!payload || !payload.startsWith('loc:')) return;
-            e.preventDefault();
-            const locationId = payload.slice(4);
-            if (!locationId) return;
-            // Klon erkennen via data-clone Attribut auf der Source-Zelle
-            const sourceCell = container.querySelector(
-                `.worldmap-grid-cell[data-location="${CSS.escape(locationId)}"]`);
-            const isClone = !!(sourceCell && sourceCell.dataset.clone === '1');
-            if (isClone) {
-                await _deleteCloneInstance(locationId);
-            } else {
-                await _saveWorldmapPosition(locationId, -1, -1);
-            }
-        });
-    }
-}
-
-async function _cloneTemplateOnMap(templateId, gridX, gridY) {
-    try {
-        const resp = await fetch(`/world/locations/${encodeURIComponent(templateId)}/clone`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grid_x: gridX, grid_y: gridY })
-        });
-        if (!resp.ok) {
-            console.error('[WorldMap] Klon-Erzeugung fehlgeschlagen:', resp.status);
-            showStatusToast?.('Konnte Kopie nicht setzen', 'error');
-        }
-    } catch (e) {
-        console.error('[WorldMap] Klon-Erzeugung Fehler:', e);
-    } finally {
-        _cachedWorldLocations = null;
-        loadWorldPanel();
-        loadLocations?.();
-    }
-}
-
-async function _deleteCloneInstance(locationId) {
-    try {
-        const resp = await fetch(`/world/locations/${encodeURIComponent(locationId)}`, {
-            method: 'DELETE'
-        });
-        if (!resp.ok) {
-            console.error('[WorldMap] Klon-Loeschen fehlgeschlagen:', resp.status);
-            showStatusToast?.('Konnte Kopie nicht loeschen', 'error');
-        }
-    } catch (e) {
-        console.error('[WorldMap] Klon-Loeschen Fehler:', e);
-    } finally {
-        _cachedWorldLocations = null;
-        loadWorldPanel();
-        loadLocations?.();
-    }
-}
-
-async function _placeCharacterOnMap(characterName, locationId) {
-    try {
-        const resp = await fetch(`/characters/${encodeURIComponent(characterName)}/place-on-map`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ location_id: locationId })
-        });
-        if (!resp.ok) {
-            console.error('[WorldMap] Character-Platzierung fehlgeschlagen:', resp.status);
-            showStatusToast?.('Konnte Character nicht platzieren', 'error');
-        }
-    } catch (e) {
-        console.error('[WorldMap] Character-Platzierung Fehler:', e);
-    } finally {
-        // Tray + Avatare neu rendern
-        loadWorldPanel();
-    }
-}
-
-async function _saveWorldmapPosition(locationId, gridX, gridY) {
-    try {
-        const resp = await fetch(`/world/locations/${encodeURIComponent(locationId)}/position`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ grid_x: gridX, grid_y: gridY })
-        });
-        if (!resp.ok) {
-            console.error('[WorldMap] Position-Update fehlgeschlagen:', resp.status);
-            loadWorldPanel(); // fallback: full reload on error
-            return;
-        }
-        // Local DOM update instead of full reload
-        _moveWorldmapTileLocal(locationId, gridX, gridY);
-    } catch (e) {
-        console.error('[WorldMap] Position-Update Fehler:', e);
-        loadWorldPanel();
-    }
-}
-
-function _moveWorldmapTileLocal(locationId, newGridX, newGridY) {
-    const content = document.getElementById('worldmap-content');
-    if (!content) return;
-
-    // Find the source cell (or tray item)
-    const sourceCell = content.querySelector(`.worldmap-grid-cell[data-location="${CSS.escape(locationId)}"]`);
-    const targetCell = content.querySelector(`.worldmap-grid-cell[data-grid-x="${newGridX}"][data-grid-y="${newGridY}"]`);
-
-    if (newGridX < 0 || newGridY < 0) {
-        // Unplace: full reload needed to rebuild tray
-        loadWorldPanel();
-        return;
-    }
-
-    if (!targetCell) {
-        loadWorldPanel();
-        return;
-    }
-
-    if (sourceCell && targetCell && sourceCell !== targetCell) {
-        // Move all children (cell-content, cell-name, cell-avatars) from source to target
-        while (sourceCell.firstChild) {
-            targetCell.appendChild(sourceCell.firstChild);
-        }
-        targetCell.classList.add('occupied');
-        targetCell.dataset.location = locationId;
-
-        // Clear source cell
-        sourceCell.classList.remove('occupied', 'worldmap-tile-active', 'has-map-bg');
-        delete sourceCell.dataset.location;
-        sourceCell.style.opacity = '';
-    } else if (!sourceCell && targetCell) {
-        // From tray to grid - need full reload for tray update
-        loadWorldPanel();
-    }
 }
 
 function _attachWorldmapPan(container, signal) {
@@ -23252,6 +23196,10 @@ async function onWorldPanelLocationClick(locationId) {
                 if (_moveResp.ok) {
                     const _moveData = await _moveResp.json().catch(() => null);
                     _announceRoomEntry(_moveData);
+                } else if (_moveResp.status === 403) {
+                    const err = await _moveResp.json().catch(() => ({}));
+                    const msg = (err && err.detail && err.detail.message) || 'Access denied';
+                    if (typeof showCharNoticeBlock === 'function') showCharNoticeBlock(msg);
                 }
             } catch (_) {}
         }
