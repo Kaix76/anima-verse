@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "purpose": "Canonical mood catalog. The mood-influence field on activities (and similar mood-source state) stores values from this catalog as English IDs. UI rendering looks up the localized label via shared/languages/<lang>.json — the keys are the IDs verbatim (e.g. 'pleased', 'exhausted'). Adding a new mood: append an entry here, then add the same id as a key to each languages/*.json with the localized translation.",
+    "schema": {
+      "id": "canonical English identifier — used as the value of mood_influence and current_feeling",
+      "label_de": "OPTIONAL display label in German (UI)"
+    }
+  },
+  "moods": [
+    {"id": "pleased", "label_de": "zufrieden"},
+    {"id": "happy", "label_de": "glücklich"},
+    {"id": "relaxed", "label_de": "entspannt"},
+    {"id": "refreshed", "label_de": "erfrischt"},
+    {"id": "creative", "label_de": "kreativ"},
+    {"id": "chatty", "label_de": "gesprächig"},
+    {"id": "chatting", "label_de": "im Gespräch"},
+    {"id": "exuberant", "label_de": "ausgelassen"},
+    {"id": "euphoric", "label_de": "euphorisch"},
+    {"id": "exhausted", "label_de": "erschöpft"},
+    {"id": "drunk", "label_de": "betrunken"},
+    {"id": "sweating", "label_de": "verschwitzt"}
+  ]
+}

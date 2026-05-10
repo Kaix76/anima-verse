@@ -182,6 +182,40 @@ class SetLocationSkill(BaseSkill):
         location_name = matched_location["name"]
         location_id = matched_location.get("id", location_name)
 
+        # Leave-Check: Darf der Character seinen aktuellen Ort/Raum
+        # ueberhaupt verlassen? Greift bei Pinning/Confine-Rules
+        # (action="leave"). Cross-Location: Raum- + Location-Scope.
+        # Same-Location: nur Raum-Scope (Location wird ja nicht verlassen).
+        # Ziel-Raum vorab matchen, damit Confine-Sets (mehrere room_ids in
+        # einer Rule) freie Bewegung innerhalb des Sets erlauben koennen.
+        from app.models.rules import check_leave, check_access
+        cur_loc_for_leave = get_character_current_location(character_name) or ""
+        is_same_loc = bool(cur_loc_for_leave) and cur_loc_for_leave == location_id
+        target_room_preview = ""
+        if requested_second:
+            _peek = get_room_by_name(matched_location, requested_second)
+            if _peek:
+                target_room_preview = _peek.get("id", "")
+        if cur_loc_for_leave:
+            leave_ok, leave_reason = check_leave(
+                character_name,
+                room_only=is_same_loc,
+                target_location_id=location_id,
+                target_room_id=target_room_preview)
+            if not leave_ok:
+                logger.info("Leave blockiert: %s will %s -> %s: %s",
+                            character_name, cur_loc_for_leave, location_id, leave_reason)
+                try:
+                    from app.models.character import record_access_denied
+                    from app.models.world import get_location_name as _gln
+                    cur_name = _gln(cur_loc_for_leave) or cur_loc_for_leave
+                    record_access_denied(character_name, cur_loc_for_leave,
+                                          cur_name, leave_reason, action="leave")
+                except Exception:
+                    logger.debug("record_access_denied(leave) failed", exc_info=True)
+                _trigger_access_denied_thought(character_name, location_name, leave_reason)
+                return leave_reason
+
         # Restrictions-Check: Darf der Character diesen Ort betreten?
         from app.core.danger_system import check_location_access
         allowed, deny_reason = check_location_access(character_name, matched_location)
@@ -190,7 +224,6 @@ class SetLocationSkill(BaseSkill):
             return deny_reason
 
         # Rules-Engine: Blockade-Regeln pruefen
-        from app.models.rules import check_access
         rules_ok, rules_reason = check_access(character_name, location_id)
         if not rules_ok:
             logger.info("Rule blockiert Zugang: %s -> %s: %s", character_name, location_name, rules_reason)
@@ -213,8 +246,7 @@ class SetLocationSkill(BaseSkill):
 
         # Walk-Modus: Cross-Location-Move => movement_target setzen, Schritt
         # erfolgt im naechsten AgentLoop-Tick. Same-Location (nur Raum-Wechsel)
-        # bleibt instant. Legacy-Characters (kein known_locations-Feld)
-        # teleportieren wie bisher — bekanntes Verhalten der alten Welten.
+        # bleibt instant.
         current_loc_id_now = get_character_current_location(character_name) or ""
         known_list = get_known_locations(character_name)
         is_cross_location = bool(current_loc_id_now and current_loc_id_now != location_id)
@@ -223,7 +255,7 @@ class SetLocationSkill(BaseSkill):
         # ein gesetzter movement_target sonst ewig auf "intent" stehen bleibt
         # waehrend der Char visuell schon woanders ist).
         from app.models.account import is_player_controlled as _is_player
-        if is_cross_location and known_list is not None and not _is_player(character_name):
+        if is_cross_location and not _is_player(character_name):
             path = find_path_through_known(current_loc_id_now, location_id, known_list)
             if not path:
                 logger.info("Kein bekannter Pfad %s -> %s fuer %s",
@@ -324,9 +356,13 @@ class SetLocationSkill(BaseSkill):
                 if activity:
                     matched_room = find_room_by_activity(matched_location, activity)
 
-        # Falls kein Raum gefunden: zufaelligen Raum waehlen
+        # Falls kein Raum gefunden: Entry-Room der Location nehmen (statt random)
         if not matched_room and rooms:
-            matched_room = random.choice(rooms)
+            from app.models.world import get_entry_room_id
+            _entry_id = get_entry_room_id(matched_location)
+            matched_room = next(
+                (r for r in rooms if r.get("id") == _entry_id),
+                rooms[0])
             # Activity aus dem gewaehlten Raum
             if not activity:
                 room_acts = [
@@ -400,8 +436,52 @@ class SetLocationSkill(BaseSkill):
         return format_example(fmt, self.name, "Büro, Küche, kaffee_kochen")
 
     def _build_locations_hint(self, character_name: str) -> str:
-        """Baut eine Liste der verfuegbaren Locations fuer die Tool-Beschreibung."""
+        """Baut eine Liste der verfuegbaren Locations fuer die Tool-Beschreibung.
+
+        Bei aktiver Leave-Blockade (Pinning/Confine-Rule) wird dem LLM nur
+        der aktuelle Ort angeboten — Hard-Gate bleibt zusaetzlich aktiv,
+        falls das LLM trotzdem halluziniert.
+        """
         try:
+            # Soft-Hint: Wenn der Char gar nicht weg darf, nur aktuellen Ort anbieten.
+            if character_name:
+                try:
+                    from app.models.rules import check_leave
+                    leave_ok, leave_reason = check_leave(character_name)
+                except Exception:
+                    leave_ok, leave_reason = True, ""
+                if not leave_ok:
+                    cur_loc_id = get_character_current_location(character_name) or ""
+                    cur_loc = get_location_by_id(cur_loc_id) if cur_loc_id else None
+                    cur_name = (cur_loc or {}).get("name", "") if cur_loc else ""
+                    if cur_name:
+                        rooms = get_location_rooms(cur_loc) if cur_loc else []
+                        # Pro-Raum probe: welcher Raum-Wechsel waere erlaubt?
+                        # Confine-Sets (mehrere room_ids in einer Rule) lassen
+                        # freie Bewegung INNERHALB des Sets zu — diese Raeume
+                        # sollen gelistet werden.
+                        allowed_room_names = []
+                        for r in rooms:
+                            r_id = r.get("id", "")
+                            r_name = r.get("name", "")
+                            if not r_id or not r_name:
+                                continue
+                            try:
+                                ok_r, _ = check_leave(character_name,
+                                                      room_only=True,
+                                                      target_location_id=cur_loc_id,
+                                                      target_room_id=r_id)
+                            except Exception:
+                                ok_r = True
+                            if ok_r:
+                                allowed_room_names.append(r_name)
+                        if allowed_room_names:
+                            return (f" You cannot leave your current location right now"
+                                    f" ({leave_reason}). Available: {cur_name}"
+                                    f" (rooms: {', '.join(allowed_room_names)}).")
+                        return (f" You cannot leave your current location right now"
+                                f" ({leave_reason}). You must stay at {cur_name}.")
+
             locations = list_locations()
             if not locations:
                 return ""

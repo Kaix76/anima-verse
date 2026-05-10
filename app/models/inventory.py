@@ -750,6 +750,59 @@ def _save_locations(locations: List[Dict[str, Any]]):
     _save_world_data({"locations": locations})
 
 
+def find_item_location(item_id: str,
+                        exclude_character: str = "") -> Optional[Dict[str, Any]]:
+    """Findet wo ein Item aktuell physisch liegt — Anker-Lookup fuer
+    Teleport-Spells.
+
+    Sucht in dieser Reihenfolge:
+        1. Character-Inventare (inventory_items table)
+        2. Raum-Items (locations.rooms[].items)
+
+    ``exclude_character`` filtert einen Character-Inhaber heraus — wird
+    vom Spell-Engine genutzt, damit ein Caster nicht "zu sich selbst"
+    teleportiert wenn er zufaellig auch den Anker traegt.
+
+    Returns:
+        - {"kind": "character", "character": <name>} wenn Item im Inventar
+        - {"kind": "room", "location_id": <id>, "room_id": <id>} wenn im Raum
+        - None wenn nirgends gefunden
+    """
+    if not item_id:
+        return None
+    # 1) Character-Inventar
+    try:
+        conn = get_connection()
+        rows = conn.execute(
+            "SELECT character_name FROM inventory_items WHERE item_id=?",
+            (item_id,),
+        ).fetchall()
+        for r in rows:
+            holder = (r[0] or "").strip()
+            if not holder:
+                continue
+            if exclude_character and holder == exclude_character:
+                continue
+            return {"kind": "character", "character": holder}
+    except Exception as e:
+        logger.debug("find_item_location DB-Fehler: %s", e)
+    # 2) Raum-Items
+    try:
+        from app.models.world import list_locations
+        for loc in list_locations() or []:
+            for room in loc.get("rooms", []) or []:
+                for ri in room.get("items", []) or []:
+                    if ri.get("item_id") == item_id:
+                        return {
+                            "kind": "room",
+                            "location_id": loc.get("id") or "",
+                            "room_id": room.get("id") or "",
+                        }
+    except Exception as e:
+        logger.debug("find_item_location room-scan failed: %s", e)
+    return None
+
+
 # ============================================================
 # 3. CHARACTER-INVENTAR
 # ============================================================

@@ -11,6 +11,7 @@ logger = get_logger("world")
 from app.models.world import (
     list_locations, add_location, delete_location,
     rename_location, resolve_location, get_location_by_id,
+    get_entry_room_id,
     update_location_position,
     list_all_activities,
     get_background_path,
@@ -37,10 +38,12 @@ def avatar_neighbors_route() -> Dict[str, Any]:
     statt erst auf der 404-Antwort zu reagieren.
     """
     from app.models.account import get_active_character
-    from app.models.character import get_character_current_location
+    from app.models.character import (
+        get_character_current_location, get_character_current_room)
 
     out = {"north": None, "south": None, "east": None, "west": None,
-           "current_location_id": "", "current_location_name": ""}
+           "current_location_id": "", "current_location_name": "",
+           "at_entry_room": True, "entry_room_name": ""}
     avatar = (get_active_character() or "").strip()
     if not avatar:
         return out
@@ -52,6 +55,19 @@ def avatar_neighbors_route() -> Dict[str, Any]:
         return out
     out["current_location_id"] = cur.get("id", "") or ""
     out["current_location_name"] = cur.get("name", "") or ""
+
+    # Departure-Gate: Frontend kann die Richtungs-Pfeile ausblenden, wenn der
+    # Avatar nicht im Entry-Room steht. Server-seitige Sperre liegt im
+    # avatar_step_route.
+    cur_entry = get_entry_room_id(cur)
+    cur_room = (get_character_current_room(avatar) or "").strip()
+    if cur_entry and cur_room and cur_room != cur_entry:
+        out["at_entry_room"] = False
+    for _r in (cur.get("rooms") or []):
+        if isinstance(_r, dict) and _r.get("id") == cur_entry:
+            out["entry_room_name"] = _r.get("name", "") or ""
+            break
+
     cx = int(cur.get("grid_x") or 0)
     cy = int(cur.get("grid_y") or 0)
     deltas = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
@@ -91,6 +107,7 @@ async def avatar_step_route(request: Request) -> Dict[str, Any]:
     from app.models.account import get_active_character
     from app.models.character import (
         get_character_current_location,
+        get_character_current_room,
         save_character_current_location,
         save_character_current_room,
     )
@@ -105,6 +122,21 @@ async def avatar_step_route(request: Request) -> Dict[str, Any]:
     cur = get_location_by_id(cur_loc_id)
     if not cur:
         raise HTTPException(status_code=404, detail="current location not found")
+
+    # Departure-Gate: Avatar darf eine Location nur ueber den Entry-Room verlassen.
+    cur_entry = get_entry_room_id(cur)
+    cur_room = (get_character_current_room(avatar) or "").strip()
+    if cur_entry and cur_room and cur_room != cur_entry:
+        # Entry-Room-Name zur Meldung holen
+        _entry_name = ""
+        for _r in (cur.get("rooms") or []):
+            if isinstance(_r, dict) and _r.get("id") == cur_entry:
+                _entry_name = _r.get("name", "") or ""
+                break
+        raise HTTPException(status_code=403,
+            detail={"reason": "not_at_entry_room",
+                    "message": f"Du musst zuerst zum Entry-Room ({_entry_name or cur_entry}) gehen, um diesen Ort zu verlassen."})
+
     cur_x = int(cur.get("grid_x") or 0)
     cur_y = int(cur.get("grid_y") or 0)
     dx, dy = deltas[direction]
@@ -120,20 +152,37 @@ async def avatar_step_route(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="no location in that direction")
 
     target_id = target.get("id") or ""
+
+    # Block-Regeln: Avatar unterliegt denselben Restrictions wie NPCs.
+    target_entry_room = get_entry_room_id(target)
+    from app.models.rules import check_leave, check_access
+    ok_leave, leave_msg = check_leave(avatar)
+    if not ok_leave:
+        raise HTTPException(status_code=403,
+            detail={"reason": "block_leave", "message": leave_msg})
+    ok_enter, enter_msg = check_access(avatar, target_id, room_id=target_entry_room)
+    if not ok_enter:
+        raise HTTPException(status_code=403,
+            detail={"reason": "block_enter", "message": enter_msg})
+
     save_character_current_location(avatar, target_id)
-    rooms = target.get("rooms") or []
-    first_room_id = ""
-    if rooms:
-        first_room_id = (rooms[0].get("id") or "").strip()
-        if first_room_id:
-            save_character_current_room(avatar, first_room_id)
+    if target_entry_room:
+        save_character_current_room(avatar, target_entry_room)
+
+    # Roll-on-Entry: bei Eintritt an einer Location sofort wuerfeln, ob ein
+    # Event fuer den Avatar entsteht (z.B. "Wölfe versperren den Weg").
+    try:
+        from app.core.random_events import try_roll_on_entry
+        try_roll_on_entry(avatar, target_id, target)
+    except Exception as _re:
+        logger.debug("try_roll_on_entry fehlgeschlagen: %s", _re)
 
     return {
         "ok": True,
         "direction": direction,
         "location_id": target_id,
         "location_name": target.get("name", ""),
-        "room_id": first_room_id,
+        "room_id": target_entry_room,
     }
 
 
@@ -203,6 +252,7 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
         knowledge_item_id = data.get("knowledge_item_id")
         passable = data.get("passable")
         map_z_offset = data.get("map_z_offset")
+        entry_room = data.get("entry_room")
         if not location_name:
             raise HTTPException(status_code=400, detail="Name fehlt")
         if not isinstance(rooms, list):
@@ -216,7 +266,8 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
         # Extra-Felder direkt in der Location setzen
         _has_extra = (danger_level is not None or event_settings is not None
                       or outfit_type is not None or knowledge_item_id is not None
-                      or passable is not None or map_z_offset is not None)
+                      or passable is not None or map_z_offset is not None
+                      or entry_room is not None)
         if _has_extra and location:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -240,6 +291,8 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
                             _l["map_z_offset"] = max(-10, min(10, int(map_z_offset)))
                         except (TypeError, ValueError):
                             pass
+                    if entry_room is not None:
+                        _l["entry_room"] = (entry_room or "").strip()
                     break
             _save_world_data(wdata)
             location = get_location_by_id(location["id"])
@@ -269,6 +322,7 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
         knowledge_item_id = data.get("knowledge_item_id")
         passable = data.get("passable")
         map_z_offset = data.get("map_z_offset")
+        entry_room = data.get("entry_room")
 
         loc = get_location_by_id(location_id)
         if not loc:
@@ -292,7 +346,8 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
         # Extra-Felder (inkl. knowledge_item_id) direkt in der Location setzen
         _has_extra = (danger_level is not None or event_settings is not None
                       or outfit_type is not None or knowledge_item_id is not None
-                      or passable is not None or map_z_offset is not None)
+                      or passable is not None or map_z_offset is not None
+                      or entry_room is not None)
         if _has_extra:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -316,6 +371,8 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
                             _l["map_z_offset"] = max(-10, min(10, int(map_z_offset)))
                         except (TypeError, ValueError):
                             pass
+                    if entry_room is not None:
+                        _l["entry_room"] = (entry_room or "").strip()
                     break
             _save_world_data(wdata)
 
@@ -529,6 +586,8 @@ async def generate_location_background(location_name: str, request: Request) -> 
             full_prompt = f"{backend.prompt_prefix}, {full_prompt}"
 
         negative = backend.negative_prompt or ""
+        # Location-Background: volle Aufloesung — wird als Hintergrund-Szenenbild
+        # genutzt, kein Downscale.
         params = {"width": 1280, "height": 720}
         # Default-Workflow und Model ermitteln
         active_wf = getattr(img_skill, '_default_workflow', None)
@@ -945,7 +1004,12 @@ async def generate_gallery_image(location_name: str, request: Request) -> Dict[s
             full_prompt = f"{backend.prompt_prefix}, {full_prompt}"
 
         negative = backend.negative_prompt or ""
-        params = {"width": 1280, "height": 720}
+        # Map-Icons sind kleine Thumbnails fuer die Welt-Uebersicht und werden
+        # runtergerechnet. Day/Night/Description bleiben in voller Aufloesung
+        # als Hintergrund-Bilder.
+        params: Dict[str, Any] = {"width": 1280, "height": 720}
+        if prompt_type == "map":
+            params["image_use_case"] = "map"
         # Workflow-File: expliziter Workflow hat Vorrang vor Default-Workflow
         active_wf = None
         if workflow_name:
@@ -1374,6 +1438,7 @@ async def generate_time_variant(
             full_prompt = f"{backend.prompt_prefix}, {full_prompt}"
 
         negative = backend.negative_prompt or ""
+        # Day/Night-Variants sind Hintergrund-Bilder — voll, kein Downscale.
         params = {"width": 1280, "height": 720}
 
         # Workflow-Datei setzen

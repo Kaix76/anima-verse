@@ -666,13 +666,25 @@ def save_character_personality(character_name: str, personality: str):
     save_character_profile(character_name, profile)
 
 
-def _get_character_config_path(character_name: str) -> Path:
+def _get_character_config_path(character_name: str, *, create: bool = False) -> Path:
     """Pfad zur Character-Config JSON-Datei.
+
+    Wenn ``create=False`` (Default), wird das Character-Verzeichnis NICHT
+    angelegt — das ist wichtig für reine Read-Pfade (``get_character_config``),
+    weil sonst eine bloße Status-Abfrage über einen Geister-Character
+    (z. B. ein längst gelöschter, der nur noch im Browser-State des Users
+    steckt) das Verzeichnis neu erschafft und damit die "Existence"-Heuristik
+    in ``get_character_config`` triggert, die wiederum eine leere DB-Reihe
+    schreibt. ``create=True`` nutzt nur ``save_character_config``.
 
     Migration: Benennt alte agent_config.json / llm_config.json automatisch um.
     """
-    character_dir = get_character_dir(character_name, create=True)
+    character_dir = get_character_dir(character_name, create=create)
     new_path = character_dir / "character_config.json"
+    # Migration läuft nur wenn das Verzeichnis schon existiert (read- und
+    # write-Pfade); für nicht-existierende Characters ist nichts zu migrieren.
+    if not character_dir.exists():
+        return new_path
     # Migration from agent_config.json
     old_agent_path = character_dir / "agent_config.json"
     if not new_path.exists() and old_agent_path.exists():
@@ -869,21 +881,20 @@ def get_character_current_location(character_name: str = "") -> str:
     return profile.get("current_location", "")
 
 
-def get_known_locations(character_name: str) -> Optional[List[str]]:
-    """Liefert die known_locations-Liste eines Characters (oder None wenn nicht gesetzt).
+def get_known_locations(character_name: str) -> List[str]:
+    """Liefert die known_locations-Liste eines Characters (immer eine Liste).
 
-    None = Feld existiert nicht → Legacy/unrestricted.
-    Liste (auch leer) = strict membership in location_visible_to_character.
+    Strict membership in ``location_visible_to_character`` — leere Liste
+    bedeutet "kennt nichts", Auto-Discovery beim Betreten und der Discover-
+    Regel-Mechanismus erweitern die Liste schrittweise.
     """
     if not character_name:
-        return None
+        return []
     cfg = get_character_config(character_name) or {}
-    if "known_locations" not in cfg:
-        return None
     val = cfg.get("known_locations")
     if isinstance(val, list):
         return [str(v) for v in val if v]
-    return None
+    return []
 
 
 def add_known_location(character_name: str, location_id: str) -> List[str]:
@@ -1005,12 +1016,10 @@ def save_character_current_location(character_name: str = "", location: str = ""
         _record_state_change(character_name, "location", location)
         # Auto-Discovery: Wer einen Ort tatsaechlich betritt kennt ihn ab
         # jetzt — sonst kann er nicht zurueck (visibility-restricted Travel
-        # wuerde den eigenen Standort als unbekannt sehen). Sicher idempotent.
+        # wuerde den eigenen Standort als unbekannt sehen). Sicher idempotent;
+        # add_known_location legt das Feld an falls noch nicht vorhanden.
         try:
-            cfg = get_character_config(character_name) or {}
-            kl = cfg.get("known_locations")
-            if isinstance(kl, list) and location not in kl:
-                add_known_location(character_name, location)
+            add_known_location(character_name, location)
         except Exception:
             pass
     # Outfit-Type-Compliance: tausche nicht-passende equipped Pieces gegen

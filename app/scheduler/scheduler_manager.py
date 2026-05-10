@@ -698,6 +698,34 @@ class SchedulerManager:
 
             # location ist eine ID (nach Migration) — direkt speichern
             if location:
+                # Leave-Check: Pinning/Confine-Rule darf vom Scheduler nicht
+                # umgangen werden. Wenn der Char am aktuellen Ort gehalten
+                # wird, ueberspringt der Scheduler den Move komplett.
+                try:
+                    from app.models.rules import check_leave
+                    cur_loc_for_leave = get_character_current_location(agent) or ""
+                    if cur_loc_for_leave:
+                        leave_ok, leave_reason = check_leave(
+                            agent,
+                            target_location_id=location,
+                            target_room_id=random_room_id or "")
+                        if not leave_ok:
+                            logger.info("Scheduler: Leave blockiert %s (cur=%s -> tgt=%s): %s",
+                                        agent, cur_loc_for_leave, location, leave_reason)
+                            try:
+                                from app.models.character import record_access_denied
+                                from app.models.world import get_location_name as _gln
+                                _cur_name = _gln(cur_loc_for_leave) or cur_loc_for_leave
+                                record_access_denied(agent, cur_loc_for_leave, _cur_name,
+                                                      leave_reason, action="leave")
+                            except Exception:
+                                logger.debug("record_access_denied(scheduler-leave) failed", exc_info=True)
+                            location = cur_loc_for_leave
+                            activity = ""
+                            random_room_id = ""
+                except Exception:
+                    pass
+
                 # Rules-Check: darf der Character diesen Ort/Raum betreten?
                 # Zwei Stufen: erst Location, dann Raum (falls Raum gewaehlt).
                 try:

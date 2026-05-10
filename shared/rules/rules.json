@@ -1,10 +1,12 @@
 {
   "rules": [
     {
-      "name": "Erschoepfung",
+      "name": "Exhaustion",
+      "name_de": "Erschöpfung",
       "type": "force",
       "condition": "stamina<10",
-      "message": "Bin erschoepft, gehe schlafen.",
+      "message": "Worn out, going to sleep.",
+      "message_de": "Bin erschöpft, gehe schlafen.",
       "force_action": {
         "go_to": "home",
         "set_activity": "sleeping"
@@ -12,10 +14,12 @@
       "id": "default_sleep_when_exhausted"
     },
     {
-      "name": "Aufwachen",
+      "name": "Waking up",
+      "name_de": "Aufwachen",
       "type": "force",
       "condition": "stamina>70 AND current_activity:sleeping AND NOT schedule:sleeping",
-      "message": "Ausgeschlafen, wache auf.",
+      "message": "Well-rested, waking up.",
+      "message_de": "Ausgeschlafen, wache auf.",
       "force_action": {
         "go_to": "stay",
         "set_activity": ""
@@ -23,10 +27,12 @@
       "id": "default_wake_when_rested"
     },
     {
-      "name": "Ausgeschlafen",
+      "name": "Fully rested",
+      "name_de": "Ausgeschlafen",
       "type": "force",
       "condition": "stamina>99 AND current_activity:sleeping",
-      "message": "Du wachst auf, da Du ausgeschlafen bist.",
+      "message": "You wake up, fully rested.",
+      "message_de": "Du wachst auf, da Du ausgeschlafen bist.",
       "force_action": {
         "go_to": "stay",
         "set_activity": ""
@@ -34,10 +40,12 @@
       "id": "rule_f4e31679"
     },
     {
-      "name": "Wahrnehmung",
+      "name": "Awareness",
+      "name_de": "Wahrnehmung",
       "type": "discover",
       "condition": "attention>80",
-      "message": "Aus dem Augenwinkel faellt dir ein Ort auf, den du noch nicht kanntest.",
+      "message": "Out of the corner of your eye you notice a place you didn't know yet.",
+      "message_de": "Aus dem Augenwinkel fällt dir ein Ort auf, den du noch nicht kanntest.",
       "probability": 0.3,
       "id": "rule_04d219e2"
     }

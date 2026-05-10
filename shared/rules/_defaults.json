@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "purpose": "Seed defaults for ensure_default_rules() in app/models/rules.py. These are the system-essential rules (sleep/wake) that every world needs. ensure_default_rules() compares this list against shared/rules/rules.json by id and appends missing entries. Worlds that override or disable a rule keep their override (DB layer)."
+  },
+  "rules": [
+    {
+      "id": "default_sleep_when_exhausted",
+      "name": "Exhaustion",
+      "name_de": "Erschöpfung",
+      "type": "force",
+      "condition": "stamina<10",
+      "force_action": {
+        "go_to": "home",
+        "set_activity": "Sleeping"
+      },
+      "message": "Worn out, going to sleep.",
+      "message_de": "Bin erschöpft, gehe schlafen."
+    },
+    {
+      "id": "default_wake_when_rested",
+      "name": "Waking up",
+      "name_de": "Aufwachen",
+      "type": "force",
+      "condition": "stamina>60 AND current_activity:sleeping AND NOT schedule:sleeping",
+      "force_action": {
+        "go_to": "stay",
+        "set_activity": ""
+      },
+      "message": "Well-rested, waking up.",
+      "message_de": "Ausgeschlafen, wache auf."
+    }
+  ]
+}

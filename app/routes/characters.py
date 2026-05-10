@@ -283,6 +283,20 @@ async def create_character(request: Request) -> Dict[str, Any]:
         # unbekannte Namen (Schutz gegen Geister-Characters aus LLM-Output).
         save_character_profile(character_name, initial_profile, create_new=True)
 
+        # known_locations explizit als leere Liste initialisieren. Ohne dieses
+        # Feld greift im SetLocation-Skill der Legacy-Bypass und der Char darf
+        # zu beliebigen Orten teleportieren (Pfad-Validation wird uebersprungen).
+        # Frische Chars sollen nirgends hin koennen, bis sie aktiv platziert
+        # oder gefuehrt werden — auto-discovery in save_character_current_location
+        # befuellt die Liste danach automatisch.
+        try:
+            cfg = get_character_config(character_name) or {}
+            if "known_locations" not in cfg:
+                cfg["known_locations"] = []
+                save_character_config(character_name, cfg)
+        except Exception as _e:
+            logger.warning("create_character: known_locations init fehlgeschlagen: %s", _e)
+
         # Skill-Defaults schreiben — ohne diese Files greift die ALWAYS_LOAD-
         # Filter-Logik (skill_manager._get_agent_skills) und schaltet alle
         # Skills standardmaessig AUS. Mit der Default-Liste hat der frische
@@ -432,6 +446,58 @@ def get_character_current_location_route(character_name: str) -> Dict[str, Any]:
     }
 
 
+@router.get("/{character_name}/notice")
+def get_character_notice_route(character_name: str) -> Dict[str, Any]:
+    """Liefert die persistenten Hinweise fuer den Avatar-Header-Banner.
+
+    - ``force_warning``: aktive Force-Regel (rule_name + message + go_to + set_activity)
+      ODER ``None``. Fuer den Avatar wird die Regel NICHT automatisch ausgefuehrt.
+    - ``critical_events``: ungeloeste Events der Kategorien ``disruption``/``danger``
+      an der aktuellen Avatar-Location, neueste zuerst.
+    """
+    out: Dict[str, Any] = {"force_warning": None, "critical_events": []}
+    try:
+        from app.models.rules import check_force_rules, resolve_force_destination
+        force = check_force_rules(character_name)
+        if force:
+            go_loc, go_room = resolve_force_destination(character_name,
+                                                         force.get("go_to", "stay"))
+            out["force_warning"] = {
+                "rule_id": force.get("rule_id", ""),
+                "rule_name": force.get("rule_name", ""),
+                "message": force.get("message", ""),
+                "go_to": force.get("go_to", "stay"),
+                "go_to_location_id": go_loc,
+                "go_to_room_id": go_room,
+                "set_activity": force.get("set_activity", ""),
+            }
+    except Exception as e:
+        logger.debug("notice: force_rules failed for %s: %s", character_name, e)
+
+    try:
+        from app.models.character import get_character_current_location
+        from app.models.events import list_events
+        loc_id = (get_character_current_location(character_name) or "").strip()
+        if loc_id:
+            for ev in list_events(location_id=loc_id) or []:
+                cat = (ev.get("category") or "").lower()
+                if cat not in ("disruption", "danger"):
+                    continue
+                if ev.get("resolved"):
+                    continue
+                out["critical_events"].append({
+                    "id": ev.get("id", ""),
+                    "category": cat,
+                    "text": ev.get("text", ""),
+                    "created_at": ev.get("created_at", ""),
+                })
+            out["critical_events"].sort(key=lambda e: e.get("created_at", ""), reverse=True)
+    except Exception as e:
+        logger.debug("notice: critical_events failed for %s: %s", character_name, e)
+
+    return out
+
+
 @router.post("/{character_name}/current-location")
 async def update_character_current_location(character_name: str, request: Request) -> Dict[str, Any]:
     """Aktualisiert den aktuellen virtuellen Aufenthaltsort"""
@@ -442,16 +508,34 @@ async def update_character_current_location(character_name: str, request: Reques
         room = data.get("current_room", "")
 
         # Name → ID aufloesen falls noetig
-        from app.models.world import resolve_location as _resolve_loc
+        from app.models.world import resolve_location as _resolve_loc, get_entry_room_id
         from app.models.character import get_character_current_location, get_character_current_room, save_character_current_room, save_character_current_activity
         loc_obj = _resolve_loc(location)
         location_to_save = loc_obj["id"] if loc_obj and loc_obj.get("id") else location
         location_name_resp = loc_obj.get("name", location) if loc_obj else location
         old_loc = get_character_current_location(character_name)
         old_room = get_character_current_room(character_name) or ""
+        # Default-Raum fuer Cross-Location-Move: Entry-Room des Ziels.
+        if not room and loc_obj and location_to_save != old_loc:
+            room = get_entry_room_id(loc_obj) or ""
         # Avatar: Outfit NICHT automatisch umstellen (manuelle User-Wahl bleibt).
         from app.models.account import get_active_character
         _is_avatar = (get_active_character() == character_name)
+
+        # Block-Regeln: Avatar darf nicht in geblockte Locations/Raeume.
+        # Gleiche Gates wie der SetLocation-Skill der NPCs durchlaeuft.
+        if _is_avatar and (location_to_save != old_loc or (room and room != old_room)):
+            from app.models.rules import check_leave, check_access
+            if old_loc and location_to_save != old_loc:
+                ok_leave, leave_msg = check_leave(character_name)
+                if not ok_leave:
+                    raise HTTPException(status_code=403,
+                        detail={"reason": "block_leave", "message": leave_msg})
+            ok_enter, enter_msg = check_access(character_name, location_to_save,
+                                               room_id=room or "")
+            if not ok_enter:
+                raise HTTPException(status_code=403,
+                    detail={"reason": "block_enter", "message": enter_msg})
         save_character_current_location(character_name, location_to_save,
             _skip_compliance=_is_avatar)
         # Raum und Aktivitaet: bei Ortswechsel loeschen, es sei denn Raum wurde mitgegeben
@@ -473,6 +557,14 @@ async def update_character_current_location(character_name: str, request: Reques
             "current-location POST: char=%s is_avatar=%s old_loc=%s -> new_loc=%s old_room=%s -> new_room=%s room_changed=%s",
             character_name, _is_avatar, old_loc, location_to_save, old_room, new_room, room_changed)
         room_entry_result = {"reactor": "", "silent_noticers": []}
+        # Roll-on-Entry: bei echtem Cross-Location-Move sofort wuerfeln, ob ein
+        # Event fuer den Avatar entsteht. Nur fuer Avatar (nicht fuer NPC-Moves).
+        if _is_avatar and location_to_save != old_loc and loc_obj:
+            try:
+                from app.core.random_events import try_roll_on_entry
+                try_roll_on_entry(character_name, location_to_save, loc_obj)
+            except Exception as _re:
+                logger.debug("try_roll_on_entry fehlgeschlagen: %s", _re)
         if _is_avatar and room_changed:
             try:
                 from app.core.room_entry import on_avatar_room_entry
@@ -523,7 +615,7 @@ async def place_character_on_map(character_name: str, request: Request) -> Dict[
         if not location:
             raise HTTPException(status_code=400, detail="location_id fehlt")
 
-        from app.models.world import resolve_location as _resolve_loc
+        from app.models.world import resolve_location as _resolve_loc, get_entry_room_id
         from app.models.character import (
             add_known_location, get_character_current_room,
             save_character_current_room, save_character_current_activity)
@@ -532,12 +624,30 @@ async def place_character_on_map(character_name: str, request: Request) -> Dict[
         location_to_save = loc_obj["id"] if loc_obj and loc_obj.get("id") else location
         location_name_resp = loc_obj.get("name", location) if loc_obj else location
 
-        add_known_location(character_name, location_to_save)
+        # Kein Raum mitgegeben → Entry-Room der Ziel-Location nehmen.
+        if not room and loc_obj:
+            room = get_entry_room_id(loc_obj) or ""
 
         old_loc = get_character_current_location(character_name)
         old_room = get_character_current_room(character_name) or ""
         from app.models.account import get_active_character
         _is_avatar = (get_active_character() == character_name)
+
+        # Block-Regeln: Avatar darf nicht in geblockte Locations/Raeume.
+        if _is_avatar and (location_to_save != old_loc or (room and room != old_room)):
+            from app.models.rules import check_leave, check_access
+            if old_loc and location_to_save != old_loc:
+                ok_leave, leave_msg = check_leave(character_name)
+                if not ok_leave:
+                    raise HTTPException(status_code=403,
+                        detail={"reason": "block_leave", "message": leave_msg})
+            ok_enter, enter_msg = check_access(character_name, location_to_save,
+                                               room_id=room or "")
+            if not ok_enter:
+                raise HTTPException(status_code=403,
+                    detail={"reason": "block_enter", "message": enter_msg})
+
+        add_known_location(character_name, location_to_save)
         save_character_current_location(character_name, location_to_save,
             _skip_compliance=_is_avatar)
         if location_to_save != old_loc:
@@ -550,6 +660,13 @@ async def place_character_on_map(character_name: str, request: Request) -> Dict[
         new_room = room or ''
         room_changed = (location_to_save != old_loc) or (new_room and new_room != old_room)
         room_entry_result = {"reactor": "", "silent_noticers": []}
+        # Roll-on-Entry: Cross-Location-Drop-on-Map löst sofort Würfel aus.
+        if _is_avatar and location_to_save != old_loc and loc_obj:
+            try:
+                from app.core.random_events import try_roll_on_entry
+                try_roll_on_entry(character_name, location_to_save, loc_obj)
+            except Exception as _re:
+                logger.debug("try_roll_on_entry fehlgeschlagen: %s", _re)
         if _is_avatar and room_changed:
             try:
                 from app.core.room_entry import on_avatar_room_entry
@@ -641,6 +758,107 @@ async def update_character_current_activity(character_name: str, request: Reques
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{character_name}/announcements")
+def list_announcements_route(character_name: str, limit: int = 30) -> Dict[str, Any]:
+    """Recent announcements visible to this character — both ones they sent
+    and ones they heard. Sorted newest-first. Used by the avatar's
+    Announce-mode panel to show context above the input.
+    """
+    try:
+        from app.models.memory import load_memories
+        entries: List[Dict[str, Any]] = []
+        for m in load_memories(character_name) or []:
+            tags = m.get("tags") or []
+            ts = m.get("timestamp") or ""
+            content = m.get("content") or ""
+            if "announcement_sent" in tags:
+                text = content
+                if text.startswith("Announced to "):
+                    # "Announced to X: \"...\"" -> strip prefix to leave the quoted text
+                    try:
+                        text = content.split(": ", 1)[1].strip().strip('"')
+                    except Exception:
+                        pass
+                entries.append({
+                    "kind": "sent",
+                    "timestamp": ts,
+                    "sender": character_name,
+                    "text": text,
+                })
+            elif "announcement_heard" in tags:
+                sender = (m.get("related_character") or "").strip()
+                if not sender:
+                    for tag in tags:
+                        if isinstance(tag, str) and tag.startswith("announcement_heard:"):
+                            sender = tag.split(":", 1)[1]
+                            break
+                text = content
+                if text.startswith("Heard "):
+                    try:
+                        text = content.split("announce: ", 1)[1].strip().strip('"')
+                    except Exception:
+                        pass
+                entries.append({
+                    "kind": "heard",
+                    "timestamp": ts,
+                    "sender": sender,
+                    "text": text,
+                })
+        entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
+        if limit and limit > 0:
+            entries = entries[:limit]
+        return {"character": character_name, "entries": entries}
+    except Exception as e:
+        logger.exception("list_announcements_route failed for %s", character_name)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{character_name}/announce")
+async def announce_route(character_name: str, request: Request) -> Dict[str, Any]:
+    """Avatar (or any character) makes a one-way announcement to all
+    present. Reuses the same AnnounceSkill execute path as the LLM tool —
+    no bypass. Returns the list of recipients reached.
+    """
+    try:
+        data = await request.json()
+        text = (data.get("text") or "").strip()
+        scope = (data.get("scope") or "here").strip().lower()
+        if not text:
+            raise HTTPException(status_code=400, detail="text is required")
+        if scope not in ("here", "location"):
+            raise HTTPException(status_code=400, detail="scope must be 'here' or 'location'")
+
+        from app.core.dependencies import get_skill_manager
+        skill = get_skill_manager().get_skill("announce")
+        if skill is None:
+            raise HTTPException(status_code=503, detail="Announce skill not loaded")
+
+        import json as _json
+        import asyncio as _asyncio
+        payload = _json.dumps({
+            "agent_name": character_name,
+            "text": text,
+            "scope": scope,
+        })
+        result = await _asyncio.to_thread(skill.execute, payload)
+
+        from app.skills.announce_skill import resolve_recipients
+        recipients = resolve_recipients(scope, character_name)
+        return {
+            "status": "success",
+            "character": character_name,
+            "scope": scope,
+            "text": text,
+            "recipients": recipients,
+            "result": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("announce_route failed for %s", character_name)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4280,8 +4498,7 @@ def memory_locations(character_name: str) -> Dict[str, Any]:
     profile = get_character_profile(character_name)
     current_id = profile.get("current_location") or ""
     known_ids = get_known_locations(character_name)
-    unrestricted = known_ids is None
-    known_set = set(known_ids or [])
+    known_set = set(known_ids)
 
     # Visit-Counts aus state_history (Ringbuffer ~200 Eintraege)
     conn = get_connection()
@@ -4300,7 +4517,7 @@ def memory_locations(character_name: str) -> Dict[str, Any]:
         lid = loc.get("id", "")
         if not lid:
             continue
-        is_known = unrestricted or (lid in known_set)
+        is_known = lid in known_set
         v = visits.get(lid, {})
         items.append({
             "id": lid,
@@ -4316,7 +4533,6 @@ def memory_locations(character_name: str) -> Dict[str, Any]:
         })
     return {
         "character": character_name,
-        "unrestricted": unrestricted,
         "current_location_id": current_id,
         "items": items,
     }

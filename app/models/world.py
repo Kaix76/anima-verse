@@ -174,6 +174,17 @@ def _save_world_data(data: Dict[str, Any]):
                 lid = loc.get("id")
                 if not lid:
                     continue
+                # Migration: entry_room defaultet auf den ersten Raum, wenn er
+                # fehlt oder auf einen nicht mehr existierenden Raum zeigt.
+                _rooms = loc.get("rooms") or []
+                if _rooms:
+                    _entry = (loc.get("entry_room") or "").strip()
+                    _valid = any(isinstance(r, dict) and r.get("id") == _entry
+                                 for r in _rooms)
+                    if not _valid:
+                        _first = _rooms[0]
+                        if isinstance(_first, dict) and _first.get("id"):
+                            loc["entry_room"] = _first.get("id")
                 conn.execute("""
                     INSERT INTO locations
                         (id, name, description, grid_x, grid_y, outfit_type,
@@ -642,37 +653,30 @@ def _character_has_item(character_name: str, item_id: str) -> bool:
     return False
 
 
-def _character_known_locations(character_name: str):
-    """Liefert die explizit gesetzte known_locations-Liste oder None.
+def _character_known_locations(character_name: str) -> List[str]:
+    """Liefert die known_locations-Liste eines Characters (immer eine Liste).
 
-    None bedeutet: Feld nicht gesetzt → Legacy-Verhalten (keine Restriktion).
-    Eine Liste (auch leer) bedeutet: strict — nur enthaltene Location-IDs sind
-    sichtbar. Wird ueber Drag&Drop im Worldmap-Panel populiert.
+    Leere Liste = der Character kennt noch keinen Ort und kann nirgends hin.
+    Auto-Discovery beim Betreten und Discover-Regeln erweitern die Liste.
     """
     if not character_name:
-        return None
+        return []
     try:
         from app.models.character import get_character_config
         cfg = get_character_config(character_name) or {}
     except Exception:
-        return None
-    if "known_locations" not in cfg:
-        return None
+        return []
     val = cfg.get("known_locations")
     if isinstance(val, list):
         return [str(v) for v in val if v]
-    return None
+    return []
 
 
 def location_visible_to_character(character_name: str,
                                     location: Dict[str, Any]) -> bool:
     """True wenn der Character das Wissens-Item der Location besitzt
     (oder keins gesetzt ist) UND die Location in seiner known_locations-Liste
-    steht (falls die Liste explizit gesetzt ist).
-
-    known_locations: optionale Liste von Location-IDs. Wenn das Feld fehlt
-    (Legacy), gilt keine Listen-Restriktion. Wenn es gesetzt ist (auch leer),
-    gilt strict membership — die Liste wird ueber Drag&Drop populiert.
+    steht. Strict — leere Liste = nichts sichtbar.
     """
     if not isinstance(location, dict):
         return False
@@ -680,10 +684,9 @@ def location_visible_to_character(character_name: str,
     if iid and not _character_has_item(character_name, iid):
         return False
     known = _character_known_locations(character_name)
-    if known is not None:
-        loc_id = location.get("id") or ""
-        if loc_id not in known:
-            return False
+    loc_id = location.get("id") or ""
+    if loc_id not in known:
+        return False
     return True
 
 
@@ -890,6 +893,30 @@ def get_neighbor_location_ids(location_id: str) -> List[str]:
             if abs(gx - sx) <= 1 and abs(gy - sy) <= 1:
                 neighbors.append(loc["id"])
     return neighbors
+
+
+def get_entry_room_id(location: Dict[str, Any]) -> str:
+    """Liefert den Entry-Room einer Location.
+
+    Der Entry-Room ist der einzige Raum durch den eine Location betreten und
+    verlassen werden kann (Avatar D-Pad, NPC-Walk, Pathfinder).
+
+    - Liegt explizit ``location.entry_room`` vor und der Raum existiert: nimm den.
+    - Sonst der erste Raum (Migration / impliziter Default).
+    - Hat die Location keine Raeume: leerer String.
+    """
+    if not isinstance(location, dict):
+        return ""
+    rooms = location.get("rooms") or []
+    if not rooms:
+        return ""
+    explicit = (location.get("entry_room") or "").strip()
+    if explicit:
+        for r in rooms:
+            if isinstance(r, dict) and r.get("id") == explicit:
+                return explicit
+    first = rooms[0]
+    return (first.get("id") or "") if isinstance(first, dict) else ""
 
 
 def find_path_through_known(start_id: str, target_id: str,

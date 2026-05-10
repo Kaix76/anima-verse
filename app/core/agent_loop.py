@@ -81,6 +81,19 @@ def _get_per_char_cooldown_min() -> int:
         return _MIN_PER_CHAR_COOLDOWN_MIN_DEFAULT
 
 
+# Transiente Netzwerk-Fehlertypen, die der LLM-Stream werfen kann, wenn
+# der Provider die Verbindung mid-stream abbricht. Werden im Turn-Handler
+# abgegriffen, damit sie nicht als ERROR mit Traceback geloggt werden.
+def _is_transient_network_error(err: BaseException) -> bool:
+    name = type(err).__name__
+    if name in {"ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout",
+                "RemoteProtocolError", "ConnectError", "ReadError",
+                "APIConnectionError", "APITimeoutError"}:
+        return True
+    module = type(err).__module__ or ""
+    return module.startswith("httpx") or module.startswith("httpcore")
+
+
 class AgentLoop:
     """Asyncio task that ticks one agent thought turn at a time."""
 
@@ -98,6 +111,13 @@ class AgentLoop:
         # planned to do X — decide now" prompt prefix. Multiple hints for
         # the same character accumulate (newline-joined).
         self._bump_hints: Dict[str, str] = {}
+        # Optional perception-event payload attached to a bump. When set,
+        # the next turn for this character renders the given template
+        # (e.g. tasks/perceive_announcement.md) instead of the default
+        # agent_thought, with template_vars merged into the render context
+        # and tools restricted by tool_whitelist. Latest perception wins
+        # if multiple arrive before the tick.
+        self._bump_perception: Dict[str, Dict[str, Any]] = {}
         # Per-character last-real-turn timestamp for cooldown enforcement.
         # Real = full LLM turn (not in_chat_skip / no_llm / error). Used to
         # skip the same char if they ran within _MIN_PER_CHAR_COOLDOWN_MIN.
@@ -153,7 +173,10 @@ class AgentLoop:
             "recent": list(self._recent),
         }
 
-    def bump(self, character_name: str, hint: str = "") -> bool:
+    def bump(self, character_name: str, hint: str = "",
+             perception_template: str = "",
+             perception_vars: Optional[Dict[str, Any]] = None,
+             tool_whitelist: Optional[List[str]] = None) -> bool:
         """Mark a character for priority processing — they think next.
 
         Used by external triggers (avatar room entry, incoming message,
@@ -169,6 +192,13 @@ class AgentLoop:
         now whether to send it" prompts so the LLM can act, adjust, or
         skip on its own.
 
+        Optional ``perception_template`` swaps the default agent_thought
+        prompt for a focused perception template (e.g.
+        ``tasks/perceive_announcement.md``). ``perception_vars`` are
+        merged into the render context. ``tool_whitelist`` restricts the
+        tools the agent may call this turn. Latest perception wins if
+        multiple arrive for the same character before the tick.
+
         Returns True if the bump was registered, False if the character
         is ineligible (sleeping / disabled / avatar / unknown).
         """
@@ -181,11 +211,19 @@ class AgentLoop:
             existing = self._bump_hints.get(character_name, "")
             self._bump_hints[character_name] = (
                 existing + "\n" + hint if existing else hint)
+        if perception_template:
+            self._bump_perception[character_name] = {
+                "template": perception_template,
+                "vars": dict(perception_vars or {}),
+                "tool_whitelist": list(tool_whitelist) if tool_whitelist else None,
+            }
         if character_name in self._bump_queue:
             return True  # already bumped
         self._bump_queue.append(character_name)
-        logger.info("AgentLoop.bump: %s queued for next slot%s",
-                    character_name, " (with hint)" if hint else "")
+        logger.info("AgentLoop.bump: %s queued for next slot%s%s",
+                    character_name,
+                    " (with hint)" if hint else "",
+                    f" (perception={perception_template})" if perception_template else "")
         return True
 
     def pop_hint(self, character_name: str) -> str:
@@ -194,6 +232,14 @@ class AgentLoop:
         returned text in this turn or the hint is lost.
         """
         return self._bump_hints.pop(character_name, "")
+
+    def pop_perception(self, character_name: str) -> Optional[Dict[str, Any]]:
+        """Pop a queued perception payload (template/vars/tool_whitelist).
+
+        Returns None if no perception was queued. Mutates internal state —
+        caller must use the returned payload in this turn or it is lost.
+        """
+        return self._bump_perception.pop(character_name, None)
 
     # ------------------------------------------------------------------
     # Main loop
@@ -409,7 +455,39 @@ class AgentLoop:
                             save_character_current_location)
                         from app.models.world import next_step_toward
                         target = get_movement_target(character_name)
+                        # Leave-Gate: Pinning/Confine-Rules koennen den
+                        # Walk-Step blockieren, selbst wenn movement_target
+                        # frueher gesetzt wurde (Rule wurde erst danach
+                        # aktiv, oder Cross-Tick-Aenderung). Target loeschen,
+                        # damit der Char nicht ewig "auf der Reise" bleibt.
+                        leave_blocked = False
                         if target:
+                            try:
+                                from app.models.rules import check_leave
+                                # Walk-Step kennt nur das Ziel-Loc, nicht den
+                                # Ziel-Raum — Cross-Location-Walk verlaesst den
+                                # aktuellen Raum eh. target_room_id leer lassen.
+                                _leave_ok, _leave_reason = check_leave(
+                                    character_name,
+                                    target_location_id=target)
+                            except Exception:
+                                _leave_ok, _leave_reason = True, ""
+                            if not _leave_ok:
+                                leave_blocked = True
+                                clear_movement_target(character_name)
+                                logger.info(
+                                    "Walk blockiert (leave): %s — Target %s geloescht (%s)",
+                                    character_name, target, _leave_reason)
+                                try:
+                                    from app.models.character import record_access_denied, get_character_current_location
+                                    from app.models.world import get_location_name as _gln_walk
+                                    _cur = get_character_current_location(character_name) or ""
+                                    _cur_name = _gln_walk(_cur) or _cur
+                                    record_access_denied(character_name, _cur, _cur_name,
+                                                          _leave_reason, action="leave")
+                                except Exception:
+                                    logger.debug("record_access_denied(walk-leave) failed", exc_info=True)
+                        if target and not leave_blocked:
                             next_loc = next_step_toward(character_name, target)
                             if next_loc is None:
                                 clear_movement_target(character_name)
@@ -427,12 +505,39 @@ class AgentLoop:
                                 except Exception:
                                     pass
                             else:
-                                save_character_current_location(
-                                    character_name, next_loc,
-                                    _preserve_movement_target=True)
-                                logger.info(
-                                    "AgentLoop walk: %s -> %s (Ziel: %s)",
-                                    character_name, next_loc, target)
+                                # Entry-Room-Discipline: NPC verlaesst die
+                                # Location nur ueber den Entry-Room. Steht er
+                                # in einem anderen Raum, geht er erst zum
+                                # Entry-Room (1 Tick) und im naechsten Tick
+                                # ueber die Grenze.
+                                from app.models.world import (
+                                    get_location_by_id, get_entry_room_id)
+                                from app.models.character import (
+                                    get_character_current_room,
+                                    save_character_current_room)
+                                _cur_loc = get_character_current_location(
+                                    character_name) or ""
+                                _cur_loc_obj = get_location_by_id(_cur_loc) if _cur_loc else None
+                                _cur_entry = get_entry_room_id(_cur_loc_obj) if _cur_loc_obj else ""
+                                _cur_room = (get_character_current_room(character_name) or "").strip()
+                                if _cur_entry and _cur_room and _cur_room != _cur_entry:
+                                    save_character_current_room(character_name, _cur_entry)
+                                    logger.info(
+                                        "AgentLoop walk: %s -> Entry-Room %s "
+                                        "(vor Cross-Location-Step nach %s)",
+                                        character_name, _cur_entry, next_loc)
+                                else:
+                                    save_character_current_location(
+                                        character_name, next_loc,
+                                        _preserve_movement_target=True)
+                                    # Ankunft im Entry-Room der Ziel-Location.
+                                    _next_obj = get_location_by_id(next_loc)
+                                    _next_entry = get_entry_room_id(_next_obj) if _next_obj else ""
+                                    if _next_entry:
+                                        save_character_current_room(character_name, _next_entry)
+                                    logger.info(
+                                        "AgentLoop walk: %s -> %s (Ziel: %s)",
+                                        character_name, next_loc, target)
                 except Exception as _we:
                     logger.debug("Walk-Step fuer %s fehlgeschlagen: %s",
                                  character_name, _we)
@@ -447,7 +552,16 @@ class AgentLoop:
                     logger.debug("Discover-Check fuer %s fehlgeschlagen: %s",
                                  character_name, _de)
 
+                # Perception payload (e.g. announcement) overrides the
+                # template before render. Pop'd here so the choice stays
+                # visible in the same scope as the system_prompt build.
+                perception = self.pop_perception(character_name)
                 ctx = build_thought_context(character_name)
+                if perception and perception.get("template"):
+                    template_name = perception["template"]
+                    extra_vars = perception.get("vars") or {}
+                    if extra_vars:
+                        ctx.update(extra_vars)
                 system_prompt = render(template_name, **ctx)
 
                 thought_loop = get_thought_runner()
@@ -460,12 +574,14 @@ class AgentLoop:
                 # Pop bump-hint (e.g. "scheduled message: …") and forward
                 # it to the thought turn so the LLM sees the trigger.
                 hint = self.pop_hint(character_name)
+                _perception_whitelist = (perception or {}).get("tool_whitelist")
 
                 try:
                     result = await asyncio.wait_for(
                         thought_loop.run_thought_turn(
                             character_name,
                             context_hint=hint,
+                            tool_whitelist=_perception_whitelist,
                             system_prompt_override=system_prompt),
                         timeout=_TURN_TIMEOUT_SECONDS)
                     if isinstance(result, dict):
@@ -483,9 +599,19 @@ class AgentLoop:
                 mark_thought_processed(character_name)
 
             except Exception as e:
-                logger.error("AgentLoop turn error for %s: %s",
-                             character_name, e, exc_info=True)
-                outcome = f"error: {type(e).__name__}"
+                # Transiente Netzwerkfehler vom LLM-Provider (Stream-Timeout,
+                # abgebrochene Verbindung) als one-liner loggen — der naechste
+                # Tick versucht es eh wieder, kein voller Traceback noetig.
+                if _is_transient_network_error(e):
+                    logger.warning(
+                        "AgentLoop turn aborted for %s — transient network "
+                        "error from LLM provider: %s",
+                        character_name, type(e).__name__)
+                    outcome = "transient_network"
+                else:
+                    logger.error("AgentLoop turn error for %s: %s",
+                                 character_name, e, exc_info=True)
+                    outcome = f"error: {type(e).__name__}"
             finally:
                 self._record_turn(character_name, started_at, outcome, turn_info)
                 self._current_agent = ""
@@ -553,6 +679,21 @@ class AgentLoop:
                             character_name)
                 return {"outcome": "auto_sleep_at_home",
                         "preview": f"home & exhausted (stamina={stamina}) → sleeping",
+                        "tools": ["SetActivity"]}
+
+            # Leave-Gate: Confined Char kann auch erschoepft nicht heim
+            # laufen. Schlaeft dann am aktuellen Ort ein.
+            try:
+                from app.models.rules import check_leave
+                _auto_leave_ok, _auto_leave_reason = check_leave(character_name)
+            except Exception:
+                _auto_leave_ok, _auto_leave_reason = True, ""
+            if not _auto_leave_ok:
+                save_character_current_activity(character_name, "Sleeping")
+                logger.info("Auto-Sleep: %s confined (%s) -> Sleeping vor Ort",
+                            character_name, _auto_leave_reason)
+                return {"outcome": "auto_sleep_confined",
+                        "preview": f"exhausted (stamina={stamina}) → confined, sleeping in place",
                         "tools": ["SetActivity"]}
 
             # Anderswo — movement_target setzen UND sofort den ersten

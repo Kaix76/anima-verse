@@ -190,6 +190,14 @@ def _cleanup_expired(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Entfernt abgelaufene Events und speichert wenn noetig."""
     active = [e for e in events if not _is_expired(e)]
     if len(active) < len(events):
+        # Event-gekoppelte Block-Rules mit aufraeumen.
+        try:
+            from app.models.rules import delete_rules_by_event
+            for e in events:
+                if _is_expired(e) and e.get("id"):
+                    delete_rules_by_event(e["id"])
+        except Exception as _e:
+            logger.debug("delete_rules_by_event(cleanup) fehlgeschlagen: %s", _e)
         _save_events(active)
         logger.info("%d abgelaufene Events entfernt", len(events) - len(active))
     return active
@@ -239,6 +247,13 @@ def resolve_event(event_id: str,
 
         _save_events(events)
         logger.info("Event geloest: %s von %s — %s", event_id, resolved_by, resolved_text[:60])
+        # Sofortiges Aufraeumen der gekoppelten Block-Rules — der Weg ist
+        # frei, sobald geloest, nicht erst nach dem Resolved-TTL.
+        try:
+            from app.models.rules import delete_rules_by_event
+            delete_rules_by_event(event_id)
+        except Exception as _e:
+            logger.debug("delete_rules_by_event(resolve) fehlgeschlagen: %s", _e)
         return evt
     return None
 
@@ -285,6 +300,11 @@ def delete_event(event_id: str) -> bool:
     if len(new_events) < len(events):
         _save_events(new_events)
         logger.info("Event geloescht: %s", event_id)
+        try:
+            from app.models.rules import delete_rules_by_event
+            delete_rules_by_event(event_id)
+        except Exception as _e:
+            logger.debug("delete_rules_by_event(delete) fehlgeschlagen: %s", _e)
         return True
     return False
 

@@ -17,8 +17,22 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.log import get_logger
 from app.core.paths import get_storage_dir
 from app.core.db import get_connection, transaction
+from app.core.i18n import localized
 
 logger = get_logger("rules")
+
+
+def _user_lang() -> str:
+    """Active user's UI language for rule-message localization.
+
+    Lazy import to avoid circular dependency with ``app.models.account`` —
+    ``account`` itself reads rule data via the storage layer at startup.
+    """
+    try:
+        from app.models.account import get_user_profile
+        return (get_user_profile().get("system_language") or "en").strip() or "en"
+    except Exception:
+        return "en"
 
 
 def _get_rules_path() -> Path:
@@ -174,36 +188,21 @@ def save_rules(rules: List[Dict[str, Any]], target_dir: str = "world"):
 # kommen frische Welten direkt mit funktionierender Erschoepfungs-/
 # Aufwach-Logik. Bestehende Welten bleiben unangetastet (Idempotenz via
 # id-Match — wer eine eigene Rule mit derselben id angelegt hat behaelt sie).
-DEFAULT_RULES = [
-    {
-        "id": "default_sleep_when_exhausted",
-        "name": "Erschoepfung",
-        "type": "force",
-        "condition": "stamina<10",
-        "force_action": {
-            "go_to": "home",
-            "set_activity": "Sleeping",
-        },
-        "message": "Bin erschoepft, gehe schlafen.",
-    },
-    {
-        "id": "default_wake_when_rested",
-        "name": "Aufwachen",
-        "type": "force",
-        # Char wacht auf wenn Stamina hoch genug UND aktuell schlafend UND
-        # der Tagesablauf nicht (mehr) Schlaf vorschreibt. Letzte Bedingung
-        # verhindert dass ein Char waehrend des Schedule-Schlaf-Fensters
-        # vorzeitig aufwacht (z.B. zu kurz "ausgeschlafen" um 04:00 weil
-        # Stamina knapp ueber Schwelle ist) — der Schedule entscheidet
-        # dann mit ob's wirklich Zeit ist.
-        "condition": "stamina>60 AND current_activity:sleeping AND NOT schedule:sleeping",
-        "force_action": {
-            "go_to": "stay",
-            "set_activity": "",
-        },
-        "message": "Ausgeschlafen, wache auf.",
-    },
-]
+#
+# Die Seed-Daten leben in ``shared/rules/_defaults.json`` (Daten in Shared,
+# nicht inline in Code).
+def _load_default_rules() -> List[Dict[str, Any]]:
+    """Liest die Seed-Defaults aus ``shared/rules/_defaults.json``."""
+    path = _get_shared_rules_path().parent / "_defaults.json"
+    if not path.exists():
+        logger.warning("Seed-File fehlt: %s — keine Defaults", path)
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("rules", [])
+    except Exception as e:
+        logger.warning("Seed-File konnte nicht gelesen werden (%s): %s", path, e)
+        return []
 
 
 def ensure_default_rules() -> int:
@@ -215,6 +214,8 @@ def ensure_default_rules() -> int:
     Idempotent: pruefen ob eine Rule mit der ID schon im shared-File
     eingetragen ist; nur fehlende werden ergaenzt.
 
+    Seed-Quelle: ``shared/rules/_defaults.json``.
+
     Returns: Anzahl neu angelegter Rules (0 wenn alles schon da war).
     """
     try:
@@ -225,8 +226,9 @@ def ensure_default_rules() -> int:
         shared = _load_shared_rules()
         shared_ids = {(r.get("id") or "").strip() for r in shared}
         added = 0
-        for default in DEFAULT_RULES:
-            if default["id"] in shared_ids:
+        for default in _load_default_rules():
+            rule_id = (default.get("id") or "").strip()
+            if not rule_id or rule_id in shared_ids:
                 continue
             shared.append(dict(default))
             added += 1
@@ -343,6 +345,62 @@ def delete_rule(rule_id: str, target_dir: str = "") -> bool:
     return delete_rule(rule_id, target_dir="shared")
 
 
+def add_event_rule(event_id: str,
+    location_id: str,
+    message: str,
+    action: str = "leave",
+    name: str = "") -> Optional[Dict[str, Any]]:
+    """Erzeugt eine temporaere Block-Regel an einen Event gekoppelt.
+
+    Lebensdauer = Event-Lebensdauer. Wenn das Event geloest wird oder
+    abgelaeuft, ruft der Cleanup-Hook ``delete_rules_by_event`` und die
+    Regel verschwindet automatisch.
+
+    action: "leave" (Standard) — Avatar/NPCs koennen den Ort nicht
+    verlassen; "enter" — niemand kommt rein; "both" — beide Richtungen.
+    """
+    if not event_id or not location_id:
+        return None
+
+    if action == "both":
+        rules = []
+        for sub in ("enter", "leave"):
+            r = add_event_rule(event_id, location_id, message, action=sub,
+                                name=name)
+            if r:
+                rules.append(r)
+        return rules[0] if rules else None
+
+    rule = {
+        "id": f"evtrule_{event_id}_{action}",
+        "name": name or f"Event-Block ({action})",
+        "type": "block",
+        "action": action,
+        "target": {"scope": "location", "location_id": location_id},
+        "message": message or "Access denied.",
+        "event_id": event_id,
+    }
+    return add_rule(rule, target_dir="world")
+
+
+def delete_rules_by_event(event_id: str) -> int:
+    """Loescht alle Regeln die an ein Event gekoppelt sind.
+
+    Returns: Anzahl geloeschter Regeln.
+    """
+    if not event_id:
+        return 0
+    deleted = 0
+    world_rules = _load_world_rules()
+    keep = [r for r in world_rules if r.get("event_id") != event_id]
+    if len(keep) != len(world_rules):
+        deleted = len(world_rules) - len(keep)
+        save_rules(keep, target_dir="world")
+        logger.info("delete_rules_by_event: %d Rule(s) zu event=%s entfernt",
+                     deleted, event_id)
+    return deleted
+
+
 def get_rule(rule_id: str) -> Optional[Dict[str, Any]]:
     """Gibt eine einzelne Regel zurueck."""
     for r in load_rules():
@@ -414,7 +472,7 @@ def check_access(character_name: str,
                                 _all_block = False
                                 break
                         if _all_block:
-                            message = rule.get("message", "") or "Zugang verweigert."
+                            message = localized(rule, "message", _user_lang()) or "Access denied."
                             logger.info("Rule blockiert %s: %s (alle Raeume)",
                                          character_name, rule.get("name", "?"))
                             return False, message
@@ -437,7 +495,7 @@ def check_access(character_name: str,
         if condition:
             passed, _ = evaluate_condition(condition, character_name, location_id, room_id)
             if passed:
-                message = rule.get("message", "") or "Zugang verweigert."
+                message = localized(rule, "message", _user_lang()) or "Access denied."
                 logger.info("Rule blockiert %s: %s (%s)", character_name,
                            rule.get("name", "?"), message[:60])
                 return False, message
@@ -516,7 +574,7 @@ def check_leave(character_name: str, *,
             passed, _ = evaluate_condition(condition, character_name, cur_loc, cur_room)
             if not passed:
                 continue
-        message = rule.get("message", "") or "Du kannst diesen Ort nicht verlassen."
+        message = localized(rule, "message", _user_lang()) or "You can't leave this place."
         logger.info("Rule blockiert Leave %s: %s (%s)", character_name,
                     rule.get("name", "?"), message[:60])
         return False, message
@@ -588,12 +646,13 @@ def check_force_rules(character_name: str) -> Optional[Dict[str, Any]]:
 
         logger.info("Zwangs-Regel greift fuer %s: %s", character_name,
                    rule.get("name", "?"))
+        _lang = _user_lang()
         return {
             "rule_id": rule.get("id", ""),
-            "rule_name": rule.get("name", ""),
+            "rule_name": localized(rule, "name", _lang),
             "go_to": force.get("go_to", "stay"),
             "set_activity": force.get("set_activity", ""),
-            "message": rule.get("message", ""),
+            "message": localized(rule, "message", _lang),
         }
 
     return None
@@ -652,9 +711,6 @@ def check_discover_rules(character_name: str) -> Optional[Dict[str, Any]]:
       zufaelliger noch unbekannter Nachbar (Grid-adjacent) zur known_locations-
       Liste hinzugefuegt.
 
-    Wird nicht aktiv fuer Characters ohne known_locations-Feld (Legacy/
-    unrestricted) — die sehen ohnehin schon alles.
-
     Returns: Dict mit location_id/location_name/rule_*/message bei Treffer,
     sonst None (nichts entdeckt diese Runde).
     """
@@ -665,14 +721,19 @@ def check_discover_rules(character_name: str) -> Optional[Dict[str, Any]]:
         add_known_location, _record_state_change)
     from app.models.world import get_neighbor_location_ids, get_location_by_id
 
+    # Avatar entdeckt nicht — der User sieht alles in seiner Welt.
+    try:
+        from app.models.account import is_player_controlled
+        if is_player_controlled(character_name):
+            return None
+    except Exception:
+        pass
+
     location_id = get_character_current_location(character_name) or ""
     if not location_id:
         return None
 
     known = get_known_locations(character_name)
-    if known is None:
-        # Legacy/unrestricted — nichts zu entdecken
-        return None
 
     try:
         neighbors = get_neighbor_location_ids(location_id)
@@ -705,8 +766,9 @@ def check_discover_rules(character_name: str) -> Optional[Dict[str, Any]]:
         add_known_location(character_name, discovered_id)
         loc = get_location_by_id(discovered_id) or {}
         loc_name = loc.get("name", discovered_id)
-        message = (rule.get("message") or "").strip() \
-            or f"Hat einen neuen Ort entdeckt: {loc_name}"
+        _lang = _user_lang()
+        message = (localized(rule, "message", _lang) or "").strip() \
+            or f"Discovered a new place: {loc_name}"
         try:
             _record_state_change(character_name, "discovery", loc_name,
                 metadata={"location_id": discovered_id,
@@ -720,7 +782,7 @@ def check_discover_rules(character_name: str) -> Optional[Dict[str, Any]]:
             "location_id": discovered_id,
             "location_name": loc_name,
             "rule_id": rule.get("id", ""),
-            "rule_name": rule.get("name", ""),
+            "rule_name": localized(rule, "name", _lang),
             "message": message,
         }
 

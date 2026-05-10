@@ -21,7 +21,7 @@ import os
 import random
 import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.log import get_logger
 
@@ -208,6 +208,79 @@ def _pick_category(weights: Dict[str, int]) -> str:
     cats = list(weights.keys())
     w = [weights[c] for c in cats]
     return random.choices(cats, weights=w, k=1)[0]
+
+
+_ENTRY_ROLL_LAST: Dict[Tuple[str, str], datetime] = {}
+
+
+def try_roll_on_entry(character_name: str, loc_id: str, location: Dict[str, Any]) -> None:
+    """Sofort-Roll wenn ein Character eine Location betritt.
+
+    - Globaler Master-Switch ``EVENT_ENTRY_ROLL_ENABLED``.
+    - Per-(character, location) Cooldown ``EVENT_ENTRY_ROLL_COOLDOWN_MINUTES``
+      gegen Wuerfel-Spam beim schnellen Rein-Raus.
+    - Skip wenn an der Location bereits ein ungeloestes danger-Event steht
+      (kein Doppel-Wolf).
+    - Bei Treffer wird ``_generate_event`` mit Jitter (0..N s) im Hintergrund-
+      Thread gefeuert, damit der Move-Handler nicht blockiert.
+
+    Designentscheidung: nur Avatar — NPC-Walk-Step-Trigger heute bewusst aus.
+    """
+    if not loc_id or not location:
+        return
+    if os.environ.get("EVENT_ENTRY_ROLL_ENABLED", "1") not in ("1", "true", "True"):
+        return
+    if os.environ.get("EVENT_GENERATION_ENABLED", "1") not in ("1", "true", "True"):
+        return
+
+    # Cooldown
+    try:
+        cooldown_min = int(os.environ.get("EVENT_ENTRY_ROLL_COOLDOWN_MINUTES", "10"))
+    except (ValueError, TypeError):
+        cooldown_min = 10
+    key = (character_name or "", loc_id)
+    last = _ENTRY_ROLL_LAST.get(key)
+    if last and (datetime.now() - last).total_seconds() < cooldown_min * 60:
+        return
+    _ENTRY_ROLL_LAST[key] = datetime.now()
+
+    # Skip wenn aktive ungelöste danger-Events da sind
+    try:
+        from app.models.events import list_events
+        for e in list_events(location_id=loc_id) or []:
+            if (e.get("category") or "") == "danger" and not e.get("resolved"):
+                return
+    except Exception as _e:
+        logger.debug("entry-roll skip-check fehlgeschlagen: %s", _e)
+
+    settings = _get_event_settings(location)
+    prob = settings.get("event_probability", BASE_PROBABILITY)
+    if random.random() > prob:
+        return
+
+    weights = _get_category_weights(location, settings)
+    if not weights:
+        return
+    category = _pick_category(weights)
+
+    try:
+        jitter_max = int(os.environ.get("EVENT_ENTRY_ROLL_JITTER_SECONDS", "3"))
+    except (ValueError, TypeError):
+        jitter_max = 3
+    delay = random.uniform(0, max(0, jitter_max))
+
+    def _spawn():
+        try:
+            from app.models.events import list_events as _le
+            active = _le(location_id=loc_id)
+            _generate_event(loc_id, location, category, [character_name], active, settings)
+        except Exception as _e:
+            logger.debug("entry-roll _spawn fehlgeschlagen: %s", _e)
+
+    import threading
+    threading.Timer(delay, _spawn).start()
+    logger.info("Entry-Roll Treffer: %s @ %s — Event spawnt in %.1fs (cat=%s)",
+                character_name, loc_id, delay, category)
 
 
 def _try_generate_for_location(loc_id: str, location: Dict[str, Any], char_names: List[str]):
@@ -437,6 +510,21 @@ def _generate_event(loc_id: str,
         event = add_event(text, location_id=loc_id,
                          ttl_hours=ttl, category=category)
         logger.info("Random Event [%s] @ %s: %s", category, loc_name, text[:80])
+
+        # danger-Events blockieren das Verlassen der Location, bis sie geloest
+        # sind (Avatar steckt fest, NPCs versuchen ueber random_events.resolve
+        # zu loesen, Pathfinder routet drum herum).
+        if category == "danger" and event and event.get("id") and loc_id:
+            try:
+                from app.models.rules import add_event_rule
+                add_event_rule(
+                    event_id=event["id"],
+                    location_id=loc_id,
+                    message=text,
+                    action="leave",
+                    name=f"Event @ {loc_name}")
+            except Exception as _e:
+                logger.debug("add_event_rule fehlgeschlagen: %s", _e)
 
     except Exception as e:
         logger.error("Event-Generierung fehlgeschlagen: %s", e)

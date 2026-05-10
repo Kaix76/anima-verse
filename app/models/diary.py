@@ -374,7 +374,11 @@ def _render_condition(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dic
 def _render_access_denied(value: str, meta: Dict[str, Any], ts: str) -> Optional[Dict[str, Any]]:
     loc_name = meta.get("location_name") or value
     reason = meta.get("reason", "") or ""
-    content = f"Wollte zu {loc_name}" + (f" — {reason}" if reason else "")
+    action = meta.get("action", "enter")
+    if action == "leave":
+        content = f"Wollte {loc_name} verlassen" + (f" — {reason}" if reason else "")
+    else:
+        content = f"Wollte zu {loc_name}" + (f" — {reason}" if reason else "")
     return {"type": "access_denied", "content": content, "timestamp": ts, "metadata": meta}
 
 

@@ -12,7 +12,7 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, List
 
 from app.core.log import get_logger
 from app.core.paths import get_storage_dir
@@ -212,6 +212,59 @@ def init_schema() -> None:
             )
         except Exception as e:
             logger.warning("summaries partner-Migration fehlgeschlagen: %s", e)
+
+    # One-shot Backfill: known_locations-Feld auf jedem Character verpflichtend
+    # machen. Frueher bedeutete "Feld fehlt" → unrestricted (Legacy-Bypass);
+    # der Bypass ist raus und Read-Pfade liefern jetzt immer eine Liste.
+    # Damit Bestands-Charaktere nach dem Bypass-Removal nicht ganz festsitzen,
+    # seeden wir die Liste mit der aktuellen Location (falls real) — von dort
+    # erweitert sich die Liste durch Auto-Discovery beim Betreten und durch
+    # Discover-Regeln. Idempotent via schema_meta-Flag.
+    flag = conn.execute(
+        "SELECT value FROM schema_meta WHERE key='known_locations_backfill_v1'"
+    ).fetchone()
+    if not flag:
+        try:
+            import json as _json
+            char_rows = conn.execute(
+                "SELECT name, config_json FROM characters"
+            ).fetchall()
+            real_loc_ids = {
+                r[0] for r in conn.execute("SELECT id FROM locations").fetchall()
+            }
+            state_locs = {
+                r[0]: r[1] for r in conn.execute(
+                    "SELECT character_name, current_location FROM character_state"
+                ).fetchall()
+            }
+            backfilled = 0
+            for char_name, conf_raw in char_rows:
+                try:
+                    conf = _json.loads(conf_raw or "{}")
+                except Exception:
+                    continue
+                if "known_locations" in conf and isinstance(conf["known_locations"], list):
+                    continue
+                seed: List[str] = []
+                cur_loc = (state_locs.get(char_name) or "").strip()
+                if cur_loc and cur_loc in real_loc_ids:
+                    seed.append(cur_loc)
+                conf["known_locations"] = seed
+                conn.execute(
+                    "UPDATE characters SET config_json=?, updated_at=datetime('now') "
+                    "WHERE name=?",
+                    (_json.dumps(conf, ensure_ascii=False), char_name),
+                )
+                backfilled += 1
+            if backfilled:
+                logger.info("known_locations Backfill: %d Characters geseedet "
+                            "(je current_location)", backfilled)
+            conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES "
+                "('known_locations_backfill_v1', '1')"
+            )
+        except Exception as e:
+            logger.warning("known_locations Backfill fehlgeschlagen: %s", e)
 
     conn.execute(
         "INSERT INTO schema_meta (key, value) VALUES ('version', ?) "

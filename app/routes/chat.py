@@ -1192,6 +1192,7 @@ async def chat(request: Request) -> StreamingResponse:
                     "roll": int(_spell_result.get("roll") or 0),
                     "delivered_item_id": _spell_result.get("delivered_item_id") or "",
                     "delivered_item_name": _spell_result.get("delivered_item_name") or "",
+                    "teleport": _spell_result.get("teleport") or {},
                     "hint": _spell_hint,
                     "chat_substitute": _chat_subst,
                     "original_input": user_input,
@@ -2037,6 +2038,27 @@ def _extract_location(agent_name: str, response: str) -> Optional[Dict[str, str]
                 room_id = room.get("id", "")
                 old_room = get_character_current_room(agent_name)
                 if room_id != old_room:
+                    # Leave-Gate (Raum-Scope): Halluzinierter Raumwechsel
+                    # in der Narrative darf Pinning-Rules nicht umgehen.
+                    try:
+                        from app.models.rules import check_leave as _chk_leave
+                        _ok, _why = _chk_leave(agent_name, room_only=True,
+                                                target_location_id=old_loc,
+                                                target_room_id=room_id)
+                        if not _ok:
+                            try:
+                                from app.models.character import record_access_denied
+                                from app.models.world import get_location_name as _gln_chat
+                                _cur_name = _gln_chat(old_loc) or old_loc
+                                record_access_denied(agent_name, old_loc, _cur_name,
+                                                      _why, action="leave")
+                            except Exception:
+                                logger.debug("record_access_denied(chat-room-leave) failed", exc_info=True)
+                            logger.info("Chat-Raumwechsel %s blockiert (leave room): %s",
+                                        agent_name, _why)
+                            return None
+                    except Exception as _rerr:
+                        logger.debug("Chat room-leave-Check fehlgeschlagen: %s", _rerr)
                     save_character_current_room(agent_name, room_id)
                     _move_avatar_room(room_id)
                     logger.info("Room %s: %s -> %s (%s)", agent_name, old_room, room_id, new_name)
@@ -2048,6 +2070,27 @@ def _extract_location(agent_name: str, response: str) -> Optional[Dict[str, str]
     if loc_obj and loc_obj.get("id"):
         new_id = loc_obj["id"]
         if new_id != old_loc:
+            # Leave-Gate: Pinning-Rule darf via Chat-Narrative nicht
+            # umgangen werden — auch wenn das LLM den Wechsel halluziniert.
+            try:
+                from app.models.rules import check_leave as _chk_leave_loc
+                _ok_l, _why_l = _chk_leave_loc(agent_name,
+                                                target_location_id=new_id)
+                if not _ok_l:
+                    try:
+                        from app.models.character import record_access_denied
+                        from app.models.world import get_location_name as _gln_chat2
+                        _cur_name = _gln_chat2(old_loc) or old_loc
+                        record_access_denied(agent_name, old_loc, _cur_name,
+                                              _why_l, action="leave")
+                    except Exception:
+                        logger.debug("record_access_denied(chat-loc-leave) failed", exc_info=True)
+                    logger.info("Chat-Locationwechsel %s -> %s blockiert (leave): %s",
+                                agent_name, new_id, _why_l)
+                    return None
+            except Exception as _rerr:
+                logger.debug("Chat loc-leave-Check fehlgeschlagen: %s", _rerr)
+
             # Rules pruefen — LLM-Narrative darf Blockade-Rules nicht umgehen.
             # Bei Block: access_denied loggen und Location NICHT wechseln.
             try:
@@ -2921,9 +2964,13 @@ def _build_full_system_prompt(character_name: str,
         from app.core.danger_system import build_condition_reminder
         condition_reminder = build_condition_reminder(character_name) or ""
 
+    from app.models.world_setup import get_world_setup_text
+    world_setup = get_world_setup_text()
+
     return render(
         "chat/chat_stream.md",
         character_name=character_name,
+        world_setup=world_setup,
         lang_instruction=lang_instruction,
         char_lines=char_lines,
         partner_mode=partner_mode,
