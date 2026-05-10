@@ -41,6 +41,9 @@ TASK_TYPES: Dict[str, Dict[str, object]] = {
     "intent":             {"label": "Intent (Fallback)",        "priority": Priority.NORMAL, "category": "tool"},
     "classify_activity":  {"label": "Classify Activity",            "priority": Priority.NORMAL, "category": "tool"},
     "spell_detect":       {"label": "Spell Cast Detection",      "priority": Priority.NORMAL, "category": "tool"},
+    # `world_dev_validate` removed: validator model is now picked
+    # dynamically in the World Dev UI right next to the chat model — no
+    # separate task entry to maintain in /admin/settings → LLM Routing.
 
     # Summaries
     "memory_consolidation":  {"label": "Memory Consolidation",     "priority": Priority.LOW, "category": "helper"},

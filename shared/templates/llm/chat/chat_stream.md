@@ -50,6 +50,15 @@
      skip_partner
 #}
 {{ lang_instruction }}
+{% if world_setup %}
+
+=== WORLD SETUP ===
+The world this conversation takes place in:
+
+{{ world_setup }}
+
+Stay consistent with this world's tone, era and rules in everything you say or do.
+{% endif %}
 
 {% if char_lines %}
 

@@ -437,13 +437,24 @@ async def world_dev_chat(request: Request):
                     "Frage den Benutzer oder waehle basierend auf dem Kontext."
                 )
             existing_outfit_types = _format_existing_outfit_types()
+            # World setup block — prefixed before the schema's role text so
+            # the LLM sees the world's tone / era / premise before any
+            # task-specific instructions. Empty when the user hasn't set
+            # one yet (the placeholder collapses to nothing).
+            from app.models.world_setup import get_world_setup_text
+            _ws_text = get_world_setup_text()
+            world_setup_block = (
+                f"## World setup\n\nThe world this content goes into:\n\n{_ws_text}\n\n"
+                if _ws_text else ""
+            )
             system_prompt = _load_schema(
                 schema,
                 existing_locations=existing_locations,
                 existing_characters=existing_characters,
                 existing_outfit_types=existing_outfit_types,
                 generable_fields=generable_fields,
-                selected_template=selected_template_text)
+                selected_template=selected_template_text,
+                world_setup_block=world_setup_block)
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
@@ -543,11 +554,15 @@ async def world_dev_chat(request: Request):
     # Resolve pricing for cost tracking
     _pricing = {"input": 0.0, "output": 0.0}
     try:
+        import asyncio as _asyncio
         from app.core.provider_manager import get_provider_manager
         _pm = get_provider_manager()
         _prov_obj = _pm.get_provider(provider) if provider else _pm.find_provider_for_model(model)
         if _prov_obj:
-            for _m in _prov_obj.list_models():
+            # list_models() macht ggf. einen sync HTTP-Call (Cache-Miss) →
+            # Threadpool, damit der Event-Loop nicht 10s blockiert.
+            _models = await _asyncio.to_thread(_prov_obj.list_models)
+            for _m in _models:
                 if _m["name"] == model:
                     _pricing = _m.get("pricing", _pricing)
                     break
@@ -750,6 +765,22 @@ def _apply_character_internal(char_data: Dict[str, Any],
     template = char_data.get("template") or selected_template or "human-default"
     char_data["template"] = template
 
+    # Detect whether this is a new character — if so, save_character_profile
+    # needs create_new=True to bypass the "Geister-Character"-Guard. Without
+    # this, the very first save silently returns and we end up with a row
+    # that only has config_json filled (created later by save_character_config
+    # / add_character_outfit), but profile_json stays {} and template "".
+    from app.core.db import get_connection as _get_conn
+    _is_new = True
+    try:
+        _conn = _get_conn()
+        _row = _conn.execute(
+            "SELECT 1 FROM characters WHERE name=? LIMIT 1", (char_name,)
+        ).fetchone()
+        _is_new = not bool(_row)
+    except Exception:
+        pass
+
     profile_fields, config_fields = _get_generable_fields(template)
 
     profile = get_character_profile(char_name)
@@ -796,7 +827,7 @@ def _apply_character_internal(char_data: Dict[str, Any],
         if k in soul_field_map:
             profile.pop(k, None)
 
-    save_character_profile(char_name, profile)
+    save_character_profile(char_name, profile, create_new=_is_new)
 
     if soul_field_map:
         char_dir = get_character_dir(char_name, create=True)
@@ -832,6 +863,14 @@ def _apply_character_internal(char_data: Dict[str, Any],
     # allowed_locations abgeschafft — wird ignoriert wenn der LLM es trotzdem
     # im JSON schickt (Backwards-Compat, keine Warnung).
     char_data.pop("allowed_locations", None)
+
+    # known_locations bei Neu-Erstellung explizit als leere Liste setzen.
+    # Ohne das Feld greift im SetLocation-Skill der Legacy-Bypass und der
+    # Char darf zu beliebigen Orten teleportieren — frische World-Dev-Chars
+    # sollen nirgends hin koennen, bis sie platziert oder gefuehrt werden.
+    if _is_new and "known_locations" not in config:
+        config["known_locations"] = []
+        config_changed = True
 
     if config_changed:
         save_character_config(char_name, config)
@@ -1305,6 +1344,165 @@ def _coerce_json_payload(raw: Any) -> Dict[str, Any]:
     if not isinstance(raw, dict):
         raise HTTPException(status_code=400, detail="json muss ein Objekt sein")
     return raw
+
+
+@router.get("/character-templates")
+def list_character_templates_route():
+    """List all selectable character templates — name + label.
+
+    Frontend uses this to populate the template dropdown when creating a
+    new character via the World Dev chat. Stays in sync with whatever
+    JSON files exist in shared/templates/character/.
+    """
+    from app.models.character_template import list_templates
+    items = list_templates(template_type="character")
+    return {"templates": items}
+
+
+@router.post("/validate-json")
+async def validate_json_route(request: Request):
+    """Run a tool LLM over the current draft JSON + the schema file and
+    return a plain-text list of fields that are missing, empty or use
+    placeholder values.
+
+    Body: ``{"schema": "location"|"character"|...,
+              "data": {...the LLM-extracted JSON...},
+              "model": "<override>"?,
+              "provider": "<override>"?}``
+
+    Returns: ``{"gaps": "<plain-text bullet list>", "model_used": "..."}``
+    Frontend writes the gaps text into the chat input so the user can
+    Send it to the RP LLM and have it fill in the missing pieces.
+    """
+    body = await request.json()
+    schema_name = (body.get("schema") or "").strip() or "location"
+    data = body.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="data must be a JSON object")
+
+    try:
+        # Schemas carry several placeholders that the chat path fills
+        # with runtime context (locations, characters, generable fields,
+        # selected template, world premise). For validation we don't
+        # want the tool LLM to see any of that — just the schema's own
+        # rules — so we collapse every placeholder to empty. Anything
+        # left as a literal `{key}` string is then stripped post-load,
+        # so the validator sees a clean spec without imagined fields.
+        import re as _re
+        schema_text = _load_schema(
+            schema_name,
+            world_setup_block="",
+            existing_locations="",
+            existing_characters="",
+            existing_outfit_types="",
+            generable_fields="",
+            selected_template="",
+        )
+        # Belt-and-braces: drop any placeholders we missed so the LLM
+        # never sees raw `{some_var}` and treats it as a schema field.
+        schema_text = _re.sub(r"\{[a-z_][a-z0-9_]*\}", "", schema_text)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    # The validate model is picked in the World-Dev UI right next to the
+    # chat model — frontend always sends model + provider. We use the
+    # same provider machinery as the chat task so prices and capabilities
+    # are consistent. Cap max_tokens tight; the validation output is a
+    # short bullet list, and without a cap the LLM can run away into a
+    # 200-line repetition loop.
+    model = (body.get("model") or "").strip()
+    provider = (body.get("provider") or "").strip()
+    if not model:
+        raise HTTPException(
+            status_code=400,
+            detail="model required — pick a Validator model in the World Dev header",
+        )
+    _VALIDATE_MAX_TOKENS = 1024
+    instance = create_llm_instance(
+        task="chat", model=model,
+        provider_name=provider, max_tokens=_VALIDATE_MAX_TOKENS)
+    if not instance:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not create LLM for {provider}/{model} — provider unavailable or model unknown",
+        )
+
+    llm = instance.create_llm() if hasattr(instance, "create_llm") else instance
+
+    from app.core.prompt_templates import render_task
+    system_prompt, user_message = render_task(
+        "world_dev_validate",
+        schema_text=schema_text,
+        draft_json=json.dumps(data, ensure_ascii=False, indent=2),
+    )
+
+    # One-shot completion — bypass StreamingAgent (its tool-detection /
+    # deferred-tool plumbing was holding the response open even after
+    # the LLM was done). Stream chunks directly off the LLM client.
+    #
+    # Anti-runaway guards: tool LLMs occasionally loop on the same line
+    # ("character_appearance — should not contain X" repeated 200×).
+    # We watch for that during streaming and cancel as soon as the same
+    # line has been emitted more than _MAX_REPEAT times. Post-process
+    # also dedupes identical lines and caps the final list length.
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    _MAX_REPEAT = 4
+    _MAX_LINES = 60
+    full = ""
+    try:
+        line_counts: Dict[str, int] = {}
+        bailout = False
+        async for chunk in llm.astream(messages):
+            content = getattr(chunk, "content", None)
+            if not content:
+                continue
+            full += content
+            # Cheap mid-stream loop detection: split current accumulator
+            # into newline-trimmed lines and count duplicates. As soon as
+            # any line repeats more than _MAX_REPEAT times, stop.
+            lines = [ln.strip() for ln in full.split("\n") if ln.strip()]
+            line_counts.clear()
+            for ln in lines:
+                line_counts[ln] = line_counts.get(ln, 0) + 1
+                if line_counts[ln] > _MAX_REPEAT:
+                    bailout = True
+                    break
+            if bailout or len(lines) > _MAX_LINES * 2:
+                logger.info("validate-json: cancelling stream — runaway loop detected")
+                break
+    except Exception as e:
+        logger.error("validate-json LLM error: %s", e)
+        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
+
+    # Post-process: dedupe lines (preserving first-seen order) and cap
+    # the list length so the result stays reasonable for the chat input.
+    raw_lines = [ln.rstrip() for ln in full.splitlines()]
+    seen: Dict[str, int] = {}
+    deduped: List[str] = []
+    for ln in raw_lines:
+        key = ln.strip()
+        if not key:
+            if not deduped or deduped[-1] != "":
+                deduped.append("")
+            continue
+        if key in seen:
+            continue
+        seen[key] = 1
+        deduped.append(ln)
+    if len(deduped) > _MAX_LINES:
+        deduped = deduped[:_MAX_LINES] + [
+            "",
+            f"… ({len(seen)} more issues truncated — fix the above first and re-validate)",
+        ]
+    gaps = "\n".join(deduped).strip()
+
+    return {
+        "gaps": gaps,
+        "model_used": getattr(instance, "model", "") or model or "tool",
+    }
 
 
 @router.post("/preview-json")

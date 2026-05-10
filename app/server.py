@@ -59,6 +59,7 @@ from app.routes import account
 from app.routes import activities as activities_route
 from app.routes import i18n as i18n_route
 from app.routes import state as state_route
+from app.routes import world_setup as world_setup_route
 from app.scheduler.scheduler_manager import SchedulerManager
 from app.core.dependencies import initialize_channels, get_skill_manager
 from app.core.provider_manager import initialize_provider_manager
@@ -394,6 +395,7 @@ app.include_router(activities_route.router, tags=["activities"])
 app.include_router(i18n_route.router, tags=["i18n"])
 app.include_router(account.router)
 app.include_router(state_route.router)
+app.include_router(world_setup_route.router)
 
 # Static files & templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
