@@ -167,7 +167,102 @@
     ],
     "outfit_imagegen_default": "backend:Together-Fast",
     "expression_imagegen_default": "backend:Together-Fast",
-    "location_imagegen_default": "backend:Together-Fast"
+    "location_imagegen_default": "backend:Together-Fast",
+    "comfyui_workflows": {
+      "Qwen": {
+        "name": "Qwen",
+        "image_model": "qwen",
+        "faceswap_needed": false,
+        "filter": "Qwen*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_qwen_api.json",
+        "vram_required": 22,
+        "prompt_style": "photograph, shot on iPhone 15 Pro, natural window light, skin texture, unedited, detailed anatomy, 8k, high detail, \n",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a natural-language descriptive prompt (not tags). Describe the scene as a flowing sentence with rich detail about the setting, characters, poses, and mood. Avoid comma-separated tag lists.",
+        "loras": [
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          }
+        ]
+      },
+      "Z-Image": {
+        "name": "Z-Image",
+        "image_model": "z_image",
+        "faceswap_needed": true,
+        "filter": "Z-Image*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_z-image_api.json",
+        "vram_required": 14,
+        "prompt_style": "RAW photo, amateur photograph, 35mm, natural light, skin texture, visible pores, detailed anatomy, 8k, high detail, \n",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a tag-based prompt with comma-separated keywords. Use quality tags like \"masterpiece, best quality\". Describe pose, lighting, and setting as short tags.",
+        "loras": [
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          }
+        ]
+      },
+      "Flux": {
+        "name": "Flux",
+        "image_model": "flux",
+        "faceswap_needed": true,
+        "filter": "Flux.2-9B*",
+        "width": 1024,
+        "height": 1024,
+        "workflow_file": "./workflows/text2img_workflow_flux2_api.json",
+        "vram_required": 15,
+        "prompt_style": "a candid photograph taken with a 35mm lens, natural indoor lighting, skin with visible pores and texture, detailed anatomy, 8k, high detail, ",
+        "prompt_negative": "illustration, anime, cgi, 3d render, painting, airbrushed skin, plastic skin, smooth flawless skin, overexposed, glossy, fantasy, studio lighting, posed, cartoon, drawing, sketch, watermark, signature, text, logo, deformed, blurry, low quality\n",
+        "prompt_instruction": "Write a natural-language descriptive prompt for a Flux 2 Klein model. Describe the scene in flowing detail — subject, pose, environment, lighting, mood. Flux understands natural language well, so be descriptive and avoid tag lists.",
+        "loras": [
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          },
+          {
+            "file": "",
+            "strength": 1
+          }
+        ]
+      }
+    }
   },
   "log_level": "INFO",
   "storage_dir": "./storage",
