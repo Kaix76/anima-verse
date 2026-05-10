@@ -1,0 +1,1830 @@
+/* Game Admin shell styles. Theme variables (--bg, --text, --border, etc.)
+   come from /static/themes/base.css + /static/themes/dark.css, which are
+   loaded via <link> tags in index.html so the FastAPI server serves them
+   directly — letting Vite resolve them at build time would inline a
+   snapshot and break runtime theme switching. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font, Arial, sans-serif);
+  background: var(--bg, #0d1117);
+  color: var(--text, #e6edf3);
+}
+
+.ga-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+.ga-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border, #30363d);
+  background: var(--bg-container, #161b22);
+}
+
+.ga-header h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ga-header .ga-back {
+  font-size: 13px;
+  color: var(--text-muted, #8b949e);
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: var(--radius, 6px);
+  border: 1px solid var(--border, #30363d);
+}
+
+.ga-header .ga-back:hover {
+  color: var(--text, #e6edf3);
+  background: var(--bg-hover, #1f2937);
+}
+
+.ga-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border, #30363d);
+  background: var(--bg-container, #161b22);
+  overflow-x: auto;
+}
+
+.ga-tab {
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #8b949e);
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.ga-tab:hover {
+  color: var(--text, #e6edf3);
+}
+
+.ga-tab.is-active {
+  color: var(--text, #e6edf3);
+  border-bottom-color: var(--primary, #1f6feb);
+}
+
+.ga-body {
+  flex: 1;
+  min-height: 0;
+  /* Children scroll inside their own panes — the body itself never scrolls
+     so the header + tab bar stay anchored. */
+  overflow: hidden;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ga-placeholder {
+  color: var(--text-muted, #8b949e);
+  font-size: 13px;
+  padding: 24px;
+  text-align: center;
+}
+
+.ga-loading {
+  color: var(--text-muted, #8b949e);
+  font-size: 13px;
+  padding: 24px;
+}
+
+/* Toast — bottom-right ephemeral status. */
+.ga-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #fff;
+  background: var(--secondary, #238636);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  z-index: 2000;
+  animation: ga-toast-fade 0.2s ease-out;
+}
+
+.ga-toast-error {
+  background: var(--danger, #da3633);
+}
+
+@keyframes ga-toast-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Reusable buttons matching the legacy admin pages. */
+.ga-btn {
+  background: var(--bg-secondary, #21262d);
+  color: var(--text, #c9d1d9);
+  border: 1px solid var(--border, #30363d);
+  padding: 6px 14px;
+  border-radius: var(--radius, 6px);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ga-btn:hover { background: var(--border, #30363d); }
+
+.ga-btn-primary {
+  background: var(--secondary, #238636);
+  border-color: #2ea043;
+  color: #fff;
+}
+
+.ga-btn-primary:hover { background: #2ea043; }
+
+.ga-btn-danger {
+  background: var(--danger, #da3633);
+  border-color: #f85149;
+  color: #fff;
+}
+
+.ga-btn-danger:hover { background: var(--danger-hover, #b62324); }
+
+.ga-btn-sm { padding: 3px 8px; font-size: 12px; }
+
+.ga-input {
+  background: var(--bg, #0d1117);
+  color: var(--text, #c9d1d9);
+  border: 1px solid var(--border, #30363d);
+  padding: 6px 10px;
+  border-radius: var(--radius, 6px);
+  font-size: 13px;
+  /* Default to filling the parent column. Inline `style={{flex:1}}` or
+     `style={{width:NN}}` overrides this in flex rows where multiple inputs
+     share a line. */
+  width: 100%;
+  min-width: 0;
+}
+
+.ga-textarea {
+  background: var(--bg, #0d1117);
+  color: var(--text, #c9d1d9);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  width: 100%;
+  font-family: inherit;
+}
+
+/* Outfit-Rules — single-row layout: type name + inline description input,
+   default radio, slot checkboxes, actions. The verbose description hint
+   from the legacy page is collapsed into a tooltip on the ⓘ glyph. The
+   wrap fills the body and the table scrolls inside its own container. */
+.ga-or-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ga-or-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+}
+
+.ga-or-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ga-or-add-input { flex: 1; min-width: 180px; }
+
+.ga-or-status {
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  cursor: help;
+}
+
+.ga-or-status.is-error { color: var(--danger, #f85149); cursor: default; }
+.ga-or-status.is-ok    { color: #8fd17f; cursor: default; }
+
+.ga-or-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-container, #161b22);
+}
+
+.ga-or-table th,
+.ga-or-table td {
+  padding: 4px 6px;
+  text-align: center;
+  border-bottom: 1px solid var(--border, #30363d);
+  font-size: 12px;
+  color: var(--text, #c9d1d9);
+  vertical-align: middle;
+}
+
+.ga-or-table th {
+  background: var(--bg-message, #1c2128);
+  color: var(--text-muted, #8b949e);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+  padding: 5px 4px;
+}
+
+.ga-or-table th.ga-or-type-col,
+.ga-or-table td.ga-or-type-col {
+  text-align: left;
+  min-width: 220px;
+  width: 30%;
+}
+
+.ga-or-table tr:last-child td { border-bottom: 0; }
+.ga-or-table tr:hover { background: var(--bg-message, #1c2128); }
+
+.ga-or-table td.ga-or-actions-col {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ga-or-type-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ga-or-desc-input {
+  background: transparent;
+  color: var(--text-muted, #8b949e);
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  padding: 2px 0;
+  font-size: 11px;
+  font-style: italic;
+  width: 100%;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+  /* Wrap long text rather than clip — multi-line outfit_type descriptions
+     (like "Bathroom: nude, wrapped in a towel, ...") are normal here. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ga-or-desc-input:focus,
+.ga-or-desc-input:hover {
+  border-bottom-color: var(--border, #30363d);
+  color: var(--text, #c9d1d9);
+  font-style: normal;
+}
+
+/* Page wrapper for tabs whose content scrolls as a single column (Scheduler).
+   List-detail tabs that manage their own panes (Twocol, Items grid) don't
+   need this — they use flex children with internal overflow. */
+.ga-page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Scheduler tab. */
+.ga-sched-section {
+  margin-bottom: 14px;
+  padding: 10px;
+  background: var(--bg-container, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+}
+
+.ga-sched-section h3 {
+  font-size: 13px;
+  margin: 0 0 8px 0;
+  color: var(--primary, #58a6ff);
+  font-weight: 600;
+}
+
+.ga-sched-muted {
+  color: var(--text-muted, #6e7681);
+  font-size: 12px;
+  margin: 0 0 8px 0;
+  line-height: 1.5;
+}
+
+.ga-sched-table {
+  width: 100%;
+  font-size: 12px;
+  border-collapse: collapse;
+}
+
+.ga-sched-table th,
+.ga-sched-table td {
+  text-align: left;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border, #21262d);
+  vertical-align: top;
+}
+
+.ga-sched-table th {
+  color: var(--text-muted, #8b949e);
+  font-weight: 500;
+}
+
+.ga-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: var(--bg-secondary, #21262d);
+  color: var(--text-muted, #8b949e);
+}
+
+.ga-tag-admin { background: #1f3a5f; color: #79c0ff; }
+.ga-tag-char  { background: #3a2f5f; color: #d2a8ff; }
+
+.ga-status-ok { color: #3fb950; }
+.ga-status-paused { color: var(--text-muted, #6e7681); }
+
+.ga-sched-form {
+  margin-top: 4px;
+  padding: 10px;
+  background: var(--bg, #0d1117);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 4px;
+}
+
+.ga-sched-form-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.ga-sched-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 140px;
+}
+
+.ga-sched-field label {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+}
+
+/* Reusable two-column list-detail layout used by States, Rules, Activities,
+   Items. Left column: list of records. Right column: edit form for the
+   currently selected record. The container fills its parent (.ga-body) and
+   each column scrolls independently. */
+.ga-twocol {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+.ga-twocol-left {
+  /* Uniform list width across the first four tabs. The Items 3-column
+     grid pins the same percentage in its first track so all four lists
+     line up visually when switching tabs. */
+  flex: 0 0 18%;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ga-twocol-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ga-twocol-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 6px;
+}
+
+.ga-twocol-header h3 {
+  font-size: 13px;
+  margin: 0;
+}
+
+.ga-twocol-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Detail-pane sticky toolbar — Save / Cancel / Delete remain anchored at
+   the top while the form scrolls below. */
+.ga-detail-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  margin: 0 0 8px 0;
+  background: var(--bg-container, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.ga-detail-toolbar-title {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Field caption + control. Captions never end with a colon — the
+   line break does the separation. */
+.ga-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ga-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ga-field-caption {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  /* One line. Keeps controls aligned at the same Y across a row. */
+  min-height: 14px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ga-field-inline .ga-field-caption {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 110px;
+}
+
+.ga-field-control {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Inputs, selects and textareas in a Field always fill the field — keeps
+   widths predictable across rows. Compact fields use a fixed width via
+   `compact` + inline `style={{ width }}` on the input itself. */
+.ga-field-control > .ga-input,
+.ga-field-control > .ga-textarea {
+  width: 100%;
+}
+
+.ga-field-compact .ga-field-control > .ga-input,
+.ga-field-compact .ga-field-control > .ga-textarea {
+  width: auto;
+}
+
+.ga-field-control > * { min-width: 0; }
+
+.ga-field-inline .ga-field-control { flex: 1; }
+
+.ga-field-hint {
+  font-size: 10px;
+  color: var(--text-muted, #8b949e);
+  line-height: 1.4;
+}
+
+.ga-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 6px);
+  background: var(--bg-container, #161b22);
+}
+
+.ga-list-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  text-align: center;
+  list-style: none;
+}
+
+.ga-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border, #30363d);
+  color: var(--text, #c9d1d9);
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ga-list-row:last-child { border-bottom: 0; }
+.ga-list-row:hover { background: var(--bg-hover, #1c2128); }
+.ga-list-row.is-active { background: rgba(31, 111, 235, 0.15); }
+
+.ga-list-row-main { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.ga-list-row-sub { color: var(--text-muted, #8b949e); margin-left: 4px; }
+
+.ga-source {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-secondary, #21262d);
+  color: var(--text-muted, #8b949e);
+  white-space: nowrap;
+}
+
+.ga-source-shared { background: #1f3a5f; color: #79c0ff; }
+.ga-source-world  { background: #3a2f5f; color: #d2a8ff; }
+.ga-source-world-override { background: #5f3a2f; color: #ffae8a; }
+
+/* Right-column edit form. Parent (.ga-twocol-right) handles scrolling so
+   the form just lays out its children naturally — no nested scrollbars. */
+.ga-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 6px);
+  background: var(--bg-container, #161b22);
+}
+
+.ga-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* Within a row, every Field shares width equally by default. Use the
+   `compact` prop on <Field> for fields that should size to their content
+   (narrow numbers, checkboxes, fixed-width selects). */
+.ga-form-row > .ga-field {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ga-form-row > .ga-field.ga-field-compact {
+  flex: 0 0 auto;
+}
+
+/* Half-width column wrapper for `.ga-form-row`. Stacks Fields vertically;
+   shares row width equally with siblings (other .ga-form-col / .ga-field).
+   Used for split layouts like "Effects | Effect-type stack". */
+.ga-form-row > .ga-form-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ga-form-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ga-form-label {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  margin-top: 6px;
+}
+
+.ga-form-section-label {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-top: 8px;
+}
+
+/* Inline section label — used to title a row of fields without consuming
+   a full section header. Stays vertically centered on the row's controls
+   so it reads as a "row title" left-of-the-fields. */
+.ga-section-row-label {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 14px 8px 0 0;
+}
+
+.ga-form-hint {
+  font-size: 10px;
+  color: var(--text-muted, #8b949e);
+  line-height: 1.4;
+}
+
+.ga-form-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ga-block-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 4px;
+  padding: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ga-block {
+  background: var(--bg, #0d1117);
+  color: var(--text-muted, #8b949e);
+  border: 1px solid var(--border, #30363d);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ga-block:hover { color: var(--text, #c9d1d9); }
+.ga-block.is-on { background: var(--primary, #1f6feb); color: #fff; border-color: var(--primary, #1f6feb); }
+
+/* Effects editor: textarea (Effects) on the left, clickable stat / mood
+   chips (Stats) on the right — both 50/50 so the editor's total width
+   equals whatever container holds it (typically half the form, matching
+   the Category field above). */
+.ga-effects-editor {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.ga-effects-textarea {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
+
+.ga-effects-helpers {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ga-effects-helper-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted, #8b949e);
+  margin-bottom: 3px;
+}
+
+.ga-effects-helper-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.ga-effects-chip {
+  background: var(--bg, #0d1117);
+  color: var(--text, #c9d1d9);
+  border: 1px solid var(--border, #30363d);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ga-effects-chip:hover {
+  background: var(--primary, #1f6feb);
+  border-color: var(--primary, #1f6feb);
+  color: #fff;
+}
+
+.ga-effects-chip.is-used {
+  background: rgba(35, 134, 54, 0.18);
+  border-color: var(--secondary, #238636);
+  color: #8fd17f;
+}
+
+/* Icon picker — text field + popover grid of common emojis. */
+.ga-icon-picker {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ga-icon-picker-input {
+  width: 100%;
+  font-size: 18px;
+  text-align: center;
+  padding: 4px 8px;
+}
+
+.ga-icon-picker-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  background: var(--bg, #0d1117);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  padding: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  width: 280px;
+}
+
+.ga-icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
+}
+
+.ga-icon-picker-cell {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 0;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ga-icon-picker-cell:hover {
+  background: var(--bg-secondary, #21262d);
+  border-color: var(--border, #30363d);
+}
+
+.ga-icon-picker-cell.is-selected {
+  background: var(--primary, #1f6feb);
+  border-color: var(--primary, #1f6feb);
+}
+
+/* Item-list category color strip — left border on each row reflects the
+   item category so the user can scan the list visually. */
+.ga-list-row {
+  position: relative;
+}
+
+.ga-list-row.ga-cat-outfit_piece { box-shadow: inset 3px 0 0 #d2a8ff; }
+.ga-list-row.ga-cat-key          { box-shadow: inset 3px 0 0 #f1c40f; }
+.ga-list-row.ga-cat-tool         { box-shadow: inset 3px 0 0 #79c0ff; }
+.ga-list-row.ga-cat-consumable   { box-shadow: inset 3px 0 0 #8fd17f; }
+.ga-list-row.ga-cat-evidence     { box-shadow: inset 3px 0 0 #ffae8a; }
+.ga-list-row.ga-cat-gift         { box-shadow: inset 3px 0 0 #ff9ec7; }
+.ga-list-row.ga-cat-spell        { box-shadow: inset 3px 0 0 #b388ff; }
+.ga-list-row.ga-cat-quest        { box-shadow: inset 3px 0 0 #ffd166; }
+.ga-list-row.ga-cat-decoration   { box-shadow: inset 3px 0 0 #6e7681; }
+
+/* Outfit-piece silhouette — schematic body figure with slot rectangles
+   highlighted according to slots / covers / partially_covers state. */
+/* Silhouette — hand-drawn croquis backdrop with slot region overlays.
+   In the items tab the diagram sits inside its own narrow column;
+   width is driven by the column, height by the SVG aspect ratio. */
+.ga-silhouette {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15));
+}
+
+.ga-silhouette-figure {
+  position: relative;
+  width: 100%;
+  /* Match the SVG viewBox aspect ratio (410 wide × 1216 tall ≈ 1 : 2.97).
+     A max-height keeps the figure from dominating the column on tall
+     viewports — at the column's typical 140 px width the diagram is
+     about 415 px tall and we cap it there. */
+  aspect-ratio: 410 / 1216;
+  max-height: 480px;
+}
+
+.ga-silhouette-img,
+.ga-silhouette-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ga-silhouette-img {
+  user-select: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.ga-silhouette-overlay {
+  /* Slight opacity so the croquis lines stay visible through the
+     coloured zones — the colour is information, not a paint job. */
+  mix-blend-mode: normal;
+  opacity: 0.95;
+}
+
+/* Click-to-cycle hit areas — interactive slots accept pointer events
+   even though the overlay container is otherwise pointer-transparent. */
+.ga-silhouette-overlay .ga-silhouette-slot-hit {
+  pointer-events: auto;
+  cursor: pointer;
+  transition: stroke 0.1s ease, stroke-width 0.1s ease;
+}
+
+.ga-silhouette-overlay .ga-silhouette-slot-hit:hover {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 4;
+}
+
+/* Live slot-path editor — hidden behind the 🛠 toggle in the corner of
+   the silhouette. Renders one textarea per slot and updates the
+   diagram immediately while you type. */
+.ga-silhouette-edit-toggle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text, #c9d1d9);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.ga-silhouette-edit-toggle:hover {
+  background: var(--bg-secondary, #21262d);
+}
+
+.ga-silhouette-edit-toggle.is-on {
+  background: var(--primary, #1f6feb);
+  border-color: var(--primary, #1f6feb);
+  color: #fff;
+}
+
+/* Editor renders as a fixed floating panel — the silhouette column is
+   too narrow to comfortably edit path data inside, so we anchor the
+   panel to the right edge of the viewport while editing. */
+.ga-silhouette-editor {
+  position: fixed;
+  top: 110px;
+  right: 24px;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 8px;
+  background: var(--bg-container, #161b22);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  z-index: 100;
+}
+
+.ga-silhouette-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.ga-silhouette-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.ga-silhouette-editor-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ga-silhouette-editor-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+}
+
+.ga-silhouette-legend {
+  display: flex;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted, #8b949e);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ga-silhouette-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ga-silhouette-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid var(--border, #30363d);
+}
+
+.ga-silhouette-legend .lg-slot { background: rgba(31, 111, 235, 0.55); }
+.ga-silhouette-legend .lg-cover { background: rgba(143, 209, 127, 0.55); }
+.ga-silhouette-legend .lg-partial { background: rgba(255, 174, 138, 0.55); }
+
+/* Items tab — three-column layout (list / form / side) with a toolbar
+   row above form/silhouette so Save/Cancel/Delete/Move span both. When
+   the selected item is an outfit_piece, a fourth narrow column appears
+   between form and side to host the silhouette diagram, and the toolbar
+   stretches across columns 2 + 3. */
+.ga-items-grid {
+  display: grid;
+  grid-template-columns: 18% 1fr 28%;
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    "list toolbar side"
+    "list form    side";
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ga-items-grid.has-silhouette {
+  grid-template-columns: 18% 1fr 140px 22%;
+  grid-template-areas:
+    "list toolbar toolbar    side"
+    "list form    silhouette side";
+}
+
+.ga-items-list-col       { grid-area: list; }
+.ga-items-toolbar-row    { grid-area: toolbar; }
+.ga-items-form-col       { grid-area: form; }
+.ga-items-silhouette-col { grid-area: silhouette; }
+.ga-items-side-col       { grid-area: side; }
+
+.ga-items-list-col,
+.ga-items-form-col,
+.ga-items-silhouette-col,
+.ga-items-side-col,
+.ga-items-toolbar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Left column: search + filters stay anchored, only the list scrolls. */
+.ga-items-list-col { overflow: hidden; }
+
+/* Form column scrolls its own content. The side column flows top-down
+   and does not stretch its panels to the bottom of the grid — image
+   and owners panels each size to their content, with their own
+   max-heights to keep them bounded. Side col itself caps via overflow
+   so it never extends past the form column. */
+.ga-items-form-col { overflow-y: auto; }
+.ga-items-side-col {
+  overflow-y: auto;
+  align-items: stretch;
+  /* Push our flow up so empty space (if any) sits at the bottom. */
+  justify-content: flex-start;
+}
+
+.ga-items-silhouette-col {
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.ga-items-toolbar-row {
+  /* The toolbar wrapper grid cell auto-sizes to the toolbar height —
+     no extra padding needed. */
+}
+
+.ga-items-image-panel,
+.ga-items-owners-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  background: var(--bg-container, #161b22);
+  min-height: 0;
+}
+
+/* Image panel doesn't grow beyond its natural size — caps come from
+   the image preview's max-height. The owners panel below picks up the
+   rest of the column height. */
+.ga-items-image-panel {
+  flex: 0 0 auto;
+  /* Hard upper bound so the panel cannot push the owners panel down
+     past the bottom of column 2. Image preview (≤480) + label (20) +
+     padding (20) + button (30) ≈ 550. */
+  max-height: 560px;
+}
+
+.ga-items-image-preview {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  /* Hard cap on height. Up to ~480 px-wide columns the preview is a
+     square; on wider columns it stays 480 px tall but lets width grow
+     with the column. */
+  max-height: 480px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  align-self: center;
+}
+
+.ga-items-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Owners panel — sized to its content (label + Adder + list). The
+   panel does NOT stretch to fill the side column; if the form column
+   is taller, the side column shows empty space below the panel. */
+.ga-items-owners-panel {
+  flex: 0 0 auto;
+}
+
+.ga-items-owners-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* When the list grows tall, scroll within itself rather than pushing
+     the panel beyond the form column's bottom. The cap is generous so
+     small lists render in full. */
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.ga-items-owners-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.ga-section {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border, #30363d);
+}
+
+.ga-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 4px;
+  padding: 4px;
+  min-height: 30px;
+  margin-top: 2px;
+}
+
+.ga-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-secondary, #21262d);
+  color: var(--text, #c9d1d9);
+  border: 1px solid var(--border, #30363d);
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ga-tag-pill:hover {
+  background: var(--danger, #da3633);
+  border-color: var(--danger, #da3633);
+  color: #fff;
+}
+
+/* Activities — group headers in the list. */
+.ga-act-group {
+  list-style: none;
+  border-bottom: 1px solid var(--border, #30363d);
+}
+
+.ga-act-group:last-child { border-bottom: 0; }
+
+.ga-act-group-head {
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted, #8b949e);
+  background: var(--bg, #0d1117);
+  border-bottom: 1px solid var(--border, #30363d);
+}
+
+/* World tab — three-column layout: list / form / gallery. List width
+   matches the other tabs (.ga-twocol-left = 18%) so switching tabs
+   keeps the left column geometry stable. */
+.ga-world-grid {
+  display: grid;
+  grid-template-columns: 18% 1fr 30%;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ga-world-list-col,
+.ga-world-form-col,
+.ga-world-gallery-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ga-world-list-col { overflow: hidden; }
+.ga-world-form-col,
+.ga-world-gallery-col { overflow-y: auto; }
+
+/* World tab — nested rooms under expanded location row. */
+.ga-list-nested {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ga-list-row-nested {
+  padding-left: 24px;
+  font-size: 11px;
+}
+
+.ga-room-mini-list {
+  list-style: none;
+  margin: 4px 0 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ga-room-mini-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border, #30363d);
+}
+
+.ga-room-mini-list li:last-child { border-bottom: 0; }
+
+.ga-room-mini-list li button {
+  margin-left: auto;
+}
+
+/* Gallery — vertical card list with thumbnail + meta + actions per row.
+   Click the thumbnail to open a full-size lightbox overlay. */
+.ga-gallery-generate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border, #30363d);
+}
+
+.ga-gallery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ga-gallery-card {
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  background: var(--bg-container, #161b22);
+}
+
+.ga-gallery-thumb {
+  flex: 0 0 100px;
+  width: 100px;
+  height: 100px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: zoom-in;
+  padding: 0;
+}
+
+.ga-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ga-gallery-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: space-between;
+}
+
+.ga-gallery-meta {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  line-height: 1.4;
+}
+
+.ga-gallery-meta strong {
+  color: var(--text, #c9d1d9);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.ga-gallery-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ga-gallery-type-select {
+  width: auto;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+/* Lightbox — full-screen overlay with the image at natural size. */
+.ga-gallery-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  cursor: zoom-out;
+}
+
+.ga-gallery-lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  border-radius: 6px;
+}
+
+.ga-gallery-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.ga-gallery-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* World Dev — chat-style with config bar on top, message list, extracted-JSON
+   action row, input box at the bottom. Fills the body; only the chat scrolls. */
+.ga-wd-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ga-wd-config {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  background: var(--bg-container, #161b22);
+}
+
+/* Top config row — single line with all primary selectors. */
+.ga-wd-config-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ga-wd-model-select {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.ga-wd-compact-select {
+  width: auto;
+  flex: 0 0 auto;
+  min-width: 110px;
+  font-size: 12px;
+}
+
+.ga-wd-target-select {
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+
+/* Context rows — one row per kind (Locations / Characters), label
+   on the left, tag-picker on the right. Far more compact than the
+   per-item checkbox list it replaced. */
+.ga-wd-context-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ga-wd-context-label {
+  flex: 0 0 90px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted, #8b949e);
+  padding-top: 6px;
+}
+
+.ga-wd-tags {
+  flex: 1;
+}
+
+.ga-wd-tag-add {
+  width: auto;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.ga-wd-chat {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg-container, #161b22);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ga-wd-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ga-wd-msg-user {
+  align-items: flex-end;
+}
+
+.ga-wd-msg-role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted, #8b949e);
+}
+
+.ga-wd-msg-body {
+  max-width: 85%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-message, #1c2333);
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+
+.ga-wd-msg-user .ga-wd-msg-body {
+  background: var(--primary, #1f6feb);
+  color: #fff;
+}
+
+.ga-wd-extracted {
+  padding: 8px;
+  border: 1px solid var(--secondary, #238636);
+  border-radius: 6px;
+  background: rgba(35, 134, 54, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ga-wd-input {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ga-wd-input textarea {
+  flex: 1;
+  resize: vertical;
+}
+
+/* Session-stats column between the input textarea and the Send button.
+   Shows accumulated token in / out and total cost as the conversation
+   progresses. */
+.ga-wd-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  align-self: stretch;
+  justify-content: flex-end;
+  padding: 0 8px 2px 8px;
+  border-left: 1px solid var(--border, #30363d);
+  border-right: 1px solid var(--border, #30363d);
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.ga-wd-stats strong {
+  display: inline-block;
+  min-width: 26px;
+  color: var(--text, #c9d1d9);
+  font-weight: 600;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+}
+
+/* === Map tab ============================================================
+   Two-column layout: tray (unplaced + passable templates) on the left,
+   2D grid on the right. Drag & drop replaces the placement UI that used
+   to live on the main worldmap. */
+.ga-map-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.ga-map-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 8px);
+  background: var(--bg-alt, #0d1117);
+  overflow-y: auto;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ga-map-tray.drag-over {
+  border-color: var(--danger, #f85149);
+  background: rgba(248, 81, 73, 0.06);
+}
+.ga-map-tray-section { display: flex; flex-direction: column; gap: 6px; }
+.ga-map-tray-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ga-map-tray-empty {
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  font-style: italic;
+}
+.ga-map-tray-items { display: flex; flex-direction: column; gap: 6px; }
+.ga-map-tray-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: 6px;
+  background: var(--bg-container, #161b22);
+  cursor: grab;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text, #c9d1d9);
+  transition: border-color 0.15s, background 0.15s;
+}
+.ga-map-tray-item:hover { border-color: var(--accent, #58a6ff); }
+.ga-map-tray-item:active { cursor: grabbing; }
+.ga-map-tray-item.ga-map-tray-template { border-style: dashed; }
+.ga-map-tray-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.ga-map-tray-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ga-map-tray-stamp {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+.ga-map-tray-hint {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  font-style: italic;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border, #30363d);
+}
+
+.ga-map-grid-wrap {
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 8px);
+  background: var(--bg-alt, #0d1117);
+  min-height: 0;
+}
+.ga-map-grid {
+  display: grid;
+  gap: 2px;
+  width: max-content;
+}
+.ga-map-cell {
+  position: relative;
+  border: 1px solid var(--border, #30363d);
+  background: var(--bg-container, #161b22);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-muted, #8b949e);
+  overflow: hidden;
+  transition: background 0.12s, border-color 0.12s;
+}
+.ga-map-cell.drag-over {
+  border-color: var(--accent, #58a6ff);
+  background: rgba(88, 166, 255, 0.12);
+}
+.ga-map-cell-coord {
+  opacity: 0.4;
+  font-size: 10px;
+  pointer-events: none;
+}
+.ga-map-cell.occupied { background: var(--bg-message, #1c2128); }
+.ga-map-cell.passable { border-style: dashed; }
+.ga-map-cell.clone .ga-map-tile-name { font-style: italic; }
+
+.ga-map-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  user-select: none;
+}
+.ga-map-tile:active { cursor: grabbing; }
+.ga-map-tile-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ga-map-tile-name {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 1px 4px;
+  border-radius: 3px;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* === Modal overlay (image-gen dialog, etc.) ============================= */
+.ga-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.ga-modal {
+  background: var(--bg-container, #161b22);
+  border: 1px solid var(--border, #30363d);
+  border-radius: var(--radius, 8px);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.ga-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #30363d);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text, #c9d1d9);
+}
+
+.ga-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted, #8b949e);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.ga-modal-close:hover { color: var(--text, #c9d1d9); }
+.ga-modal-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ga-modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ga-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border, #30363d);
+  background: var(--bg-alt, #0d1117);
+  border-bottom-left-radius: var(--radius, 8px);
+  border-bottom-right-radius: var(--radius, 8px);
+}
+
+/* Image-gen dialog field labels — slightly smaller and more muted than
+   the regular Field component so the dialog stays compact. */
+.ga-imagegen-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #8b949e);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+.ga-imagegen-loras {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ga-imagegen-lora-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ga-imagegen-lora-label {
+  font-size: 11px;
+  color: var(--text-muted, #8b949e);
+  min-width: 44px;
+}
+
+.ga-imagegen-lora-strength {
+  width: 72px;
+  flex-shrink: 0;
+}
+
+/* Location editor — image prompts and random-events sit side by side
+   below the meta rows. Collapses to a single column on narrow viewports
+   so the form stays readable. */
+.ga-loc-twocol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .ga-loc-twocol { grid-template-columns: 1fr; }
+}

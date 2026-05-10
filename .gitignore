@@ -1,6 +1,12 @@
 # Generated preset caches (LLM-generated, not curated)
 shared/templates/**/*_generated.json
 
+# Frontend (React) — node_modules + ad-hoc dist locations.
+# The actual build output lives under static/game_admin/ and IS committed
+# so the existing deploy flow keeps working without a Node install.
+frontend/node_modules/
+frontend/dist/
+
 # Environment Variables & API Keys
 .env
 .env.local
