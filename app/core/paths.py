@@ -67,6 +67,11 @@ def get_config_dir() -> Path:
     return get_shared_dir() / "config"
 
 
+def get_languages_dir() -> Path:
+    """UI translation files (one JSON per language code)."""
+    return get_shared_dir() / "languages"
+
+
 def get_expression_presets_dir() -> Path:
     """Expression-Presets fuer Bild-Generierung."""
     return get_shared_dir() / "templates" / "expression"

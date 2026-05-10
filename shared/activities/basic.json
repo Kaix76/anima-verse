@@ -14,7 +14,7 @@
       "outfit_type": "",
       "effects": {
         "stamina_change": -8,
-        "mood_influence": "zufrieden"
+        "mood_influence": "pleased"
       },
       "interruptible": true,
       "auto_pick": true
@@ -86,7 +86,7 @@
       "outfit_type": "",
       "effects": {
         "stamina_change": 10,
-        "mood_influence": "entspannt",
+        "mood_influence": "relaxed",
         "attention_change": -5
       },
       "interruptible": true,

@@ -147,7 +147,7 @@ def activity_feed(hours: int = Query(24, ge=0)):
                     "detail": f"auf Post von {post.get('agent_name', '')}",
                 })
     except Exception as e:
-        logger.debug("Activity: Instagram Fehler: %s", e)
+        logger.debug("Activity: Instagram error: %s", e)
 
     # 2. Story Arcs + Beats
     try:
@@ -193,7 +193,7 @@ def activity_feed(hours: int = Query(24, ge=0)):
                         "detail": (arc.get("resolution", "") or "")[:120],
                     })
     except Exception as e:
-        logger.debug("Activity: Story Arcs Fehler: %s", e)
+        logger.debug("Activity: Story Arcs error: %s", e)
 
     # 3. Gedanken-Nachrichten + Social Dialogs (aus Notifications)
     try:
@@ -213,7 +213,7 @@ def activity_feed(hours: int = Query(24, ge=0)):
                     "detail": "",
                 })
     except Exception as e:
-        logger.debug("Activity: Notifications Fehler: %s", e)
+        logger.debug("Activity: Notifications error: %s", e)
 
     # 4. (frueher: Social Dialogs aus log geparst — entfaellt, da sie jetzt
     #     normale Chat-Eintraege sind, siehe plan-thoughts-and-conversation.md)
@@ -354,7 +354,7 @@ a:hover { text-decoration: underline; }
 </div>
 
 <div class="content">
-    <div class="cards" id="cards"><div class="loading">Lade Daten...</div></div>
+    <div class="cards" id="cards"><div class="loading">Loading data…</div></div>
 
     <div class="chart-section">
         <div class="chart-title">System-Auslastung (Sekunden pro Zeitfenster)</div>
@@ -418,7 +418,7 @@ a:hover { text-decoration: underline; }
         <h3>Autonome Aktivitaeten</h3>
         <div class="activity-stats" id="activityStats"></div>
         <div class="activity-feed" id="activityFeed">
-            <div class="activity-empty">Lade...</div>
+            <div class="activity-empty">Loading…</div>
         </div>
     </div>
 
@@ -503,7 +503,7 @@ async function loadData(hours) {
         _buildSystemMap(_data.systems || []);
         renderAll();
     } catch (e) {
-        document.getElementById('cards').innerHTML = '<div class="loading">Fehler beim Laden</div>';
+        document.getElementById('cards').innerHTML = '<div class="loading">Error loading</div>';
     }
 }
 
@@ -1074,7 +1074,7 @@ async function loadActivity(hours) {
         renderActivityStats();
         renderActivityFeed();
     } catch (e) {
-        document.getElementById('activityFeed').innerHTML = '<div class="activity-empty">Fehler beim Laden</div>';
+        document.getElementById('activityFeed').innerHTML = '<div class="activity-empty">Error loading</div>';
     }
 }
 
@@ -1107,7 +1107,7 @@ function renderActivityFeed() {
         items = items.filter(e => e.type === _activityFilter);
     }
     if (!items.length) {
-        container.innerHTML = '<div class="activity-empty">Keine Aktivitaeten im Zeitraum</div>';
+        container.innerHTML = '<div class="activity-empty">No activity in this period</div>';
         return;
     }
     container.innerHTML = items.slice(0, 100).map(e => {

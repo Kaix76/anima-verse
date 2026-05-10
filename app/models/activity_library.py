@@ -445,13 +445,12 @@ def get_available_activities(character_name: str,
 def get_localized_field(act: Dict[str, Any], field: str, lang: str = "de") -> str:
     """Gibt ein Feld in der gewuenschten Sprache zurueck.
 
-    Sucht {field}_{lang}, Fallback auf {field}.
-    Beispiel: get_localized_field(act, "name", "de") → name_de oder name
+    Delegiert an den zentralen ``app.core.i18n.localized()`` Helper
+    (``{field}_{lang}`` mit Fallback auf ``{field}``). Hier nur als
+    Backwards-compat-Shim für bestehende Aufrufer erhalten.
     """
-    localized = act.get(f"{field}_{lang}", "")
-    if localized:
-        return localized
-    return act.get(field, "")
+    from app.core.i18n import localized as _loc
+    return _loc(act, field, lang) or ""
 
 
 def get_localized_name(act: Dict[str, Any], lang: str = "de") -> str:

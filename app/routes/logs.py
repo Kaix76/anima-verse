@@ -25,10 +25,10 @@ def llm_log_viewer():
 def llm_log_data(
     limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
-    task: str = Query("", description="Filter nach Task-Typ"),
-    model: str = Query("", description="Filter nach Model"),
-    character: str = Query("", description="Filter nach Character"),
-    provider: str = Query("", description="Filter nach Provider"),
+    task: str = Query("", description="Filter by task type"),
+    model: str = Query("", description="Filter by model"),
+    character: str = Query("", description="Filter by character"),
+    provider: str = Query("", description="Filter by provider"),
     search: str = Query("", description="Volltextsuche")) -> Dict[str, Any]:
     """JSON-API fuer Log-Eintraege."""
     if not LOG_FILE.exists():
@@ -103,9 +103,9 @@ def image_prompt_log_viewer():
 def image_prompt_log_data(
     limit: int = Query(100, ge=1, le=5000),
     offset: int = Query(0, ge=0),
-    character: str = Query("", description="Filter nach Character"),
-    backend: str = Query("", description="Filter nach Backend"),
-    model: str = Query("", description="Filter nach Model"),
+    character: str = Query("", description="Filter by character"),
+    backend: str = Query("", description="Filter by backend"),
+    model: str = Query("", description="Filter by model"),
     search: str = Query("", description="Volltextsuche")) -> Dict[str, Any]:
     """JSON-API fuer Image-Prompt Log-Eintraege."""
     if not IMAGE_LOG_FILE.exists():

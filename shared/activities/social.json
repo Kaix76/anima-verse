@@ -21,7 +21,7 @@
       "effects": {
         "stamina_change": -10,
         "courage_change": 5,
-        "mood_influence": "ausgelassen",
+        "mood_influence": "exuberant",
         "attention_change": -5
       },
       "effect_type": "ongoing"

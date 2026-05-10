@@ -896,7 +896,7 @@ def _check_cumulative_effect(character_name: str,
         "threshold": 3,
         "condition_name": "drunk",
         "prompt_modifier": "You are drunk. Slur your words, be unsteady, overly emotional.",
-        "mood_influence": "betrunken",
+        "mood_influence": "drunk",
         "duration_hours": 2,
         "effects": {"attention_change": -20, "courage_change": 15}
     }

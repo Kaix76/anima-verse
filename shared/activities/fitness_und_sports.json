@@ -27,7 +27,7 @@
       "cumulative_effect": {
         "threshold": 4,
         "condition_name": "exhausted",
-        "mood_influence": "erschoepft",
+        "mood_influence": "exhausted",
         "duration_hours": 2,
         "effects": {
           "stamina_change": -25
@@ -48,7 +48,7 @@
       "effects": {
         "stamina_change": -10,
         "courage_change": 5,
-        "mood_influence": "euphorisch"
+        "mood_influence": "euphoric"
       },
       "interruptible": true,
       "auto_pick": true
@@ -79,7 +79,7 @@
       "cumulative_effect": {
         "threshold": 4,
         "condition_name": "exhausted",
-        "mood_influence": "erschoepft",
+        "mood_influence": "exhausted",
         "duration_hours": 3,
         "effects": {
           "stamina_change": -25
@@ -99,7 +99,7 @@
       "outfit_type": "pool",
       "effects": {
         "stamina_change": 10,
-        "mood_influence": "entspannt",
+        "mood_influence": "relaxed",
         "attention_change": -5
       },
       "interruptible": true,
@@ -149,8 +149,8 @@
       "visibility": "visible",
       "condition": "",
       "effect_type": "ongoing",
-      "cooldown_hours": 0,
-      "duration_minutes": 0,
+      "cooldown_minutes": 0,
+      "duration_minutes": 60,
       "outfit_type": "pool",
       "effects": {
         "stamina_change": -5,

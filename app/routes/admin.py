@@ -280,7 +280,7 @@ tr:hover { background: #161b22; }
 
 <div class="content">
     <h2>Verfuegbare Modelle</h2>
-    <p class="info-text">Klicke auf Tool/Vision um den Wert zu toggeln. Notizen direkt bearbeiten — wird automatisch gespeichert.</p>
+    <p class="info-text">Click Tool/Vision to toggle the value. Edit notes directly — saved automatically.</p>
     <table>
         <thead>
             <tr>
@@ -450,7 +450,7 @@ function renderModels(models) {
                 onchange="saveRow(this)" onblur="saveRow(this)" /></td>
             <td>
                 <button class="btn-instr${hasInstr}" title="Tool Instruction" onclick="toggleInstruction('${instrId}')">&#9881;</button>
-                <span class="save-indicator" id="save-${cssId(m.name)}">gespeichert</span>
+                <span class="save-indicator" id="save-${cssId(m.name)}">saved</span>
             </td>
         `;
         body.appendChild(row);
@@ -500,7 +500,7 @@ function renderUnmatched(entries) {
                 onchange="saveRow(this)" onblur="saveRow(this)" /></td>
             <td>
                 <button class="btn-instr${hasInstr}" title="Tool Instruction" onclick="toggleInstruction('${instrId}')">&#9881;</button>
-                <span class="save-indicator" id="save-${cssId(e.pattern)}">gespeichert</span>
+                <span class="save-indicator" id="save-${cssId(e.pattern)}">saved</span>
                 <button class="btn btn-danger" style="font-size:11px;padding:2px 8px;margin-left:4px;" onclick="deletePattern('${escJs(e.pattern)}')">X</button>
             </td>
         `;
@@ -643,7 +643,7 @@ async function addPattern() {
 }
 
 async function deletePattern(pattern) {
-    if (!confirm('Pattern "' + pattern + '" wirklich loeschen?')) return;
+    if (!confirm('Really delete pattern "' + pattern + '"?')) return;
     await fetch('/admin/models/capabilities', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
