@@ -47,8 +47,9 @@ async def users_page():
 
 @router.get("/outfit-rules", response_class=HTMLResponse)
 async def outfit_rules_page():
-    """Serve the outfit-rules admin HTML page."""
-    return HTMLResponse(content=_build_outfit_rules_html())
+    """Legacy URL — outfit-rules lives in the React Game-Admin SPA now."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/game-admin#/outfit-rules", status_code=307)
 
 
 @router.get("/llm-stats", response_class=HTMLResponse)
@@ -503,17 +504,17 @@ async def prompt_filters_data(user=Depends(require_admin)):
         "filters": out,
         "block_keys": _PROMPT_FILTER_BLOCK_KEYS,
         "condition_hint": (
-            "Filter-id triggert IMMER wenn als Tag im Profil aktiv (apply_condition). "
-            "Diese Expression triggert ZUSAETZLICH:\n"
+            "Filter id ALWAYS triggers when present as a tag in the profile (apply_condition). "
+            "This expression triggers ADDITIONALLY:\n"
             "Status: stamina>N, courage<N, stress>N, lust>N\n"
-            "Zeit/Anwesenheit: alone, night, day\n"
-            "Beziehung: relationship:Name>N, romantic:Name>N (Name oder 'any')\n"
-            "Stimmung: mood:happy\n"
-            "Anderer Zustand: condition:<tag>\n"
-            "Aktuelle Aktivitaet: current_activity:kochen\n"
-            "Tagesablauf: schedule:sleeping, schedule:awake, schedule:<activity>\n"
+            "Time/presence: alone, night, day\n"
+            "Relationship: relationship:Name>N, romantic:Name>N (Name or 'any')\n"
+            "Mood: mood:happy\n"
+            "Other condition: condition:<tag>\n"
+            "Current activity: current_activity:cooking\n"
+            "Daily schedule: schedule:sleeping, schedule:awake, schedule:<activity>\n"
             "Item: has_item:item_a1b2c3d4\n"
-            "Verknuepfung: AND / OR / NOT"
+            "Combination: AND / OR / NOT"
         ),
     }
 
@@ -585,6 +586,99 @@ async def prompt_filters_delete(filter_id: str, user=Depends(require_admin)):
     with transaction() as conn:
         conn.execute("DELETE FROM prompt_filters WHERE id=?", (filter_id,))
     return {"status": "ok", "id": filter_id}
+
+
+@router.post("/prompt-filters/{filter_id}/move")
+async def prompt_filters_move(filter_id: str, request: Request, user=Depends(require_admin)):
+    """Move a prompt-filter between shared baseline and world overlay.
+
+    Body: ``{"target": "shared"|"world"}``.
+
+    target=shared:
+      - read the current effective filter (world override wins over shared)
+      - write it to ``shared/prompt_filters/filters.json``, replacing the
+        existing entry with that id (or appending)
+      - delete the world overlay row so the shared entry is now the
+        canonical version
+
+    target=world:
+      - read the current effective filter (typically from shared)
+      - write it as a world overlay row (so it can be edited per-world
+        without touching the shared baseline)
+      - the shared entry stays put; the world row simply shadows it
+    """
+    import json as _json
+    from app.core.db import transaction
+    from app.core.prompt_filters import _load_shared, _load_world, _SHARED_FILE
+
+    body = await request.json()
+    target = (body.get("target") or "").strip().lower()
+    if target not in ("shared", "world"):
+        raise HTTPException(status_code=400, detail="target must be 'shared' or 'world'")
+
+    # Resolve the canonical filter to move — world override wins over shared.
+    world = {(e.get("id") or "").strip(): e for e in _load_world() if e.get("id")}
+    shared = {(e.get("id") or "").strip(): e for e in _load_shared() if e.get("id")}
+    src = world.get(filter_id) or shared.get(filter_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="filter not found")
+
+    # Stripping internal-only keys keeps both stores tidy.
+    clean = {k: v for k, v in src.items() if k not in ("source", "_origin", "meta")}
+
+    if target == "shared":
+        _SHARED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            existing = _json.loads(_SHARED_FILE.read_text(encoding="utf-8")) if _SHARED_FILE.exists() else {}
+        except Exception:
+            existing = {}
+        filters = list(existing.get("filters") or [])
+        replaced = False
+        for i, f in enumerate(filters):
+            if (f.get("id") or "").strip() == filter_id:
+                filters[i] = clean
+                replaced = True
+                break
+        if not replaced:
+            filters.append(clean)
+        _SHARED_FILE.write_text(
+            _json.dumps({"filters": filters}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        with transaction() as conn:
+            conn.execute("DELETE FROM prompt_filters WHERE id=?", (filter_id,))
+        return {"status": "ok", "id": filter_id, "target": "shared"}
+
+    # target == "world": upsert the resolved filter into the world overlay.
+    drops = clean.get("drop_blocks") or []
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO prompt_filters (id, condition, label, drop_blocks,
+                                        prompt_modifier, enabled, meta,
+                                        icon, image_modifier)
+            VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                condition=excluded.condition,
+                label=excluded.label,
+                drop_blocks=excluded.drop_blocks,
+                prompt_modifier=excluded.prompt_modifier,
+                enabled=excluded.enabled,
+                icon=excluded.icon,
+                image_modifier=excluded.image_modifier
+            """,
+            (
+                filter_id,
+                (clean.get("condition") or "").strip(),
+                (clean.get("label") or "").strip(),
+                _json.dumps(drops if isinstance(drops, list) else [], ensure_ascii=False),
+                (clean.get("prompt_modifier") or "").strip(),
+                1 if clean.get("enabled", True) else 0,
+                (clean.get("icon") or "").strip(),
+                (clean.get("image_modifier") or "").strip(),
+            ),
+        )
+    return {"status": "ok", "id": filter_id, "target": "world"}
 
 
 @router.get("/settings/data")
@@ -659,7 +753,7 @@ async def settings_save(request: Request, user=Depends(require_admin)):
     except Exception as _ee:
         # Nicht hart fehlschlagen — Save selbst war erfolgreich.
         from app.core.log import get_logger as _gl
-        _gl("admin_settings").warning("env-flatten nach Save fehlgeschlagen: %s", _ee)
+        _gl("admin_settings").warning("env-flatten after save failed: %s", _ee)
     return {"status": "success", "message": "Configuration saved (env updated)."}
 
 
@@ -988,6 +1082,94 @@ async def settings_memory_consolidate(request: Request, user=Depends(require_adm
     return {"status": "success", "submitted": submitted, "characters": len(targets), "iterations": iterations}
 
 
+# ── Image Post-Processing (Downscale Migration) ───────────────────────
+
+def _format_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    return f"{n / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _summarize_migrate(result: dict) -> dict:
+    """Add human-readable byte sizes to the result for the admin UI."""
+    if not result.get("ok"):
+        return result
+    enriched = dict(result)
+    enriched["bytes_before_human"] = _format_bytes(result["bytes_before"])
+    enriched["bytes_after_human"] = _format_bytes(result["bytes_after"])
+    enriched["bytes_saved_human"] = _format_bytes(result["bytes_saved"])
+    if result["bytes_before"]:
+        enriched["saved_pct"] = round(
+            100 * result["bytes_saved"] / result["bytes_before"], 1)
+    else:
+        enriched["saved_pct"] = 0
+    by_bucket = enriched.get("by_bucket") or {}
+    for name, b in by_bucket.items():
+        b["bytes_before_human"] = _format_bytes(b["bytes_before"])
+        b["bytes_after_human"] = _format_bytes(b["bytes_after"])
+        b["bytes_saved"] = b["bytes_before"] - b["bytes_after"]
+        b["bytes_saved_human"] = _format_bytes(b["bytes_saved"])
+    return enriched
+
+
+def _parse_world_scope(request: Request) -> str:
+    """Read optional ?world_scope=current|all (default current).
+
+    Items ignore this — they live in shared/ and are cross-world by design.
+    """
+    raw = (request.query_params.get("world_scope") or "current").strip().lower()
+    if raw not in ("current", "all"):
+        raise HTTPException(
+            status_code=400,
+            detail="world_scope must be 'current' or 'all'")
+    return raw
+
+
+@router.post("/image-postprocess/dryrun")
+async def image_postprocess_dryrun(request: Request, user=Depends(require_admin)):
+    """Scan items or map-tagged gallery images without writing.
+
+    Query:
+      * ``scope=item|map``                   — what to scan
+      * ``world_scope=current|all`` (map only) — default current world only
+    Returns per-bucket and totals: files scanned/resized + estimated bytes saved.
+    Map scope only walks gallery images whose ``image_type=="map"``;
+    location backgrounds are ignored.
+    """
+    scope = (request.query_params.get("scope") or "").strip().lower()
+    if scope not in ("item", "map"):
+        raise HTTPException(status_code=400, detail="scope must be item or map")
+    world_scope = _parse_world_scope(request)
+    from app.core.image_postprocess import migrate_tree
+    result = migrate_tree(scope, dry_run=True, world_scope=world_scope)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "scan failed"))
+    return _summarize_migrate(result)
+
+
+@router.post("/image-postprocess/migrate")
+async def image_postprocess_migrate(request: Request, user=Depends(require_admin)):
+    """Re-encode images in place. Destructive — originals are not kept.
+
+    Query:
+      * ``scope=item|map``
+      * ``world_scope=current|all`` (map only) — default current world only
+    """
+    scope = (request.query_params.get("scope") or "").strip().lower()
+    if scope not in ("item", "map"):
+        raise HTTPException(status_code=400, detail="scope must be item or map")
+    world_scope = _parse_world_scope(request)
+    from app.core.image_postprocess import migrate_tree
+    result = migrate_tree(scope, dry_run=False, world_scope=world_scope)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "migration failed"))
+    return _summarize_migrate(result)
+
+
 # ── Agent Loop ────────────────────────────────────────────────────────
 
 @router.get("/agent-loop/status")
@@ -1242,482 +1424,10 @@ setInterval(load, 5000);
 
 @router.get("/scheduler", response_class=HTMLResponse)
 async def scheduler_page(user=Depends(require_admin)):
-    """Admin scheduler view — lists all background jobs and lets the admin
-    create new ones for administrative actions only (extract_files, notify).
+    """Legacy URL — scheduler lives in the React Game-Admin SPA now."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/game-admin#/scheduler", status_code=307)
 
-    Per-character actions (send_message, set_status, execute_tool) are
-    intentionally excluded — those moved into the AgentLoop bump+hint
-    pattern. Daily-Schedule-Editing happens per character in the Character
-    Editor (Tab "Tagesablauf"), not here.
-    """
-    return """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Scheduler</title>
-<style>
-body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:20px; }
-h1 { font-size:18px; margin-top:0; }
-h2 { font-size:13px; margin:0 0 8px; color:#58a6ff; }
-.section { margin-bottom:14px; padding:10px; background:#161b22; border:1px solid #30363d; border-radius:6px; }
-.muted { color:#6e7681; font-size:12px; }
-table { width:100%; font-size:12px; border-collapse:collapse; }
-th, td { text-align:left; padding:5px 6px; border-bottom:1px solid #21262d; vertical-align:top; }
-th { color:#8b949e; font-weight:500; }
-.tag { display:inline-block; padding:1px 6px; border-radius:3px; font-size:11px; background:#21262d; color:#8b949e; }
-.tag.admin { background:#1f3a5f; color:#79c0ff; }
-.tag.char  { background:#3a2f5f; color:#d2a8ff; }
-.action-buttons button { background:none; border:0; color:#8b949e; cursor:pointer; padding:2px 6px; }
-.action-buttons button:hover { color:#c9d1d9; }
-form.create-job { margin-top:10px; padding:10px; background:#0d1117; border:1px solid #30363d; border-radius:4px; }
-form.create-job .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
-form.create-job .field { display:flex; flex-direction:column; gap:3px; min-width:140px; }
-form.create-job label { font-size:11px; color:#8b949e; }
-form.create-job input, form.create-job select, form.create-job textarea {
-  background:#0d1117; color:#c9d1d9; border:1px solid #30363d; border-radius:4px; padding:5px 7px; font-size:12px;
-}
-form.create-job button { background:#238636; color:#fff; border:0; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:13px; }
-.outcome-ok { color:#3fb950; }
-.outcome-err { color:#f85149; }
-.outcome-paused { color:#6e7681; }
-</style>
-</head>
-<body>
-<h1>Scheduler — Background Jobs</h1>
-
-<div class="section">
-  <h2>All jobs</h2>
-  <p class="muted">Admin jobs (e.g. memory consolidation, file extraction) are highlighted as <span class="tag admin">admin</span>. Per-character jobs from the legacy scheduler still surface here for visibility and can be deleted, but should no longer be created — character actions belong in the AgentLoop.</p>
-  <table id="jobs-table">
-    <thead><tr><th>Job ID</th><th>Owner</th><th>Trigger</th><th>Action</th><th>Status</th><th></th></tr></thead>
-    <tbody><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
-  </table>
-</div>
-
-<div class="section">
-  <h2>Create admin job</h2>
-  <form class="create-job" onsubmit="createJob(event)">
-    <div class="row">
-      <div class="field">
-        <label>Trigger</label>
-        <select id="cj-trigger" required>
-          <option value="cron-hourly">Every hour at :00</option>
-          <option value="cron-daily">Once a day</option>
-          <option value="interval-minutes">Every N minutes</option>
-          <option value="date">One-shot at date/time</option>
-        </select>
-      </div>
-      <div class="field" id="cj-extra-wrap">
-        <label>Detail</label>
-        <input id="cj-extra" placeholder="e.g. 30 (minutes) or 03:00 (HH:MM)" />
-      </div>
-      <div class="field">
-        <label>Action</label>
-        <select id="cj-action" onchange="onActionChange()">
-          <option value="extract_files">extract_files (knowledge)</option>
-          <option value="notify">notify (UI message)</option>
-        </select>
-      </div>
-      <div class="field" style="flex:1; min-width:240px;">
-        <label>Payload</label>
-        <input id="cj-payload" placeholder="extract: optional prompt — notify: message text" />
-      </div>
-      <div class="field">
-        <label>Agent (optional)</label>
-        <input id="cj-agent" placeholder="" />
-      </div>
-      <div>
-        <button type="submit">Create</button>
-      </div>
-    </div>
-    <p class="muted" style="margin:6px 0 0 0;">Per-character actions (send_message, set_status, execute_tool) are not exposed here — they belong in the AgentLoop. Daily Rhythm: Character Editor → Tagesablauf.</p>
-  </form>
-</div>
-
-<script>
-async function loadJobs() {
-  const tbody = document.querySelector('#jobs-table tbody');
-  try {
-    const r = await fetch('/scheduler/jobs', { cache: 'no-store' });
-    if (!r.ok) {
-      tbody.innerHTML = '<tr><td colspan="6">HTTP ' + r.status + '</td></tr>';
-      return;
-    }
-    const data = await r.json();
-    const jobs = (data && data.data) || [];
-    if (!jobs.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">No jobs scheduled.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = '';
-    for (const j of jobs) {
-      const tr = document.createElement('tr');
-      const owner = (j.agent || j.character || '').trim();
-      const ownerLabel = owner ? `<span class="tag char">${escapeHtml(owner)}</span>` : '<span class="tag admin">admin</span>';
-      const trig = j.trigger ? JSON.stringify(j.trigger).slice(0, 80) : '';
-      const act = j.action ? (j.action.type || '?') : '?';
-      const enabled = j.enabled !== false;
-      const statusCls = enabled ? 'outcome-ok' : 'outcome-paused';
-      tr.innerHTML = `<td>${escapeHtml(j.id || '?')}</td>
-        <td>${ownerLabel}</td>
-        <td>${escapeHtml(trig)}</td>
-        <td>${escapeHtml(act)}</td>
-        <td class="${statusCls}">${enabled ? 'enabled' : 'paused'}</td>
-        <td class="action-buttons">
-          <button onclick="toggleJob('${escapeAttr(j.id)}')">${enabled ? 'Pause' : 'Resume'}</button>
-          <button onclick="deleteJob('${escapeAttr(j.id)}')">Delete</button>
-        </td>`;
-      tbody.appendChild(tr);
-    }
-  } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="6">error: ' + escapeHtml(e.message) + '</td></tr>';
-  }
-}
-
-function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function escapeAttr(s) { return String(s == null ? '' : s).replace(/[\\\\"']/g, '\\\\$&'); }
-
-async function deleteJob(id) {
-  if (!confirm('Delete job ' + id + '?')) return;
-  try { await fetch('/scheduler/jobs/' + encodeURIComponent(id), { method: 'DELETE' }); } catch(e) {}
-  await loadJobs();
-}
-
-async function toggleJob(id) {
-  try { await fetch('/scheduler/jobs/' + encodeURIComponent(id) + '/toggle', { method: 'PUT' }); } catch(e) {}
-  await loadJobs();
-}
-
-function onActionChange() {
-  // Placeholder hook for future per-action field tweaks.
-}
-
-function buildTrigger() {
-  const kind = document.getElementById('cj-trigger').value;
-  const extra = document.getElementById('cj-extra').value.trim();
-  if (kind === 'cron-hourly') {
-    return { type: 'cron', minute: 0 };
-  }
-  if (kind === 'cron-daily') {
-    const m = (extra.match(/^(\\d{1,2}):(\\d{2})$/) || []);
-    const h = m[1] ? parseInt(m[1],10) : 3;
-    const min = m[2] ? parseInt(m[2],10) : 0;
-    return { type: 'cron', hour: h, minute: min };
-  }
-  if (kind === 'interval-minutes') {
-    const min = parseInt(extra, 10) || 30;
-    return { type: 'interval', minutes: min };
-  }
-  if (kind === 'date') {
-    return { type: 'date', run_date: extra };
-  }
-  return { type: 'cron', minute: 0 };
-}
-
-function buildAction() {
-  const t = document.getElementById('cj-action').value;
-  const payload = document.getElementById('cj-payload').value.trim();
-  if (t === 'extract_files') {
-    return { type: 'extract_files', extraction_prompt: payload };
-  }
-  if (t === 'notify') {
-    return { type: 'notify', message: payload || 'admin notify' };
-  }
-  return { type: t };
-}
-
-async function createJob(ev) {
-  ev.preventDefault();
-  const body = {
-    agent: document.getElementById('cj-agent').value.trim(),
-    trigger: buildTrigger(),
-    action: buildAction(),
-    enabled: true,
-  };
-  try {
-    const r = await fetch('/scheduler/jobs', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const t = await r.text();
-      alert('Create failed: HTTP ' + r.status + ' — ' + t.slice(0, 200));
-      return;
-    }
-  } catch (e) {
-    alert('Create failed: ' + e.message);
-    return;
-  }
-  document.getElementById('cj-extra').value = '';
-  document.getElementById('cj-payload').value = '';
-  document.getElementById('cj-agent').value = '';
-  await loadJobs();
-}
-
-loadJobs();
-setInterval(loadJobs, 15000);
-</script>
-</body>
-</html>
-"""
-
-
-# ── Template Playground ────────────────────────────────────────────────
-
-@router.get("/templates/list")
-async def templates_list(user=Depends(require_admin)):
-    """List all .md files under shared/templates/llm/."""
-    from app.core.template_preview import list_templates
-    return {"templates": list_templates()}
-
-
-@router.get("/templates/file")
-async def templates_read(path: str, user=Depends(require_admin)):
-    from app.core.template_preview import read_template
-    try:
-        return {"path": path, "content": read_template(path)}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Template not found: {path}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/templates/file")
-async def templates_save(request: Request, user=Depends(require_admin)):
-    body = await request.json()
-    path = (body.get("path") or "").strip()
-    content = body.get("content")
-    if not path or content is None:
-        raise HTTPException(status_code=400, detail="path + content required")
-    from app.core.template_preview import save_template
-    try:
-        save_template(path, content)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"status": "saved", "path": path}
-
-
-@router.get("/templates/render")
-async def templates_render(path: str, agent: str = "", avatar: str = "",
-                           user=Depends(require_admin)):
-    """Render the template at ``path`` against real production data for
-    the given agent + avatar."""
-    from app.core.template_preview import render_with_real_data
-    return render_with_real_data(path, agent, avatar)
-
-
-@router.get("/templates", response_class=HTMLResponse)
-async def templates_page(user=Depends(require_admin)):
-    """Template playground: top bar + 2-column editor/preview."""
-    return _TEMPLATES_PAGE_HTML
-
-
-_TEMPLATES_PAGE_HTML = """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Templates</title>
-<style>
-:root { color-scheme: dark; }
-* { box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#0d1117; color:#c9d1d9; margin:0; padding:0; height:100vh; display:flex; flex-direction:column; }
-.topbar { display:flex; gap:8px; align-items:center; padding:10px 14px; background:#161b22; border-bottom:1px solid #30363d; flex-wrap:wrap; }
-.topbar select, .topbar button { background:#0d1117; color:#c9d1d9; border:1px solid #30363d; padding:6px 10px; border-radius:4px; font-size:12px; }
-.topbar select { min-width:200px; }
-.topbar button { cursor:pointer; }
-.topbar button:hover { background:#21262d; }
-.topbar button.primary { background:#238636; border-color:#238636; color:#fff; }
-.topbar button.primary:hover { background:#2ea043; }
-.topbar label { font-size:11px; color:#8b949e; }
-#status { margin-left:auto; font-size:11px; color:#8b949e; }
-#status.ok { color:#3fb950; }
-#status.err { color:#f85149; }
-.cols { flex:1; display:flex; min-height:0; }
-.col { flex:1; display:flex; flex-direction:column; min-width:0; }
-.col + .col { border-left:1px solid #30363d; }
-.col-header { padding:6px 10px; background:#161b22; border-bottom:1px solid #30363d; font-size:11px; color:#8b949e; }
-textarea, pre.preview { flex:1; margin:0; padding:10px; background:#0d1117; color:#c9d1d9; border:0; outline:0; font-family: ui-monospace, SFMono-Regular, monospace; font-size:12px; line-height:1.5; resize:none; white-space:pre-wrap; word-break:break-word; overflow:auto; }
-textarea:focus { background:#010409; }
-.note { padding:6px 10px; background:#161b22; border-top:1px solid #30363d; font-size:11px; color:#8b949e; }
-.kind-chat { color:#58a6ff; }
-.kind-tasks { color:#a5a5a5; }
-.no-preview { opacity:0.5; }
-</style>
-</head>
-<body>
-<div class="topbar">
-  <label>Template</label>
-  <select id="sel-template"></select>
-  <label>Avatar</label>
-  <select id="sel-avatar"></select>
-  <label>Agent</label>
-  <select id="sel-agent"></select>
-  <button id="btn-save" class="primary">Save</button>
-  <button id="btn-render">Refresh preview</button>
-  <span id="status">—</span>
-</div>
-<div class="cols">
-  <div class="col">
-    <div class="col-header">Edit (raw markdown)</div>
-    <textarea id="editor" spellcheck="false" placeholder="Pick a template above…"></textarea>
-  </div>
-  <div class="col">
-    <div class="col-header">Preview (real data, what production would build)</div>
-    <pre class="preview" id="preview">—</pre>
-    <div class="note" id="note">—</div>
-  </div>
-</div>
-
-<script>
-let _state = { templates: [], characters: [], dirty: false };
-
-function setStatus(msg, kind) {
-  const el = document.getElementById('status');
-  el.textContent = msg;
-  el.className = kind || '';
-}
-
-async function loadTemplates() {
-  const r = await fetch('/admin/templates/list');
-  if (!r.ok) { setStatus('list failed: ' + r.status, 'err'); return; }
-  const d = await r.json();
-  _state.templates = d.templates || [];
-  const sel = document.getElementById('sel-template');
-  sel.innerHTML = '';
-  let lastKind = '';
-  for (const t of _state.templates) {
-    if (t.kind !== lastKind) {
-      const og = document.createElement('optgroup');
-      og.label = t.kind;
-      og.id = 'optgroup-' + t.kind;
-      sel.appendChild(og);
-      lastKind = t.kind;
-    }
-    const o = document.createElement('option');
-    o.value = t.path;
-    o.textContent = t.path.split('/').pop().replace('.md', '') + (t.has_preview ? '' : '  (no preview)');
-    if (!t.has_preview) o.classList.add('no-preview');
-    document.getElementById('optgroup-' + t.kind).appendChild(o);
-  }
-}
-
-async function loadCharacters() {
-  const r = await fetch('/characters/list');
-  if (!r.ok) return;
-  const d = await r.json();
-  const chars = d.characters || [];
-  const av = document.getElementById('sel-avatar');
-  const ag = document.getElementById('sel-agent');
-  av.innerHTML = '<option value="">(none)</option>';
-  ag.innerHTML = '';
-  for (const c of chars) {
-    const oa = document.createElement('option'); oa.value = c; oa.textContent = c; av.appendChild(oa);
-    const og = document.createElement('option'); og.value = c; og.textContent = c; ag.appendChild(og);
-  }
-  if (chars.length >= 2) av.value = chars[0];
-  if (chars.length >= 1) ag.value = chars[chars.length >= 2 ? 1 : 0];
-}
-
-async function loadFile(path) {
-  setStatus('loading…');
-  try {
-    const r = await fetch('/admin/templates/file?path=' + encodeURIComponent(path));
-    if (!r.ok) throw new Error(await r.text());
-    const d = await r.json();
-    document.getElementById('editor').value = d.content || '';
-    _state.dirty = false;
-    setStatus('loaded', 'ok');
-    await render();
-  } catch (e) {
-    setStatus('load failed: ' + e.message, 'err');
-  }
-}
-
-async function saveFile() {
-  const path = document.getElementById('sel-template').value;
-  const content = document.getElementById('editor').value;
-  if (!path) return;
-  setStatus('saving…');
-  try {
-    const r = await fetch('/admin/templates/file', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, content }),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    _state.dirty = false;
-    setStatus('saved', 'ok');
-    await render();
-  } catch (e) {
-    setStatus('save failed: ' + e.message, 'err');
-  }
-}
-
-async function render() {
-  const path = document.getElementById('sel-template').value;
-  const avatar = document.getElementById('sel-avatar').value;
-  const agent = document.getElementById('sel-agent').value;
-  if (!path) return;
-  setStatus('rendering…');
-  try {
-    const r = await fetch(`/admin/templates/render?path=${encodeURIComponent(path)}&agent=${encodeURIComponent(agent)}&avatar=${encodeURIComponent(avatar)}`);
-    const d = await r.json();
-    const prev = document.getElementById('preview');
-    const note = document.getElementById('note');
-    if (d.ok) {
-      prev.textContent = d.output || '(empty)';
-      note.textContent = d.note || '';
-      setStatus('rendered', 'ok');
-    } else {
-      prev.textContent = '(no output)';
-      note.textContent = d.note || 'preview failed';
-      setStatus('preview failed', 'err');
-    }
-  } catch (e) {
-    setStatus('render failed: ' + e.message, 'err');
-  }
-}
-
-document.getElementById('sel-template').addEventListener('change', e => loadFile(e.target.value));
-document.getElementById('sel-avatar').addEventListener('change', render);
-document.getElementById('sel-agent').addEventListener('change', render);
-document.getElementById('btn-save').addEventListener('click', saveFile);
-document.getElementById('btn-render').addEventListener('click', render);
-document.getElementById('editor').addEventListener('input', () => { _state.dirty = true; setStatus('unsaved changes'); });
-
-(async () => {
-  await Promise.all([loadTemplates(), loadCharacters()]);
-  const sel = document.getElementById('sel-template');
-  if (sel.options.length) {
-    sel.value = sel.options[0].value;
-    await loadFile(sel.value);
-  }
-})();
-</script>
-</body>
-</html>
-"""
-
-
-@router.get("/settings/comfyui-models")
-async def comfyui_models(user=Depends(require_admin)):
-    """Return cached ComfyUI checkpoints and LoRAs."""
-    try:
-        from app.core.dependencies import get_skill_manager
-        sm = get_skill_manager()
-        imagegen = sm.get_skill("image_generation") if sm else None
-        if not imagegen:
-            return {"checkpoints": [], "loras": []}
-        return {
-            "checkpoints": imagegen.get_cached_checkpoints(),
-            "loras": imagegen.get_cached_loras(),
-            "clip_models": imagegen.get_cached_clip_models(),
-        }
-    except Exception as e:
-        return {"checkpoints": [], "loras": [], "error": str(e)}
-
-
-# ── Helpers ──
 
 def _apply_schema_defaults(data: dict) -> None:
     """Fuellt leere Config-Felder mit Schema-Defaults vor.
@@ -2009,10 +1719,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
     <div id="nav-links"></div>
     <div class="nav-section-label">Verwaltung</div>
     <a href="#" data-section="_users" onclick="event.preventDefault(); activateIframe('_users', '/admin/users', 'User-Verwaltung')"><span class="nav-icon">👥</span> User-Verwaltung</a>
-    <a href="#" data-section="_outfit_rules" onclick="event.preventDefault(); activateIframe('_outfit_rules', '/admin/outfit-rules', 'Outfit-Regeln')"><span class="nav-icon">👗</span> Outfit-Regeln</a>
+    <a href="/game-admin#/outfit-rules" target="_blank"><span class="nav-icon">👗</span> Outfit Rules</a>
     <a href="#" data-section="_models" onclick="event.preventDefault(); activateIframe('_models', '/admin/models', 'Model Capabilities')"><span class="nav-icon">🧩</span> Model Capabilities</a>
     <a href="#" data-section="_agent_loop" onclick="event.preventDefault(); activateIframe('_agent_loop', '/admin/agent-loop', 'Agent Loop')"><span class="nav-icon">🔄</span> Agent Loop</a>
-    <a href="#" data-section="_scheduler" onclick="event.preventDefault(); activateIframe('_scheduler', '/admin/scheduler', 'Scheduler')"><span class="nav-icon">⏱</span> Scheduler</a>
+    <a href="/game-admin#/scheduler" target="_blank"><span class="nav-icon">⏱</span> Scheduler</a>
     <a href="#" data-section="_templates" onclick="event.preventDefault(); activateIframe('_templates', '/admin/templates', 'LLM Templates')"><span class="nav-icon">📄</span> LLM Templates</a>
     <div class="nav-section-label">Logs & Monitoring</div>
     <a href="#" data-section="_dashboard" onclick="event.preventDefault(); activateIframe('_dashboard', '/dashboard', 'Dashboard')"><span class="nav-icon">📊</span> Dashboard</a>
@@ -2179,7 +1889,7 @@ function renderSection(key) {
             html += '</div>';
             html += '<div>';
             html += '<div class="subsection-title" style="margin-bottom:8px;">Sichtweise pro Task</div>';
-            html += '<div id="llm-task-view"><div class="desc">Lade...</div></div>';
+            html += '<div id="llm-task-view"><div class="desc">Loading…</div></div>';
             html += '</div>';
             html += '</div>';
             setTimeout(() => renderLlmTaskView(data || []), 0);
@@ -2258,15 +1968,15 @@ async function renderLlmTaskView(entries) {
     let html = '';
     // Preset-Selector (runtime, nicht persistent — gilt nur fuer diese Server-Session)
     html += '<div style="margin-bottom:10px; padding:8px 10px; background:#161b22; border:1px solid #30363d; border-radius:6px;">';
-    html += '<div style="font-size:12px; color:#8b949e; margin-bottom:6px;">Runtime-Preset (nicht persistent):</div>';
+    html += '<div style="font-size:12px; color:#8b949e; margin-bottom:6px;">Runtime preset (not persistent):</div>';
     html += '<select id="llm-task-preset" onchange="applyTaskPreset(this.value)" style="background:#0d1117; color:#c9d1d9; border:1px solid #30363d; padding:6px; border-radius:4px; width:100%;">';
-    html += '<option value="none">— keins (alle Tasks aktiv) —</option>';
+    html += '<option value="none">— none (all tasks active) —</option>';
     for (const p of Object.keys(state.presets || {})) {
-        html += '<option value="' + esc(p) + '">' + esc(p) + ' — ' + (state.presets[p] || []).length + ' Tasks aus</option>';
+        html += '<option value="' + esc(p) + '">' + esc(p) + ' — ' + (state.presets[p] || []).length + ' tasks off</option>';
     }
     html += '</select>';
     if (runtimeDisabled.size) {
-        html += '<div style="font-size:11px; color:#d29922; margin-top:4px;">Aktiv: ' + runtimeDisabled.size + ' Tasks runtime-deaktiviert</div>';
+        html += '<div style="font-size:11px; color:#d29922; margin-top:4px;">Active: ' + runtimeDisabled.size + ' tasks runtime-disabled</div>';
     }
     html += '</div>';
 
@@ -2326,14 +2036,14 @@ async function renderLlmTaskView(entries) {
         }
         html += '<div style="font-size:12px; color:#58a6ff; font-weight:600;">' + esc(t.label) + catBadge + ' <span style="color:#6e7681; font-weight:400;">— ' + esc(t.id) + '</span></div>';
         html += '<label style="display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#8b949e; cursor:pointer;">';
-        html += '<input type="checkbox" ' + (isPersistDisabled ? '' : 'checked') + ' onchange="toggleTaskPersistent(\\'' + t.id + '\\', !this.checked)"> aktiv';
+        html += '<input type="checkbox" ' + (isPersistDisabled ? '' : 'checked') + ' onchange="toggleTaskPersistent(\\'' + t.id + '\\', !this.checked)"> active';
         html += '</label>';
         html += '</div>';
         if (isRuntimeDisabled) {
-            html += '<div style="font-size:11px; color:#d29922;">runtime-deaktiviert (Preset)</div>';
+            html += '<div style="font-size:11px; color:#d29922;">runtime-disabled (preset)</div>';
         }
         if (isEmpty) {
-            html += '<div class="desc" style="color:#d29922;">kein LLM zugeordnet</div>';
+            html += '<div class="desc" style="color:#d29922;">no LLM assigned</div>';
         } else {
             html += '<div style="margin-top:4px;">';
             for (const r of rows) {
@@ -2362,7 +2072,7 @@ function toggleTaskPersistent(taskId, disable) {
     if (disable && idx < 0) arr.push(taskId);
     if (!disable && idx >= 0) arr.splice(idx, 1);
     CONFIG.llm_task_state.disabled_tasks = arr;
-    toast('Aenderung erst nach Save aktiv', 'success');
+    toast('Change only takes effect after save', 'success');
     renderLlmTaskView(CONFIG.llm_routing || []);
 }
 
@@ -2375,13 +2085,13 @@ async function applyTaskPreset(preset) {
         });
         const data = await resp.json();
         if (preset === 'none') {
-            toast('Runtime-Preset aufgehoben', 'success');
+            toast('Runtime preset cleared', 'success');
         } else {
-            toast('Runtime-Preset "' + preset + '" aktiv (' + (data.disabled || []).length + ' Tasks aus)', 'success');
+            toast('Runtime preset "' + preset + '" active (' + (data.disabled || []).length + ' tasks off)', 'success');
         }
         renderLlmTaskView(CONFIG.llm_routing || []);
     } catch (e) {
-        toast('Preset-Fehler: ' + e.message, 'error');
+        toast('Preset error: ' + e.message, 'error');
     }
 }
 
@@ -2526,7 +2236,7 @@ function renderProviderSelect(val, path) {
 
 function renderGpuSelect(val, path) {
     const providers = CONFIG.providers || [];
-    let opts = '<option value="">— Keine —</option>';
+    let opts = '<option value="">— None —</option>';
     for (const p of providers) {
         const gpus = p.gpus || [];
         for (let i = 0; i < gpus.length; i++) {
@@ -2655,11 +2365,11 @@ async function loadImagegenBackendModels(path, backendName) {
             const resp = await fetch('/admin/settings/imagegen-backends/' + encodeURIComponent(backendName) + '/models',
                 { credentials: 'same-origin' });
             const data = await resp.json();
-            if (data.error) toast('Models laden fehlgeschlagen: ' + data.error, 'error');
+            if (data.error) toast('Loading models failed: ' + data.error, 'error');
             const list = data.models || [];
             if (list.length > 0) IMAGEGEN_MODELS_CACHE[backendName] = list;
         } catch (e) {
-            toast('Models laden fehlgeschlagen: ' + e.message, 'error');
+            toast('Loading models failed: ' + e.message, 'error');
         }
     }
     const models = IMAGEGEN_MODELS_CACHE[backendName] || [];
@@ -2957,14 +2667,14 @@ function setAllTaskOrders(path) {
     if (!inputEl) return;
     const order = parseInt(inputEl.value, 10);
     if (!order || order < 1) {
-        toast('Bitte einen Order-Wert >= 1 eingeben', 'error');
+        toast('Please enter an order value >= 1', 'error');
         return;
     }
     const parts = parsePath(path);
     let obj = CONFIG;
     for (const p of parts) obj = obj && obj[p];
     if (!Array.isArray(obj) || !obj.length) {
-        toast('Keine Tasks zugeordnet', 'error');
+        toast('No tasks assigned', 'error');
         return;
     }
     for (const it of obj) {
@@ -3314,9 +3024,9 @@ async function validateConfig() {
 
         let html = '<div class="validate-results ' + (result.errors > 0 ? 'has-errors' : 'all-ok') + '">';
         if (issues.length === 0) {
-            html += '<h3>Keine Probleme gefunden</h3>';
+            html += '<h3>No issues found</h3>';
         } else {
-            html += '<h3>' + result.errors + ' Fehler, ' + result.warnings + ' Warnungen</h3>';
+            html += '<h3>' + result.errors + ' errors, ' + result.warnings + ' warnings</h3>';
             for (const issue of issues) {
                 html += '<div class="validate-issue ' + issue.level + '">';
                 html += '<span class="badge">' + (issue.level === 'error' ? 'ERROR' : 'WARN') + '</span>';
@@ -3333,7 +3043,7 @@ async function validateConfig() {
         } else {
             content.innerHTML = html;
         }
-        if (result.errors > 0) toast(result.errors + ' Fehler gefunden', 'error');
+        if (result.errors > 0) toast(result.errors + ' errors found', 'error');
         else if (result.warnings > 0) toast(result.warnings + ' Warnungen', 'success');
         else toast('Alles OK!', 'success');
     } catch (e) {
@@ -3391,10 +3101,10 @@ async function runActionButton(endpoint, method, path, bodyFrom, confirmMsg, btn
                 }
             }
         } else {
-            toast('Fehler: ' + (data.detail || data.error || resp.status), 'error');
+            toast('Error: ' + (data.detail || data.error || resp.status), 'error');
         }
     } catch (e) {
-        toast('Aufruf fehlgeschlagen: ' + e.message, 'error');
+        toast('Call failed: ' + e.message, 'error');
     }
     btn.disabled = false;
     btn.textContent = origLabel;
@@ -3555,7 +3265,7 @@ td .actions { display: flex; gap: 6px; }
         <tr><th>Benutzername</th><th>Rolle</th><th>Characters</th><th>Letzter Login</th><th></th></tr>
     </thead>
     <tbody id="users-tbody">
-        <tr><td colspan="5" style="text-align:center;color:#8b949e;">Lade...</td></tr>
+        <tr><td colspan="5" style="text-align:center;color:#8b949e;">Loading…</td></tr>
     </tbody>
 </table>
 
@@ -3582,13 +3292,13 @@ td .actions { display: flex; gap: 6px; }
             <label style="display:flex;align-items:center;gap:8px;">
                 Zugeordnete Characters
                 <button type="button" class="btn btn-sm" onclick="toggleAllChars(true)">Alle</button>
-                <button type="button" class="btn btn-sm" onclick="toggleAllChars(false)">Keiner</button>
+                <button type="button" class="btn btn-sm" onclick="toggleAllChars(false)">None</button>
             </label>
             <div class="chars-box" id="edit-chars-box"></div>
         </div>
         <div class="modal-actions">
-            <button class="btn" onclick="closeEdit()">Abbrechen</button>
-            <button class="btn btn-primary" onclick="saveEdit()">Speichern</button>
+            <button class="btn" onclick="closeEdit()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEdit()">Save</button>
         </div>
     </div>
 </div>
@@ -3615,14 +3325,14 @@ async function loadAll() {
         CHARS = (await cResp.json()).characters || [];
         renderTable();
     } catch (e) {
-        toast('Fehler beim Laden: ' + e.message, 'error');
+        toast('Error loading: ' + e.message, 'error');
     }
 }
 
 function renderTable() {
     const tb = document.getElementById('users-tbody');
     if (!USERS.length) {
-        tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#8b949e;">Keine User</td></tr>';
+        tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#8b949e;">No users</td></tr>';
         return;
     }
     tb.innerHTML = USERS.map(u => {
@@ -3694,7 +3404,7 @@ async function saveEdit() {
         }
         if (!resp.ok) {
             const d = await resp.json().catch(() => ({}));
-            err.textContent = d.detail || 'Fehler beim Speichern';
+            err.textContent = d.detail || 'Save error';
             err.style.display = 'block';
             return;
         }
@@ -3710,17 +3420,17 @@ async function saveEdit() {
 async function deleteUser(userId) {
     const u = USERS.find(x => x.id === userId);
     if (!u) return;
-    if (!confirm('User "' + u.username + '" wirklich loeschen?')) return;
+    if (!confirm('Really delete user "' + u.username + '"?')) return;
     try {
         const resp = await fetch('/auth/users/' + userId, { method: 'DELETE' });
         if (!resp.ok) {
             const d = await resp.json().catch(() => ({}));
-            toast(d.detail || 'Fehler', 'error');
+            toast(d.detail || 'Error', 'error');
             return;
         }
-        toast('User geloescht');
+        toast('User deleted');
         await loadAll();
-    } catch (e) { toast('Fehler: ' + e.message, 'error'); }
+    } catch (e) { toast('Error: ' + e.message, 'error'); }
 }
 
 function escapeHtml(s) {
@@ -3732,239 +3442,6 @@ function toast(msg, type) {
     t.textContent = msg;
     t.className = 'toast ' + (type === 'error' ? 'error' : '') + ' show';
     setTimeout(() => t.classList.remove('show'), 2500);
-}
-
-loadAll();
-</script>
-</body>
-</html>'''
-
-
-def _build_outfit_rules_html() -> str:
-    """Outfit-Regeln-Admin-Seite."""
-    return '''<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8">
-<title>Outfit-Regeln</title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; }
-h1 { font-size: 18px; margin-bottom: 8px; color: #e6edf3; }
-.hint { font-size: 12px; color: #8b949e; margin-bottom: 16px; }
-.toolbar { margin-bottom: 14px; display: flex; gap: 8px; align-items: center; }
-.btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn:hover { background: #30363d; }
-.btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
-.btn-primary:hover { background: #2ea043; }
-.btn-danger { background: #da3633; border-color: #f85149; color: #fff; }
-.btn-danger:hover { background: #b62324; }
-.btn-sm { padding: 3px 8px; font-size: 12px; }
-.add-row { display: flex; gap: 6px; margin-bottom: 12px; }
-.add-row input { flex: 1; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
-
-table { width: 100%; border-collapse: collapse; background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
-th, td { padding: 8px 10px; text-align: center; border-bottom: 1px solid #30363d; font-size: 12px; color: #c9d1d9; }
-th { background: #1c2128; color: #8b949e; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; }
-th.type-col, td.type-col { text-align: left; min-width: 150px; }
-tr:last-child td { border-bottom: none; }
-tr:hover { background: #1c2128; }
-td.actions-col { text-align: right; white-space: nowrap; }
-input[type="checkbox"] { cursor: pointer; }
-
-.toast { position: fixed; bottom: 20px; right: 20px; background: #238636; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 2000; }
-.toast.show { opacity: 1; }
-.toast.error { background: #da3633; }
-</style>
-</head>
-<body>
-
-<h1>Outfit-Regeln</h1>
-<p class="hint">Definiert welche Slots pro outfit_type angezogen sein MUESSEN. Auto-Fill bei Location-Wechsel nutzt diese Regeln. Character-Exceptions (pro Character, in der Garderobe) koennen einzelne Slots ueberschreiben.</p>
-
-<div class="toolbar">
-    <button class="btn btn-primary" onclick="saveAll()">Speichern</button>
-    <span id="status" style="font-size:12px;color:#8b949e;"></span>
-</div>
-
-<div class="add-row">
-    <input type="text" id="new-type" placeholder="Neuer outfit_type (z.B. 'streetwear')">
-    <button class="btn" onclick="addType()">+ Hinzufuegen</button>
-</div>
-
-<table id="rules-table">
-    <thead id="rules-thead"></thead>
-    <tbody id="rules-tbody"><tr><td colspan="20">Lade...</td></tr></tbody>
-</table>
-
-<div class="toast" id="toast"></div>
-
-<script>
-let RULES = {};  // { type: {required: [slots]} }
-let SLOTS = [];
-// Anzeige-Reihenfolge wie in der Garderobe (SLOT_ORDER in script.js)
-const SLOT_DISPLAY_ORDER = ['head', 'neck', 'outer', 'top', 'underwear_top', 'bottom', 'underwear_bottom', 'legs', 'feet'];
-
-async function loadAll() {
-    try {
-        const resp = await fetch('/admin/outfit-rules/data');
-        if (resp.status === 401 || resp.status === 403) {
-            const ret = encodeURIComponent(window.location.pathname);
-            window.location.href = '/?return=' + ret;
-            return;
-        }
-        const data = await resp.json();
-        RULES = data.outfit_types || {};
-        const rawSlots = data.valid_slots || [];
-        // Sortieren nach SLOT_DISPLAY_ORDER, unbekannte Slots ans Ende
-        SLOTS = [...rawSlots].sort((a, b) => {
-            const ia = SLOT_DISPLAY_ORDER.indexOf(a);
-            const ib = SLOT_DISPLAY_ORDER.indexOf(b);
-            return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-        });
-        renderTable();
-    } catch (e) {
-        toast('Fehler: ' + e.message, 'error');
-    }
-}
-
-function renderTable() {
-    const thead = document.getElementById('rules-thead');
-    const tbody = document.getElementById('rules-tbody');
-    let th = '<tr><th class="type-col">outfit_type</th><th title="Wenn weder Activity noch Ort einen Type vorgibt — dieser Type wird genutzt">Default</th>';
-    for (const s of SLOTS) th += '<th>' + escapeHtml(s) + '</th>';
-    th += '<th class="actions-col"></th></tr>';
-    thead.innerHTML = th;
-
-    const types = Object.keys(RULES).sort();
-    if (!types.length) {
-        tbody.innerHTML = '<tr><td colspan="' + (SLOTS.length + 3) + '" style="text-align:center;color:#8b949e;">Noch keine outfit_types</td></tr>';
-        return;
-    }
-    tbody.innerHTML = types.map(t => {
-        const req = new Set((RULES[t] || {}).required || []);
-        const desc = (RULES[t] || {}).description || '';
-        const isDefault = !!((RULES[t] || {}).default);
-        let cells = '';
-        for (const s of SLOTS) {
-            cells += '<td><input type="checkbox" data-type="' + escapeHtml(t) + '" data-slot="' + escapeHtml(s) + '"' + (req.has(s) ? ' checked' : '') + ' onchange="onToggle(this)"></td>';
-        }
-        const defCell = '<td><input type="radio" name="default-type" data-type="' + escapeHtml(t) + '"' + (isDefault ? ' checked' : '') + ' onchange="onDefaultChange(this)" title="Als Default markieren"></td>';
-        const rowMain = '<tr><td class="type-col"><b>' + escapeHtml(t) + '</b></td>' + defCell + cells +
-               '<td class="actions-col">' +
-               '<button class="btn btn-sm" onclick="renameType(\\'' + t + '\\')" title="Umbenennen oder mit anderem Type mergen">Rename</button> ' +
-               '<button class="btn btn-sm btn-danger" onclick="deleteType(\\'' + t + '\\')">Del</button></td></tr>';
-        const rowDesc = '<tr class="desc-row"><td colspan="' + (SLOTS.length + 3) + '" style="padding:2px 8px 10px 8px;">' +
-               '<textarea data-type="' + escapeHtml(t) + '" rows="2" placeholder="Beschreibung fuer LLM (z.B. Club-Stil: eng, bauchfrei, neon/schwarz)" style="width:100%;font-size:12px;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:4px;padding:4px 6px;" onchange="onDescChange(this)">' +
-               escapeHtml(desc) + '</textarea></td></tr>';
-        return rowMain + rowDesc;
-    }).join('');
-}
-
-function onDefaultChange(radio) {
-    const t = radio.dataset.type;
-    // Alle anderen entmarkieren, gewaehlten markieren
-    for (const k of Object.keys(RULES)) {
-        if (RULES[k] && typeof RULES[k] === 'object') {
-            if (k === t) RULES[k].default = true;
-            else delete RULES[k].default;
-        }
-    }
-}
-
-async function renameType(t) {
-    const nn = prompt('Neuer Name fuer "' + t + '"\\n(existiert er bereits → wird gemergt):', t);
-    if (nn === null) return;
-    const newName = (nn || '').trim().toLowerCase();
-    if (!newName || newName === t) return;
-    const isMerge = !!RULES[newName];
-    const msg = isMerge
-        ? `"${t}" in existierenden Type "${newName}" MERGEN? Alle Referenzen werden umgeschrieben, Slots/Description von "${newName}" bleiben erhalten.`
-        : `"${t}" → "${newName}" umbenennen? Alle Referenzen (Locations, Raeume, Items, Activities, Character-Exceptions) werden mitumgeschrieben.`;
-    if (!confirm(msg)) return;
-    try {
-        const r = await fetch('/admin/outfit-rules/rename', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ old: t, new: newName }),
-        });
-        if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            toast('Fehler: ' + (d.detail || r.status), 'error');
-            return;
-        }
-        const data = await r.json();
-        const u = data.updated || {};
-        toast((data.merged ? 'Gemergt' : 'Umbenannt') +
-              ` — locations:${u.locations||0} rooms:${u.rooms||0} items:${u.items||0} activities:${u.activities||0} chars:${u.character_exceptions||0}`);
-        await loadAll();
-    } catch (e) {
-        toast('Fehler: ' + e.message, 'error');
-    }
-}
-
-function onDescChange(el) {
-    const t = el.dataset.type;
-    if (!RULES[t]) RULES[t] = { required: [] };
-    RULES[t].description = el.value || '';
-}
-
-function onToggle(cb) {
-    const t = cb.dataset.type;
-    const s = cb.dataset.slot;
-    if (!RULES[t]) RULES[t] = { required: [] };
-    const req = new Set(RULES[t].required || []);
-    if (cb.checked) req.add(s); else req.delete(s);
-    RULES[t].required = Array.from(req);
-}
-
-function addType() {
-    const el = document.getElementById('new-type');
-    const name = (el.value || '').trim().toLowerCase();
-    if (!name) return;
-    if (RULES[name]) { toast('Typ existiert schon', 'error'); return; }
-    RULES[name] = { required: [] };
-    el.value = '';
-    renderTable();
-}
-
-function deleteType(t) {
-    if (!confirm('outfit_type \\'' + t + '\\' loeschen?')) return;
-    delete RULES[t];
-    renderTable();
-}
-
-async function saveAll() {
-    const status = document.getElementById('status');
-    status.textContent = 'Speichere...';
-    status.style.color = '#8b949e';
-    try {
-        const r = await fetch('/admin/outfit-rules/data', {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ outfit_types: RULES }),
-        });
-        if (!r.ok) {
-            const d = await r.json().catch(() => ({}));
-            status.textContent = 'Fehler: ' + (d.detail || r.status);
-            status.style.color = '#f85149';
-            return;
-        }
-        status.textContent = 'Gespeichert.';
-        status.style.color = '#8fd17f';
-        toast('Gespeichert');
-    } catch (e) {
-        status.textContent = 'Fehler: ' + e.message;
-        status.style.color = '#f85149';
-    }
-}
-
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"\\']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function toast(msg, type) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = 'toast ' + (type === 'error' ? 'error' : '') + ' show';
-    setTimeout(() => t.classList.remove('show'), 2000);
 }
 
 loadAll();
@@ -4052,7 +3529,7 @@ td.dim { color: #6e7681; }
 
 <table id="stats-table">
     <thead id="stats-thead"></thead>
-    <tbody id="stats-tbody"><tr><td class="empty" colspan="20">Lade...</td></tr></tbody>
+    <tbody id="stats-tbody"><tr><td class="empty" colspan="20">Loading…</td></tr></tbody>
 </table>
 
 <script>
@@ -4101,7 +3578,7 @@ async function loadData() {
     const errBox = document.getElementById("error-box");
     errBox.innerHTML = "";
     document.getElementById("stats-tbody").innerHTML =
-        '<tr><td class="empty" colspan="20">Lade...</td></tr>';
+        '<tr><td class="empty" colspan="20">Loading…</td></tr>';
     try {
         const q = buildQuery();
         const resp = await fetch("/admin/llm-stats/data?" + q, { credentials: "same-origin" });
@@ -4117,7 +3594,7 @@ async function loadData() {
         renderSummary(data);
         renderTable();
     } catch (e) {
-        errBox.innerHTML = '<div class="error">Fehler: ' + escapeHtml(e.message) + "</div>";
+        errBox.innerHTML = '<div class="error">Error: ' + escapeHtml(e.message) + "</div>";
         document.getElementById("stats-tbody").innerHTML = "";
     }
 }
@@ -4186,7 +3663,7 @@ function renderTable() {
     });
 
     if (!sorted.length) {
-        tbody.innerHTML = '<tr><td class="empty" colspan="' + cols.length + '">Keine Daten im gewaehlten Zeitraum</td></tr>';
+        tbody.innerHTML = '<tr><td class="empty" colspan="' + cols.length + '">No data in the selected period</td></tr>';
         return;
     }
 

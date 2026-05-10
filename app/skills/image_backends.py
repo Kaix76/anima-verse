@@ -189,14 +189,32 @@ class ImageBackend(ABC):
         pass
 
     def generate(self, prompt: str, negative_prompt: str, params: Dict[str, Any]) -> List[bytes]:
-        """Generiert Bilder mit automatischem Job-Tracking fuer Load-Balancing."""
+        """Generiert Bilder mit automatischem Job-Tracking fuer Load-Balancing.
+
+        Wendet zentrales Downscale-Postprocessing an, wenn ``params`` einen
+        ``image_use_case`` enthaelt (item / location). Caller, die volle
+        Aufloesung brauchen (Outfit, Avatar), setzen den Key nicht.
+        """
         with self._jobs_lock:
             self._active_jobs += 1
         try:
-            return self._generate(prompt, negative_prompt, params)
+            result = self._generate(prompt, negative_prompt, params)
         finally:
             with self._jobs_lock:
                 self._active_jobs = max(0, self._active_jobs - 1)
+
+        # Sentinel-String "NO_NEW_IMAGE" oder Fehler-Listen unveraendert weitergeben.
+        use_case = (params or {}).get("image_use_case") or ""
+        if use_case and isinstance(result, list) and result:
+            try:
+                from app.core.image_postprocess import downscale_bytes
+                result = [
+                    downscale_bytes(img, use_case) if isinstance(img, (bytes, bytearray)) else img
+                    for img in result
+                ]
+            except Exception as _exc:
+                logger.warning("Downscale-Postprocess fehlgeschlagen: %s", _exc)
+        return result
 
     @abstractmethod
     def _generate(self, prompt: str, negative_prompt: str, params: Dict[str, Any]) -> List[bytes]:
@@ -1004,27 +1022,66 @@ class ComfyUIBackend(ImageBackend):
                 if neg_node:
                     workflow[neg_node]["inputs"]["text"] = negative_prompt or ""
 
-        # Width / Height (Format 1: separate Nodes, Format 2: combined input_size, Format 3: input_width/input_height)
-        w = int(params.get("width", 1024))
-        h = int(params.get("height", 1024))
-        width_input = self._find_node_by_title(workflow, "input - width")
-        if width_input:
-            workflow[width_input]["inputs"]["value"] = w
-        height_input = self._find_node_by_title(workflow, "input - height")
-        if height_input:
-            workflow[height_input]["inputs"]["value"] = h
-        # Format 3: input_width / input_height (PrimitiveInt, z.B. Flux2)
-        width_node = self._find_node_by_title(workflow, "input_width")
-        if width_node:
-            workflow[width_node]["inputs"]["value"] = w
-        height_node = self._find_node_by_title(workflow, "input_height")
-        if height_node:
-            workflow[height_node]["inputs"]["value"] = h
-        size_node = self._find_node_by_title(workflow, "input_size")
-        if size_node:
-            workflow[size_node]["inputs"]["width"] = w
-            workflow[size_node]["inputs"]["height"] = h
-            logger.info(f"input_size: {w}x{h}")
+        # Width / Height — Prioritaetskette:
+        #   1. caller-explizit via params['width']/['height'] (gewinnt)
+        #   2. Workflow-eigene input_*-Nodes bleiben unangetastet (deren JSON-Wert wirkt)
+        #   3. 1024 als finaler Fallback nur wenn Flux2Scheduler einen Literal-Wert braucht
+        #
+        # Items, Default-Items und Outfit-Pieces uebergeben kein width/height,
+        # daher rendert ComfyUI in der Aufloesung die im Workflow-JSON steht.
+        # World-Backgrounds, Map-Icons, Day/Night-Variants und Expression-
+        # Variants uebergeben hingegen explizite Werte und ueberschreiben damit.
+        explicit_w = params.get("width")
+        explicit_h = params.get("height")
+        has_explicit = explicit_w is not None and explicit_h is not None
+
+        def _read_workflow_dim(dim_attr: str) -> Optional[int]:
+            """Liest den effektiven Workflow-Wert aus den input_*-Nodes
+            (input_width / input_height fuer dim_attr='value', input_size
+            fuer dim_attr in ('width','height')). Gibt None zurueck wenn
+            der Workflow keinen passenden Node hat."""
+            attr_title = "input_width" if dim_attr == "width" else "input_height"
+            n = self._find_node_by_title(workflow, attr_title)
+            if n is not None:
+                v = workflow[n].get("inputs", {}).get("value")
+                if isinstance(v, int):
+                    return v
+            n = self._find_node_by_title(workflow, "input_size")
+            if n is not None:
+                v = workflow[n].get("inputs", {}).get(dim_attr)
+                if isinstance(v, int):
+                    return v
+            n = self._find_node_by_title(workflow, f"input - {dim_attr}")
+            if n is not None:
+                v = workflow[n].get("inputs", {}).get("value")
+                if isinstance(v, int):
+                    return v
+            return None
+
+        if has_explicit:
+            w = int(explicit_w)
+            h = int(explicit_h)
+            # Caller-Override: alle bekannten input_*-Patterns patchen, damit
+            # der Effekt erreicht wird egal wie der Workflow strukturiert ist.
+            for title in ("input - width", "input_width"):
+                n = self._find_node_by_title(workflow, title)
+                if n is not None:
+                    workflow[n]["inputs"]["value"] = w
+            for title in ("input - height", "input_height"):
+                n = self._find_node_by_title(workflow, title)
+                if n is not None:
+                    workflow[n]["inputs"]["value"] = h
+            n = self._find_node_by_title(workflow, "input_size")
+            if n is not None:
+                workflow[n]["inputs"]["width"] = w
+                workflow[n]["inputs"]["height"] = h
+            logger.info(f"caller-override size: {w}x{h}")
+        else:
+            # Kein Caller-Override → Workflow-Wert wirken lassen. Nur
+            # auslesen fuer das Flux2Scheduler-Literal-Hardening unten.
+            w = _read_workflow_dim("width") or 1024
+            h = _read_workflow_dim("height") or 1024
+            logger.info(f"workflow size: {w}x{h} (no caller override)")
 
         # Flux2Scheduler haerten: im Workflow-Design sind width/height oft an
         # ein LoadAndResizeImage (input_reference_image_background) verkabelt.

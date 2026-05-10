@@ -305,10 +305,10 @@ def generate_item_image_sync(
         prompt_text = f"{backend.prompt_prefix}, {prompt_text}"
     negative = (overrides.get("negative_prompt") or "").strip() or (backend.negative_prompt or "")
 
-    from app.core import config as _cfg
-    _w = int(_cfg.get("inventory.item_image_width", 256) or 256)
-    _h = int(_cfg.get("inventory.item_image_height", 256) or 256)
-    params = {"width": _w, "height": _h}
+    # Items werden mit der Default-Aufloesung des Workflows generiert
+    # (kleinere Sizes crashen ComfyUI). Die spaetere Downscale-Pipeline
+    # rechnet das Ergebnis auf ui.downscale_item_max_dim runter.
+    params = {"image_use_case": "item"}
     if backend.api_type == "comfyui" and active_wf:
         if active_wf.workflow_file:
             params["workflow_file"] = active_wf.workflow_file

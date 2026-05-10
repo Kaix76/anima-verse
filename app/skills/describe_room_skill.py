@@ -310,6 +310,7 @@ class DescribeRoomSkill(BaseSkill):
                     full_prompt = f"{backend.prompt_prefix}, {full_prompt}"
 
                 negative = backend.negative_prompt or ""
+                # Raum-Szenenbild ist ein Hintergrund — voll, kein Downscale.
                 params = {"width": 1280, "height": 720}
                 if active_workflow and active_workflow.workflow_file:
                     params["workflow_file"] = active_workflow.workflow_file
