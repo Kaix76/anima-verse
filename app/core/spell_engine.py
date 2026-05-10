@@ -66,6 +66,8 @@ def build_spell_catalog(character_name: str) -> List[Dict[str, Any]]:
                 "success_text": (item.get("success_text") or "").strip(),
                 "fail_text": (item.get("fail_text") or "").strip(),
                 "cast_activity": (item.get("cast_activity") or "").strip(),
+                "anchor_item_id": (item.get("anchor_item_id") or "").strip(),
+                "teleport_subject": (item.get("teleport_subject") or "caster").strip().lower(),
                 "quantity": int(entry.get("quantity") or 1),
             })
         return out
@@ -212,10 +214,91 @@ def execute_cast(avatar_name: str, target_name: str,
     spell_id = spell.get("id") or ""
     clone_id = spell.get("clone_item_id") or spell_id
     mode = spell.get("mode") or "force"
+    anchor_item_id = (spell.get("anchor_item_id") or "").strip()
+    teleport_subject = (spell.get("teleport_subject") or "caster").strip().lower()
 
     delivered_item_id = ""
     delivered_item_name = ""
-    if success:
+    teleport_info: Dict[str, Any] = {}
+
+    # Anker-Teleport-Pfad: ueberschreibt die normale give_item / effect-Logik.
+    # Spell hat ein Anker-Item -> wir suchen seinen Standort, bewegen entweder
+    # den Caster dorthin (subject=caster) oder holen den Anker-Traeger zum
+    # Caster (subject=anchor_holder). Ist der Anker in einem Raum statt bei
+    # einer Person, funktioniert nur subject=caster — anchor_holder failed
+    # weil's keinen Traeger gibt (Feature, kein Bug).
+    if success and anchor_item_id:
+        try:
+            from app.models.inventory import find_item_location
+            from app.models.character import (
+                get_character_current_location,
+                get_character_current_room,
+                save_character_current_location,
+                save_character_current_room)
+            # Caster nicht als Anker-Inhaber zaehlen — sonst "springt" er
+            # zu sich selbst und nichts passiert.
+            anchor = find_item_location(anchor_item_id, exclude_character=avatar_name)
+            if not anchor:
+                logger.info("Cast %s: Anker %s nirgends gefunden — Fail",
+                            spell_id, anchor_item_id)
+                success = False
+            else:
+                if teleport_subject == "anchor_holder":
+                    # Anker-Traeger zum Caster ziehen. Geht nur bei character-Anker.
+                    if anchor["kind"] != "character":
+                        logger.info("Cast %s: subject=anchor_holder aber Anker im Raum — Fail",
+                                    spell_id)
+                        success = False
+                    else:
+                        moved = anchor["character"]
+                        dest_loc = get_character_current_location(avatar_name) or ""
+                        dest_room = get_character_current_room(avatar_name) or ""
+                        if dest_loc:
+                            save_character_current_location(moved, dest_loc)
+                        if dest_room:
+                            save_character_current_room(moved, dest_room)
+                        teleport_info = {
+                            "moved_character": moved,
+                            "to_location": dest_loc,
+                            "to_room": dest_room,
+                            "subject": "anchor_holder",
+                        }
+                else:
+                    # Caster zum Anker-Standort
+                    if anchor["kind"] == "character":
+                        holder = anchor["character"]
+                        dest_loc = get_character_current_location(holder) or ""
+                        dest_room = get_character_current_room(holder) or ""
+                    else:
+                        dest_loc = anchor.get("location_id") or ""
+                        dest_room = anchor.get("room_id") or ""
+                    if not dest_loc:
+                        logger.info("Cast %s: Anker hat keinen Standort — Fail", spell_id)
+                        success = False
+                    else:
+                        save_character_current_location(avatar_name, dest_loc)
+                        if dest_room:
+                            save_character_current_room(avatar_name, dest_room)
+                        teleport_info = {
+                            "moved_character": avatar_name,
+                            "to_location": dest_loc,
+                            "to_room": dest_room,
+                            "subject": "caster",
+                        }
+        except Exception as e:
+            logger.error("anchor teleport failed: %s", e)
+            success = False
+        # Quell-Item ggf. verbrauchen (Schriftrolle einmalig, gelernter Spruch
+        # bleibt). Nur wenn der Teleport tatsaechlich erfolgreich war.
+        if success and not spell.get("copy_on_give"):
+            try:
+                from app.models.inventory import remove_from_inventory
+                remove_from_inventory(avatar_name, spell_id, quantity=1, force=True)
+            except Exception as e:
+                logger.debug("spell consume failed: %s", e)
+
+    elif success:
+        # Klassischer Pfad ohne Anker: Effekt-Item ans Ziel verteilen.
         # Quell-Item verbrauchen wenn nicht "kopiert beim Uebergeben".
         # copy_on_give=False (Default) heisst: Caster verliert sein Item
         # beim Wirken (Schriftrolle/Trank). copy_on_give=True heisst:
@@ -284,12 +367,20 @@ def execute_cast(avatar_name: str, target_name: str,
 
         hint = (spell.get("success_text") or "").strip()
         if not hint:
-            hint = f"A spell hits you ({spell.get('name') or spell_id})."
+            if teleport_info:
+                hint = (f"A teleport spell ({spell.get('name') or spell_id}) "
+                        f"shifts the scene.")
+            else:
+                hint = f"A spell hits you ({spell.get('name') or spell_id})."
     else:
         hint = (spell.get("fail_text") or "").strip()
         if not hint:
-            hint = (f"Someone tried to cast {spell.get('name') or spell_id} on you "
-                    "but it failed — only a faint tingle.")
+            if anchor_item_id:
+                hint = (f"The cast of {spell.get('name') or spell_id} fizzled — "
+                        "the anchor could not be reached.")
+            else:
+                hint = (f"Someone tried to cast {spell.get('name') or spell_id} on you "
+                        "but it failed — only a faint tingle.")
 
     logger.info("Cast %s by %s on %s: %s (roll %d/%d)",
                 spell_id, avatar_name, target_name,
@@ -303,6 +394,10 @@ def execute_cast(avatar_name: str, target_name: str,
         "roll": roll,
         "delivered_item_id": delivered_item_id,
         "delivered_item_name": delivered_item_name,
+        # Anker-Teleport-Info (leer wenn kein anchor_item_id am Spell).
+        # Frontend kann darauf reagieren (Map refresh, Toast "X wurde
+        # versetzt nach Y") — oder ignorieren.
+        "teleport": teleport_info,
         # Vom LLM gelieferter narrativer Ersatztext (statt Beschwoerung).
         # Wird in chat.py als user_input verwendet, damit das RP-LLM nicht
         # auf die rohe Incantation reagiert.
