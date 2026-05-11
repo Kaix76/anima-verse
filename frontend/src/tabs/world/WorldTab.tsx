@@ -13,6 +13,8 @@ interface Room {
   name?: string
   description?: string
   outfit_type?: string
+  image_prompt_day?: string
+  image_prompt_night?: string
 }
 
 interface EventSettings {
@@ -701,6 +703,34 @@ function RoomEditor({ location, room, outfitTypeOptions, items, onChanged, onDel
             ))}
           </select>
         </Field>
+
+        <div>
+          <div className="ga-form-section-label">{t('Image prompts')}</div>
+          <div className="ga-form">
+            <Field
+              label={t('Day prompt')}
+              hint={t('Per-room override. Falls back to the location day prompt when empty.')}
+            >
+              <textarea
+                className="ga-textarea"
+                rows={2}
+                value={draft.image_prompt_day || ''}
+                onChange={(e) => upd('image_prompt_day', e.target.value)}
+              />
+            </Field>
+            <Field
+              label={t('Night prompt')}
+              hint={t('Per-room override. Falls back to the location night prompt when empty.')}
+            >
+              <textarea
+                className="ga-textarea"
+                rows={2}
+                value={draft.image_prompt_night || ''}
+                onChange={(e) => upd('image_prompt_night', e.target.value)}
+              />
+            </Field>
+          </div>
+        </div>
 
         <RoomItems locationId={location.id} roomId={room.id || ''} items={items} />
       </div>

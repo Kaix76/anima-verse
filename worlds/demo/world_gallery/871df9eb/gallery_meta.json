@@ -24,11 +24,6 @@
       "backend_type": "together",
       "model": "HiDream-ai/HiDream-I1-Fast"
     },
-    "1777486405.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
     "1777547424.png": {
       "backend": "Together-Fast",
       "backend_type": "together",

@@ -252,8 +252,13 @@ def _do_generate(event_id: str,
     from app.models.world import get_background_path
     from app.models.events import update_event_fields
 
-    # Referenzbild: aktuelles Location-Background
-    bg_path = get_background_path(location_id)
+    # Referenzbild: aktuelles Location-Background. Tageszeit (Stunde) wird
+    # mitgegeben, damit get_background_path das passende Tag/Nacht-Bild
+    # waehlt — gleiche Logik wie der /background-Endpoint. Ohne Stunde
+    # waere die Auswahl rein zufaellig zwischen allen Bg-Bildern, was zu
+    # einer "alten" oder Tag/Nacht-falschen Vorlage fuer das Event-Bild
+    # fuehrt.
+    bg_path = get_background_path(location_id, hour=datetime.now().hour)
     if not bg_path or not bg_path.exists():
         logger.info("Event-Bild [%s]: kein Background — skip", event_id)
         return None

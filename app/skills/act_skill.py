@@ -79,7 +79,21 @@ class ActSkill(BaseSkill):
             return (f"You acted very recently — wait at least "
                     f"{SENDER_COOLDOWN_MIN} minutes before the next action.")
 
-        result = perform_act(actor, text, scope)
+        # Sync entry point for tool-LLM callers — drive the async pipeline
+        # via asyncio. Top-level routes use ``await perform_act(...)`` directly.
+        import asyncio as _asyncio
+        try:
+            loop = _asyncio.get_event_loop()
+            if loop.is_running():
+                # Already inside an event loop — schedule and wait via thread.
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    fut = pool.submit(_asyncio.run, perform_act(actor, text, scope))
+                    result = fut.result()
+            else:
+                result = _asyncio.run(perform_act(actor, text, scope))
+        except RuntimeError:
+            result = _asyncio.run(perform_act(actor, text, scope))
         return result.get("summary", "Action performed.")
 
 
@@ -105,14 +119,20 @@ class ActSkill(BaseSkill):
 # ---------------------------------------------------------------------------
 
 
-def perform_act(actor: str, text: str, scope: str) -> Dict[str, Any]:
+async def perform_act(actor: str, text: str, scope: str) -> Dict[str, Any]:
     """Run the full Storyteller pipeline for an action.
+
+    Async — uses ``StreamingAgent`` so the configured chat mode (rp_first /
+    single / no_tools) and the storyteller skill whitelist apply. Skills
+    fire with ``agent_name=actor`` so effects (ChangeOutfit, ImageGenerator)
+    land on the subject.
 
     Returns dict with keys:
       narration       — Storyteller text shown to the user
       resolved        — bool, True if an event was resolved
       event_id        — id of resolved event (or None)
-      summary         — short status line for tool-LLM consumers
+      tools_fired     — list of tool names that fired during the action
+      summary         — short status line
     """
     from app.models.character import (
         get_character_current_location, get_character_current_room)
@@ -123,7 +143,8 @@ def perform_act(actor: str, text: str, scope: str) -> Dict[str, Any]:
     actor_loc = (get_character_current_location(actor) or "").strip()
     if not actor_loc:
         return {"narration": "", "resolved": False, "event_id": None,
-                "summary": "Action failed: actor has no location."}
+                "tools_fired": [],
+                "summary": "Action failed: no place to act in."}
 
     actor_room = (get_character_current_room(actor) or "").strip()
     location = get_location_by_id(actor_loc) or {}
@@ -134,14 +155,14 @@ def perform_act(actor: str, text: str, scope: str) -> Dict[str, Any]:
         if room_obj:
             room_name = room_obj.get("name", "") or ""
 
-    # Recipients (NPCs at scope, excluding actor)
+    # Recipients (other people at scope, excluding actor)
     recipients = resolve_recipients(scope, actor)
 
     # Active events at the actor's location
     active = list_events(location_id=actor_loc) or []
 
-    # Storyteller-LLM call
-    narration = _call_storyteller(
+    # Storyteller-Agent (StreamingAgent w/ Storyteller-config + tools)
+    narration, tools_fired = await _run_storyteller_agent(
         actor=actor, scope=scope, location_name=loc_name,
         room_name=room_name, location=location, active_events=active,
         recipients=recipients, user_action_text=text)
@@ -175,103 +196,221 @@ def perform_act(actor: str, text: str, scope: str) -> Dict[str, Any]:
 
     summary = _build_summary(
         recipients=recipients, resolved=resolved_flag,
-        resolved_event_id=resolved_event_id)
+        resolved_event_id=resolved_event_id,
+        tools_fired=tools_fired)
 
     return {
         "narration": narration,
         "resolved": resolved_flag,
         "event_id": resolved_event_id,
+        "tools_fired": tools_fired,
         "summary": summary,
     }
 
 
-def _call_storyteller(actor: str, scope: str, location_name: str,
-                     room_name: str, location: Dict[str, Any],
-                     active_events: List[Dict[str, Any]],
-                     recipients: List[str], user_action_text: str) -> str:
-    """Render storyteller_react template and call the LLM."""
-    from app.core.llm_router import llm_call
+async def _run_storyteller_agent(
+    actor: str, scope: str, location_name: str,
+    room_name: str, location: Dict[str, Any],
+    active_events: List[Dict[str, Any]],
+    recipients: List[str], user_action_text: str
+) -> Tuple[str, List[str]]:
+    """Run the Storyteller via the same ``StreamingAgent`` infrastructure
+    used by chat, but with the per-world storyteller config (chat mode,
+    enabled skills).
+
+    Returns (narration, tools_fired).
+    """
+    import json as _json
+    from app.core.streaming import (
+        StreamingAgent, ContentEvent, ToolStartEvent, ToolResultEvent,
+        ToolErrorEvent, ToolEndEvent, HeartbeatEvent, RetryHintEvent,
+        ExtractionEvent, DeferredToolEvent, LoopInfoEvent,
+    )
+    from app.core.llm_router import resolve_llm
     from app.core.prompt_templates import render_task
+    from app.core.dependencies import get_skill_manager
+    from app.core.tool_formats import get_format_for_model
+    from app.models.storyteller import get_storyteller_config
 
-    # Active events block
-    if active_events:
-        ev_lines = []
-        for evt in active_events:
-            if evt.get("resolved"):
-                continue
-            cat = (evt.get("category") or "").upper()
-            text = evt.get("text") or ""
-            tag = f"[{cat}] " if cat else ""
-            ev_lines.append(f"- {tag}{text}")
-        active_events_block = "\n".join(ev_lines)
-    else:
-        active_events_block = ""
+    cfg = get_storyteller_config()
+    chat_mode = cfg.get("chat_mode", "rp_first")
+    llm_task = cfg.get("llm_task", "storyteller")
+    enabled_skill_ids = {sid for sid, on
+                          in (cfg.get("enabled_skills") or {}).items() if on}
 
-    # NPCs block
-    npcs_block = ", ".join(recipients[:RECIPIENT_CAP]) if recipients else ""
-
-    # Avatar profile (very short trait hint — keep it cheap)
-    avatar_profile = _short_actor_profile(actor)
-
-    # Indoor/Outdoor setting hint
-    indoor_flag = (location.get("indoor") or "").strip().lower() if location else ""
-    if indoor_flag == "indoor":
-        setting_block = ("Setting: Indoor (enclosed location — keep narration coherent "
-                          "with an interior space)")
-    elif indoor_flag == "outdoor":
-        setting_block = ("Setting: Outdoor (open-air location — keep narration coherent "
-                          "with an open natural environment)")
-    else:
-        setting_block = ""
-
-    # Output language
+    # ── Sprache ────────────────────────────────────────────────────────
     from app.models.account import get_user_profile
     _lang = (get_user_profile().get("system_language", "de") or "de")
     LANG_NAMES = {"de": "German", "en": "English", "fr": "French",
                   "es": "Spanish", "it": "Italian", "ja": "Japanese"}
     lang_name = LANG_NAMES.get(_lang, _lang)
 
+    # ── Subject-Kontext ────────────────────────────────────────────────
+    subject_profile = _short_subject_profile(actor)
+    subject_outfit = _subject_outfit_text(actor)
+    subject_mood = _subject_mood_text(actor)
+
+    # ── Anwesende Personen mit Outfits ─────────────────────────────────
+    present_people_block = _build_present_people_block(recipients[:RECIPIENT_CAP])
+
+    # ── Active Events Block ────────────────────────────────────────────
+    ev_lines = []
+    for evt in active_events or []:
+        if evt.get("resolved"):
+            continue
+        cat = (evt.get("category") or "").upper()
+        ev_text = evt.get("text") or ""
+        tag = f"[{cat}] " if cat else ""
+        ev_lines.append(f"- {tag}{ev_text}")
+    active_events_block = "\n".join(ev_lines)
+
+    # ── Setting (Indoor/Outdoor) ───────────────────────────────────────
+    indoor_flag = (location.get("indoor") or "").strip().lower() if location else ""
+    if indoor_flag == "indoor":
+        setting_block = ("Setting: Indoor (enclosed place — keep narration "
+                          "coherent with an interior space).")
+    elif indoor_flag == "outdoor":
+        setting_block = ("Setting: Outdoor (open-air place — keep narration "
+                          "coherent with an open natural environment).")
+    else:
+        setting_block = ""
+
+    scope_label = "the whole place" if scope == "location" else "this room"
+
+    # ── Template rendern ───────────────────────────────────────────────
     sys_prompt, user_prompt = render_task(
         "storyteller_react",
-        avatar_name=actor,
-        avatar_profile=avatar_profile,
+        subject_name=actor,
+        subject_profile=subject_profile,
+        subject_outfit=subject_outfit,
+        subject_mood=subject_mood,
         location_name=location_name,
         room_name=room_name,
-        scope=scope,
+        scope_label=scope_label,
         setting_block=setting_block,
         active_events_block=active_events_block,
-        npcs_block=npcs_block,
+        present_people_block=present_people_block,
         user_action_text=user_action_text,
         language_name=lang_name)
 
+    # ── LLMs aufloesen ─────────────────────────────────────────────────
+    st_inst = resolve_llm(llm_task, agent_name=actor) \
+        or resolve_llm("chat_stream", agent_name=actor)
+    if st_inst is None:
+        logger.error("Storyteller: no LLM available (task=%s, fallback chat_stream)",
+                     llm_task)
+        return ("", [])
+    st_llm = st_inst.create_llm()
+
+    tool_inst = resolve_llm("intent", agent_name=actor) or st_inst
+    tool_llm = tool_inst.create_llm()
+
+    tool_model_name = (tool_inst.model if tool_inst else "") or ""
+    tool_format = get_format_for_model(tool_model_name) if tool_model_name else "tag"
+
+    # ── Tools-Dict aus skill_manager, gefiltert per Storyteller-Config ─
+    sm = get_skill_manager()
+    tools_dict: Dict[str, Any] = {}
+    _deferred_tools: set = set()
+    _content_tools: set = set()
+    if chat_mode != "no_tools" and enabled_skill_ids:
+        for skill in sm.skills:
+            sid = getattr(skill, "SKILL_ID", "")
+            if not sid or sid not in enabled_skill_ids:
+                continue
+            # Per-Character-Limits ueberschreiben: Storyteller-Tools haben
+            # ``skip_daily_limit=True`` (sonst greift z.B. das outfit-cap).
+            t_spec = skill.as_tool(character_name=actor)
+            t_name = t_spec.name
+            t_orig = t_spec.func
+
+            def _make_wrapper(fn, _agent=actor):
+                def wrapper(raw_input):
+                    ctx = {"input": raw_input, "agent_name": _agent,
+                           "user_id": "", "skip_daily_limit": True}
+                    if isinstance(raw_input, str) and raw_input.strip().startswith("{"):
+                        try:
+                            parsed = _json.loads(raw_input)
+                            if isinstance(parsed, dict):
+                                for k, v in parsed.items():
+                                    if k not in ("agent_name", "user_id"):
+                                        ctx[k] = v
+                        except Exception:
+                            pass
+                    return fn(_json.dumps(ctx))
+                return wrapper
+
+            tools_dict[t_name] = _make_wrapper(t_orig)
+            if getattr(skill, "DEFERRED", False):
+                _deferred_tools.add(t_name)
+            if getattr(skill, "CONTENT_TOOL", False):
+                _content_tools.add(t_name)
+
+    # ── Tool-System-Prompt (minimal, constrained-mode-Stil) ────────────
+    if tools_dict:
+        avail_names = ", ".join(tools_dict.keys())
+        tool_system_content = (
+            f"You decide which tools to call after a storyteller narration.\n"
+            f"Available tools: {avail_names}\n"
+            f"{actor} just performed an in-world action. The storyteller "
+            f"narrated the consequence. Call the tools whose triggers match "
+            f"either the action or the narration. If none apply, respond "
+            f"with: NONE\n"
+        )
+    else:
+        tool_system_content = ""
+
+    agent = StreamingAgent(
+        llm=st_llm,
+        tool_llm=tool_llm,
+        tool_format=tool_format,
+        tools_dict=tools_dict,
+        agent_name=actor,
+        max_iterations=1 if chat_mode != "rp_first" else 2,
+        tool_system_content=tool_system_content,
+        log_task="storyteller",
+        deferred_tools=_deferred_tools,
+        content_tools=_content_tools,
+        mode=chat_mode,
+        constrained_tools=True)
+
+    # ── Stream konsumieren ─────────────────────────────────────────────
+    narration_chunks: List[str] = []
+    tools_fired: List[str] = []
     try:
-        response = llm_call(
-            task="storyteller",
-            system_prompt=sys_prompt,
-            user_prompt=user_prompt,
-            agent_name=actor)
-        raw = (response.content or "").strip()
-        raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', raw).strip()
-        return raw
+        async for event in agent.stream(sys_prompt, [], user_prompt):
+            if isinstance(event, ContentEvent):
+                narration_chunks.append(event.content or "")
+            elif isinstance(event, ExtractionEvent):
+                # Marker (EVENT_RESOLVED) an Narration anhaengen, damit der
+                # spaetere _try_resolve den Marker findet, egal ob er aus
+                # dem Storyteller-Output oder dem Tool-LLM-Pass kommt.
+                if event.markers:
+                    narration_chunks.append("\n" + event.markers)
+            elif isinstance(event, ToolStartEvent):
+                logger.info("Act tool start: %s", event.tool_name)
+            elif isinstance(event, ToolResultEvent):
+                if event.tool_name and event.tool_name not in tools_fired:
+                    tools_fired.append(event.tool_name)
+                logger.info("Act tool done: %s", event.tool_name)
+            elif isinstance(event, ToolErrorEvent):
+                logger.warning("Act tool error: %s — %s",
+                                event.tool_name, event.error)
+            elif isinstance(event, (HeartbeatEvent, ToolEndEvent,
+                                     DeferredToolEvent, RetryHintEvent,
+                                     LoopInfoEvent)):
+                # nicht relevant fuer Narration
+                pass
     except Exception as e:
-        logger.warning("Storyteller llm_call failed (%s) — falling back to chat_stream", e)
-        # Fallback: use chat_stream task if storyteller routing is missing
-        try:
-            response = llm_call(
-                task="chat_stream",
-                system_prompt=sys_prompt,
-                user_prompt=user_prompt,
-                agent_name=actor)
-            raw = (response.content or "").strip()
-            raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', raw).strip()
-            return raw
-        except Exception as e2:
-            logger.error("Storyteller fallback also failed: %s", e2)
-            return ""
+        logger.error("Storyteller agent.stream failed: %s", e)
+
+    narration = "".join(narration_chunks).strip()
+    narration = re.sub(r"<SPECIAL_\d+>|<\|[A-Z_]+\|>", "", narration).strip()
+    return narration, tools_fired
 
 
-def _short_actor_profile(actor: str) -> str:
-    """Brief one-line trait hint for the storyteller's context."""
+def _short_subject_profile(actor: str) -> str:
+    """Brief trait hint for the storyteller's context."""
     try:
         from app.models.character import get_character_personality
         pers = get_character_personality(actor) or ""
@@ -281,6 +420,47 @@ def _short_actor_profile(actor: str) -> str:
         return pers
     except Exception:
         return ""
+
+
+def _subject_outfit_text(actor: str) -> str:
+    """Equipped outfit string (without the leading 'wearing: ' prefix
+    duplication — the template already labels it)."""
+    try:
+        from app.models.character import build_equipped_outfit_prompt
+        raw = build_equipped_outfit_prompt(actor) or ""
+        return raw.strip()
+    except Exception:
+        return ""
+
+
+def _subject_mood_text(actor: str) -> str:
+    """Single-word mood hint (or empty)."""
+    try:
+        from app.models.character import get_character_current_feeling
+        return (get_character_current_feeling(actor) or "").strip()
+    except Exception:
+        return ""
+
+
+def _build_present_people_block(names: List[str]) -> str:
+    """Multi-line bullet list with name + outfit per witnessing person."""
+    if not names:
+        return ""
+    try:
+        from app.models.character import build_equipped_outfit_prompt
+    except Exception:
+        return "\n".join(f"- {n}" for n in names)
+    lines = []
+    for n in names:
+        try:
+            outfit = (build_equipped_outfit_prompt(n) or "").strip()
+        except Exception:
+            outfit = ""
+        if outfit:
+            lines.append(f"- {n} — {outfit}")
+        else:
+            lines.append(f"- {n}")
+    return "\n".join(lines)
 
 
 def _try_resolve(actor: str, location_id: str,
@@ -410,7 +590,8 @@ def _record_actor_diary(actor: str, narration: str, scope: str) -> None:
 
 
 def _build_summary(recipients: List[str], resolved: bool,
-                   resolved_event_id: Optional[str]) -> str:
+                   resolved_event_id: Optional[str],
+                   tools_fired: Optional[List[str]] = None) -> str:
     parts = []
     if recipients:
         parts.append(f"{len(recipients)} present witnessed the action.")
@@ -418,6 +599,8 @@ def _build_summary(recipients: List[str], resolved: bool,
         parts.append("Action performed; nobody was around to witness it.")
     if resolved and resolved_event_id:
         parts.append(f"An active event ({resolved_event_id}) was resolved.")
+    if tools_fired:
+        parts.append(f"Tools fired: {', '.join(tools_fired)}.")
     return " ".join(parts)
 
 

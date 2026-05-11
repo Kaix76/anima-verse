@@ -1,15 +1,5 @@
 {
   "image_metas": {
-    "1777484451.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
-    "1777484488.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
     "1777484512.png": {
       "backend": "Together-Fast",
       "backend_type": "together",

@@ -1,10 +1,5 @@
 {
   "image_metas": {
-    "1777486491.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
     "1777486503.png": {
       "backend": "Together-Fast",
       "backend_type": "together",
@@ -31,16 +26,6 @@
       "model": "HiDream-ai/HiDream-I1-Fast"
     },
     "1777486548.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
-    "1777486601.png": {
-      "backend": "Together-Fast",
-      "backend_type": "together",
-      "model": "HiDream-ai/HiDream-I1-Fast"
-    },
-    "1777547325.png": {
       "backend": "Together-Fast",
       "backend_type": "together",
       "model": "HiDream-ai/HiDream-I1-Fast"

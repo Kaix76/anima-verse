@@ -1017,6 +1017,237 @@ def update_location_position(location_id: str, grid_x: int, grid_y: int) -> Opti
     return None
 
 
+def cleanup_orphan_backgrounds() -> Dict[str, int]:
+    """Entfernt tote Eintraege aus ``background_images`` und den Galerie-
+    Meta-Dicts (``image_types``, ``image_rooms``, ``image_metas``,
+    ``image_prompts``).
+
+    "Tot" heisst: in der DB / Meta-JSON referenziert, aber die zugehoerige
+    PNG existiert nicht mehr auf der Disk (oft Folge von:
+    Bild-Loesch-Round-Trip nicht sauber, Klon teilt Galerie mit Template
+    und der eine sah eine Datei die der andere schon weg hat, alte
+    Galerien manuell aufgeraeumt, etc.).
+
+    Loescht KEINE Dateien — pruned nur Referenzen.
+
+    Klon-Hinweis: Klone teilen die Galerie mit ihrem Template
+    (``_gallery_owner_id``). Wir pruefen pro Location gegen den
+    jeweiligen Owner-Dir. Da Klone ihre ``background_images``-Liste seit
+    dem letzten Refactor ohnehin vom Template erben, raeumen wir hier
+    primaer Template-Daten auf.
+
+    Idempotent. Returns Stats.
+    """
+    data = _load_world_data()
+    locations = data.get("locations", [])
+    gallery_root = get_storage_dir() / "world_gallery"
+
+    pruned_bgs = 0
+    pruned_meta = 0
+    touched_locs = 0
+    touched_meta_files = 0
+
+    # DB-Eintraege: background_images pruunen.
+    for loc in locations:
+        loc_id = loc.get("id") or ""
+        if not loc_id:
+            continue
+        bgs = loc.get("background_images", [])
+        if not bgs:
+            continue
+        owner_id = (loc.get("template_location_id") or "").strip() or loc_id
+        gallery_dir = gallery_root / owner_id
+        valid = [img for img in bgs if (gallery_dir / img).exists()]
+        if len(valid) != len(bgs):
+            removed = len(bgs) - len(valid)
+            loc["background_images"] = valid
+            pruned_bgs += removed
+            touched_locs += 1
+
+    if touched_locs:
+        _save_world_data(data)
+
+    # Meta-JSONs: image_types/rooms/metas/prompts pro Owner-Dir.
+    if gallery_root.exists():
+        import json as _json
+        for owner_dir in gallery_root.iterdir():
+            if not owner_dir.is_dir():
+                continue
+            meta_path = owner_dir / "gallery_meta.json"
+            prompts_path = owner_dir / "prompts.json"
+            existing_pngs = {p.name for p in owner_dir.glob("*.png")} \
+                            | {p.name for p in owner_dir.glob("*.jpg")} \
+                            | {p.name for p in owner_dir.glob("*.webp")}
+
+            # gallery_meta.json
+            if meta_path.exists():
+                try:
+                    meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    meta = None
+                if isinstance(meta, dict):
+                    changed = False
+                    for key in ("image_types", "image_rooms", "image_metas"):
+                        block = meta.get(key) or {}
+                        if not isinstance(block, dict):
+                            continue
+                        stale = [n for n in block.keys() if n not in existing_pngs]
+                        if stale:
+                            for n in stale:
+                                block.pop(n, None)
+                            meta[key] = block
+                            pruned_meta += len(stale)
+                            changed = True
+                    if changed:
+                        meta_path.write_text(
+                            _json.dumps(meta, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+                        touched_meta_files += 1
+
+            # prompts.json
+            if prompts_path.exists():
+                try:
+                    prompts = _json.loads(prompts_path.read_text(encoding="utf-8"))
+                except Exception:
+                    prompts = None
+                if isinstance(prompts, dict):
+                    stale = [n for n in prompts.keys() if n not in existing_pngs]
+                    if stale:
+                        for n in stale:
+                            prompts.pop(n, None)
+                        prompts_path.write_text(
+                            _json.dumps(prompts, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+                        pruned_meta += len(stale)
+                        touched_meta_files += 1
+
+    logger.info(
+        "cleanup_orphan_backgrounds: pruned_bgs=%d (locations=%d), pruned_meta=%d (files=%d)",
+        pruned_bgs, touched_locs, pruned_meta, touched_meta_files)
+    return {
+        "pruned_bgs": pruned_bgs,
+        "touched_locations": touched_locs,
+        "pruned_meta": pruned_meta,
+        "touched_meta_files": touched_meta_files,
+    }
+
+
+def move_orphan_gallery_files() -> Dict[str, int]:
+    """Verschiebt Bilder, die NIRGENDS mehr referenziert sind, in einen
+    Backup-Ordner.
+
+    "Orphan" heisst: PNG/JPG/WEBP-Datei liegt in ``world_gallery/<owner>/``,
+    aber ist weder in der ``background_images``-Liste einer Location
+    (Template oder Klon) noch in ``gallery_meta.json`` (image_types /
+    image_rooms / image_metas) noch in ``prompts.json``.
+
+    Loescht die Datei NICHT. Verschiebt sie nach
+    ``world_gallery_backup/<owner>/<filename>``. Bei Konflikt mit
+    existierender Backup-Datei wird ein Timestamp-Suffix angehaengt.
+
+    Sollte NACH ``cleanup_orphan_backgrounds`` laufen — sonst werden
+    Files verschoben, deren DB-Eintrag erst danach gepruned wuerde, mit
+    falsch wirkender Reihenfolge.
+
+    Returns Stats.
+    """
+    import json as _json
+    import shutil as _shutil
+    from datetime import datetime as _dt
+
+    data = _load_world_data()
+    locations = data.get("locations", [])
+    gallery_root = get_storage_dir() / "world_gallery"
+    backup_root = get_storage_dir() / "world_gallery_backup"
+
+    if not gallery_root.exists():
+        return {"moved": 0, "owners_touched": 0, "backup_dir": str(backup_root)}
+
+    # Pro Owner-Dir: Set aller referenzierten Dateinamen sammeln.
+    # Klone teilen die Galerie mit ihrem Template — alle Klon-bg-Listen
+    # gelten als Referenz fuer die Template-Owner-ID.
+    referenced: Dict[str, set] = {}
+    for loc in locations:
+        loc_id = (loc.get("id") or "").strip()
+        if not loc_id:
+            continue
+        owner_id = (loc.get("template_location_id") or "").strip() or loc_id
+        bucket = referenced.setdefault(owner_id, set())
+        for img in (loc.get("background_images") or []):
+            if isinstance(img, str) and img:
+                bucket.add(img)
+
+    moved_total = 0
+    owners_touched = 0
+
+    for owner_dir in gallery_root.iterdir():
+        if not owner_dir.is_dir():
+            continue
+        owner_id = owner_dir.name
+
+        # Referenzierte Files aus DB + Meta einsammeln.
+        refs: set = set(referenced.get(owner_id, set()))
+
+        meta_path = owner_dir / "gallery_meta.json"
+        if meta_path.exists():
+            try:
+                meta = _json.loads(meta_path.read_text(encoding="utf-8")) or {}
+                for key in ("image_types", "image_rooms", "image_metas"):
+                    block = meta.get(key) or {}
+                    if isinstance(block, dict):
+                        refs.update(block.keys())
+            except Exception:
+                pass
+
+        prompts_path = owner_dir / "prompts.json"
+        if prompts_path.exists():
+            try:
+                prompts = _json.loads(prompts_path.read_text(encoding="utf-8")) or {}
+                if isinstance(prompts, dict):
+                    refs.update(prompts.keys())
+            except Exception:
+                pass
+
+        # Orphans = Dateien im Dir, die nicht referenziert sind.
+        # JSON-Sidecars (gallery_meta.json, prompts.json, etc.) ueberspringen.
+        moved_this = 0
+        for fp in owner_dir.iterdir():
+            if not fp.is_file():
+                continue
+            if fp.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                continue
+            if fp.name in refs:
+                continue
+            # Orphan — verschieben.
+            dest_dir = backup_root / owner_id
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / fp.name
+            if dest.exists():
+                # Kollision (z.B. wenn cleanup mehrfach laeuft): Suffix
+                # mit Zeitstempel anhaengen.
+                stem = fp.stem
+                ts = _dt.now().strftime("%Y%m%d-%H%M%S")
+                dest = dest_dir / f"{stem}__{ts}{fp.suffix}"
+            try:
+                _shutil.move(str(fp), str(dest))
+                moved_this += 1
+            except Exception as e:
+                logger.warning("Konnte Orphan-Bild nicht verschieben (%s -> %s): %s", fp, dest, e)
+
+        if moved_this:
+            moved_total += moved_this
+            owners_touched += 1
+
+    logger.info(
+        "move_orphan_gallery_files: moved=%d (owners=%d, backup=%s)",
+        moved_total, owners_touched, backup_root)
+    return {
+        "moved": moved_total,
+        "owners_touched": owners_touched,
+        "backup_dir": str(backup_root),
+    }
+
+
 def cleanup_orphan_clones() -> Dict[str, int]:
     """Bereinigt Klon-Datensaetze:
 

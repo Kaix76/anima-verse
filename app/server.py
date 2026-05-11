@@ -61,6 +61,7 @@ from app.routes import i18n as i18n_route
 from app.routes import state as state_route
 from app.routes import game_admin as game_admin_route
 from app.routes import world_setup as world_setup_route
+from app.routes import storyteller as storyteller_route
 from app.scheduler.scheduler_manager import SchedulerManager
 from app.core.dependencies import initialize_channels, get_skill_manager
 from app.core.provider_manager import initialize_provider_manager
@@ -105,6 +106,22 @@ async def lifespan(app: FastAPI):
     _cleanup_stats = cleanup_orphan_clones()
     if _cleanup_stats.get("removed"):
         logger.info("Klon-Cleanup beim Start: %s", _cleanup_stats)
+
+    # Background-Hygiene: tote Datei-Referenzen in background_images +
+    # gallery_meta.json + prompts.json prunen. Loescht keine Dateien.
+    from app.models.world import cleanup_orphan_backgrounds
+    _bg_stats = cleanup_orphan_backgrounds()
+    if _bg_stats.get("pruned_bgs") or _bg_stats.get("pruned_meta"):
+        logger.info("Background-Cleanup beim Start: %s", _bg_stats)
+
+    # Orphan-Files: Galerie-PNGs ohne jegliche Referenz nach
+    # world_gallery_backup/ verschieben (nicht loeschen). Laeuft NACH
+    # dem DB/Meta-Cleanup, damit gerade-erst gepunete Referenzen nicht
+    # faelschlich Files am Leben halten.
+    from app.models.world import move_orphan_gallery_files
+    _orphan_stats = move_orphan_gallery_files()
+    if _orphan_stats.get("moved"):
+        logger.info("Orphan-Bilder verschoben: %s", _orphan_stats)
 
     # Migration: Variant-Dateinamen mit Character-Name prefixen
     from app.core.expression_regen import migrate_variant_filenames
@@ -398,6 +415,7 @@ app.include_router(account.router)
 app.include_router(state_route.router)
 app.include_router(game_admin_route.router)
 app.include_router(world_setup_route.router)
+app.include_router(storyteller_route.router)
 
 # Static files & templates
 app.mount("/static", StaticFiles(directory="static"), name="static")

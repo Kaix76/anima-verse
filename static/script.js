@@ -6559,7 +6559,19 @@ async function _tryReconnectChatStream() {
                         if (botResponseElement) { botResponseElement.innerHTML = marked.parse(txt); chatMessages.scrollTop = chatMessages.scrollHeight; }
                     }
                     if (data.mood) { const el = document.getElementById('header-mood-display'); if (el) { el.textContent = data.mood; el.title = `Stimmung: ${data.mood}`; } if (currentCharacterName) updateCharacterScene(currentCharacterName); }
-                    if (data.location) { _currentCharacterRoom = data.room || ''; if (currentCharacterName) _loadCharacterHeaderState(currentCharacterName); updateLocationBackground(data.location, data.room); loadCharacterSidebar(); loadPlayerAvatar(); if (currentCharacterName) updateCharacterScene(currentCharacterName); }
+                    if (data.location) {
+                        // data.location/.room sind die Agent-Position. Wir
+                        // refreshen Header + Scene des Agenten, aber den
+                        // Body-Background NICHT — der gehoert zur Avatar-
+                        // Sicht. Bei face-to-face ist die Avatar-Location
+                        // sowieso schon gleich; bei Remote-Chat wuerde der
+                        // Background sonst falsch zum Agenten springen.
+                        _currentCharacterRoom = data.room || '';
+                        if (currentCharacterName) _loadCharacterHeaderState(currentCharacterName);
+                        loadCharacterSidebar();
+                        loadPlayerAvatar();
+                        if (currentCharacterName) updateCharacterScene(currentCharacterName);
+                    }
                     if (data.room && !data.location) { _currentCharacterRoom = data.room; if (currentCharacterName) _loadCharacterHeaderState(currentCharacterName); }
                     if (data.activity) { if (currentCharacterName) { _loadCharacterHeaderState(currentCharacterName); updateCharacterScene(currentCharacterName); } loadPlayerAvatar(); }
                     if (data.tokens) tokenInfo = data.tokens;
@@ -21974,82 +21986,153 @@ async function _populateEventsLocationDropdown() {
 
 async function fetchEvents() {
     try {
-        const resp = await fetch(`/events`);
-        if (!resp.ok) return;
-        const data = await resp.json();
-        renderEvents(data.events || []);
+        // Avatar-Location parallel ziehen — bestimmt, welche Events unter "HIER" landen.
+        const avatar = (typeof getPlayerCharacterName === 'function')
+            ? getPlayerCharacterName() : '';
+        const reqs = [fetch(`/events`)];
+        if (avatar) reqs.push(fetch(`/characters/${encodeURIComponent(avatar)}/current-location`));
+        const responses = await Promise.all(reqs);
+        const evResp = responses[0];
+        if (!evResp.ok) return;
+        const data = await evResp.json();
+        let avatarLocId = '';
+        if (responses[1] && responses[1].ok) {
+            const d = await responses[1].json();
+            avatarLocId = d.current_location_id || d.current_location || '';
+        }
+        renderEvents(data.events || [], avatarLocId);
     } catch (e) {
         console.error('[Events] Fetch error:', e);
     }
 }
 
-function renderEvents(events) {
+function renderEvents(events, avatarLocId) {
     const container = document.getElementById('events-content');
     if (!container) return;
     if (!events || events.length === 0) {
         container.innerHTML = `<p class="events-empty">${escapeHtml(t('No events available.'))}</p>`;
         return;
     }
-    // Location-ID -> Name Mapping
+    // Location-ID -> Name + Name-Frequenz (fuer "unique location"-Filter)
     const locMap = {};
+    const nameCount = {};
     for (const loc of (_cachedWorldLocations || [])) {
         locMap[loc.id] = loc.name;
+        nameCount[loc.name] = (nameCount[loc.name] || 0) + 1;
     }
-    let html = '';
-    // Sortierung: Kritikalitaet (danger > disruption > social > ambient), dann neueste zuerst
+    const isUniqueLocation = (locId) => {
+        const name = locMap[locId];
+        return name ? (nameCount[name] === 1) : false;
+    };
+
+    // Buckets:
+    //   here   — Avatar-Location (alle Events, hervorgehoben)
+    //   global — location_id leer/null (alle Kategorien)
+    //   other  — disruption/danger an Locations, deren Name nur einmal vorkommt
+    const hereEvents = [];
+    const globalEvents = [];
+    const otherEvents = [];
+    for (const evt of events) {
+        const locId = evt.location_id || '';
+        if (!locId) {
+            globalEvents.push(evt);
+            continue;
+        }
+        if (avatarLocId && locId === avatarLocId) {
+            hereEvents.push(evt);
+            continue;
+        }
+        const cat = evt.category || '';
+        if ((cat === 'disruption' || cat === 'danger') && isUniqueLocation(locId)) {
+            otherEvents.push(evt);
+        }
+        // sonst: ambient/social ausserhalb der Avatar-Location, oder Events an
+        // Klonen — explizit ausgeblendet (Karte zeigt sie weiterhin).
+    }
+
     const catOrder = { danger: 0, disruption: 1, social: 2, ambient: 3, '': 4 };
-    const sorted = [...events].sort((a, b) => {
+    const sortBucket = (list) => list.sort((a, b) => {
         const ca = catOrder[a.category || ''] ?? 4;
         const cb = catOrder[b.category || ''] ?? 4;
         if (ca !== cb) return ca - cb;
         return (b.created_at || '').localeCompare(a.created_at || '');
     });
-    const catLabels = { ambient: 'Ambient', social: 'Social', disruption: 'Disruption', danger: 'Danger' };
-    for (const evt of sorted) {
-        const locName = evt.location_id ? (locMap[evt.location_id] || evt.location_id) : 'Global';
-        const ts = _formatEventTimestamp(evt.created_at || '');
-        const expiry = evt.expires_at ? _formatEventExpiry(evt.expires_at) : 'permanent';
-        const cat = evt.category || '';
-        const isResolved = evt.resolved || false;
-        const catBadge = cat ? `<span class="events-card-cat" data-cat="${escapeHtml(cat)}">${catLabels[cat] || cat}</span>` : '';
-        const resolvedBadge = isResolved ? `<span class="events-card-cat" style="background:#43a047;">Resolved</span>` : '';
-        const resolvedInfo = isResolved && evt.resolved_text
-            ? `<div style="font-size:11px;color:#43a047;margin-top:2px;">${escapeHtml(evt.resolved_by || '?')}: ${escapeHtml(evt.resolved_text)}</div>` : '';
-        // Attempt-Historie: Badge + expandierbare Liste direkt im Card
-        const attempts = (evt.resolution && evt.resolution.attempts) || [];
-        let attemptBadge = '';
-        let attemptsBlock = '';
-        if (attempts.length > 0) {
-            const failCount = attempts.filter(a => a.outcome !== 'success').length;
-            attemptBadge = `<span class="events-card-cat" style="background:#fb8c00;">Versuche: ${attempts.length}${failCount ? ` (${failCount} fehlgeschl.)` : ''}</span>`;
-            // Attempts aufsteigend (aeltest zuerst), Zeile pro Versuch
-            const rows = [...attempts].sort((a, b) => (a.when || '').localeCompare(b.when || '')).map(a => {
-                const when = _formatEventTimestamp(a.when || '');
-                const icon = a.outcome === 'success' ? '✓' : '✗';
-                const iconColor = a.outcome === 'success' ? '#43a047' : '#e53935';
-                const joint = (a.joint_with && a.joint_with.length) ? ` <span style="color:var(--text-muted);">+${escapeHtml(a.joint_with.join(', '))}</span>` : '';
-                const reason = a.reason ? `<div style="font-size:10px;color:#e53935;margin-top:1px;padding-left:14px;">Grund: ${escapeHtml(a.reason)}</div>` : '';
-                return `<div style="font-size:11px;margin-top:4px;padding-left:2px;border-left:2px solid ${iconColor};padding-left:6px;">
-                    <span style="color:${iconColor};font-weight:bold;">${icon}</span>
-                    <span style="color:var(--text-muted);">${escapeHtml(when)} — ${escapeHtml(a.who || '')}${joint}</span><br>
-                    <span style="color:var(--text);">${escapeHtml(a.text || '')}</span>
-                    ${reason}
-                </div>`;
-            }).join('');
-            attemptsBlock = `<div style="margin-top:6px;padding:6px 8px;background:var(--bg-alt);border-radius:4px;">${rows}</div>`;
-        }
-        const cardStyle = isResolved ? ' style="opacity:0.85;"' : '';
-        html += `<div class="events-card" data-category="${escapeHtml(cat)}"${cardStyle}>
-            <div class="events-card-body">
-                <p class="events-card-text">${catBadge}${resolvedBadge}${attemptBadge}${escapeHtml(evt.text)}</p>
-                ${resolvedInfo}
-                ${attemptsBlock}
-                <span class="events-card-meta">${escapeHtml(locName)} · ${escapeHtml(ts)} · ${escapeHtml(expiry)}</span>
-            </div>
-            <button class="events-card-delete" onclick="deleteEvent('${escapeHtml(evt.id)}')" title="${escapeHtml(t('Delete'))}">&times;</button>
-        </div>`;
+    sortBucket(hereEvents); sortBucket(globalEvents); sortBucket(otherEvents);
+
+    let html = '';
+    const avatarLocName = avatarLocId ? (locMap[avatarLocId] || avatarLocId) : '';
+
+    if (hereEvents.length) {
+        html += `<div class="events-section events-section-here">
+            <div class="events-section-header">📍 ${escapeHtml(t('Here'))}${avatarLocName ? ` · ${escapeHtml(avatarLocName)}` : ''}</div>`;
+        for (const evt of hereEvents) html += _renderEventCard(evt, locMap, true);
+        html += `</div>`;
+    }
+
+    if (globalEvents.length) {
+        html += `<div class="events-section events-section-global">
+            <div class="events-section-header">🌐 ${escapeHtml(t('Global'))}</div>`;
+        for (const evt of globalEvents) html += _renderEventCard(evt, locMap, false);
+        html += `</div>`;
+    }
+
+    if (otherEvents.length) {
+        html += `<div class="events-section events-section-other">
+            <div class="events-section-header">📌 ${escapeHtml(t('Other locations'))}</div>`;
+        for (const evt of otherEvents) html += _renderEventCard(evt, locMap, false);
+        html += `</div>`;
+    }
+
+    if (!html) {
+        container.innerHTML = `<p class="events-empty">${escapeHtml(t('No events available.'))}</p>`;
+        return;
     }
     container.innerHTML = html;
+}
+
+function _renderEventCard(evt, locMap, isHereBucket) {
+    const catLabels = { ambient: 'Ambient', social: 'Social', disruption: 'Disruption', danger: 'Danger' };
+    const locName = evt.location_id ? (locMap[evt.location_id] || evt.location_id) : 'Global';
+    const ts = _formatEventTimestamp(evt.created_at || '');
+    const expiry = evt.expires_at ? _formatEventExpiry(evt.expires_at) : 'permanent';
+    const cat = evt.category || '';
+    const isResolved = evt.resolved || false;
+    const catBadge = cat ? `<span class="events-card-cat" data-cat="${escapeHtml(cat)}">${catLabels[cat] || cat}</span>` : '';
+    const resolvedBadge = isResolved ? `<span class="events-card-cat" style="background:#43a047;">Resolved</span>` : '';
+    const resolvedInfo = isResolved && evt.resolved_text
+        ? `<div style="font-size:11px;color:#43a047;margin-top:2px;">${escapeHtml(evt.resolved_by || '?')}: ${escapeHtml(evt.resolved_text)}</div>` : '';
+    const attempts = (evt.resolution && evt.resolution.attempts) || [];
+    let attemptBadge = '';
+    let attemptsBlock = '';
+    if (attempts.length > 0) {
+        const failCount = attempts.filter(a => a.outcome !== 'success').length;
+        attemptBadge = `<span class="events-card-cat" style="background:#fb8c00;">Versuche: ${attempts.length}${failCount ? ` (${failCount} fehlgeschl.)` : ''}</span>`;
+        const rows = [...attempts].sort((a, b) => (a.when || '').localeCompare(b.when || '')).map(a => {
+            const when = _formatEventTimestamp(a.when || '');
+            const icon = a.outcome === 'success' ? '✓' : '✗';
+            const iconColor = a.outcome === 'success' ? '#43a047' : '#e53935';
+            const joint = (a.joint_with && a.joint_with.length) ? ` <span style="color:var(--text-muted);">+${escapeHtml(a.joint_with.join(', '))}</span>` : '';
+            const reason = a.reason ? `<div style="font-size:10px;color:#e53935;margin-top:1px;padding-left:14px;">Grund: ${escapeHtml(a.reason)}</div>` : '';
+            return `<div style="font-size:11px;margin-top:4px;padding-left:2px;border-left:2px solid ${iconColor};padding-left:6px;">
+                <span style="color:${iconColor};font-weight:bold;">${icon}</span>
+                <span style="color:var(--text-muted);">${escapeHtml(when)} — ${escapeHtml(a.who || '')}${joint}</span><br>
+                <span style="color:var(--text);">${escapeHtml(a.text || '')}</span>
+                ${reason}
+            </div>`;
+        }).join('');
+        attemptsBlock = `<div style="margin-top:6px;padding:6px 8px;background:var(--bg-alt);border-radius:4px;">${rows}</div>`;
+    }
+    const cardStyle = isResolved ? ' style="opacity:0.85;"' : '';
+    const hereCls = isHereBucket ? ' events-card-here' : '';
+    return `<div class="events-card${hereCls}" data-category="${escapeHtml(cat)}"${cardStyle}>
+        <div class="events-card-body">
+            <p class="events-card-text">${catBadge}${resolvedBadge}${attemptBadge}${escapeHtml(evt.text)}</p>
+            ${resolvedInfo}
+            ${attemptsBlock}
+            <span class="events-card-meta">${escapeHtml(locName)} · ${escapeHtml(ts)} · ${escapeHtml(expiry)}</span>
+        </div>
+        <button class="events-card-delete" onclick="deleteEvent('${escapeHtml(evt.id)}')" title="${escapeHtml(t('Delete'))}">&times;</button>
+    </div>`;
 }
 
 function _formatEventTimestamp(iso) {
@@ -22958,11 +23041,12 @@ async function loadWorldPanel() {
     content.innerHTML = `<p class="queue-empty">${escapeHtml(t('Loading world map…'))}</p>`;
 
     try {
-        // Parallel: locations, characters list, user profile (fuer User-Location)
-        const [locResp, charsResp, userProfileResp] = await Promise.all([
+        // Parallel: locations, characters list, user profile (fuer User-Location), events (Karten-Marker)
+        const [locResp, charsResp, userProfileResp, evResp] = await Promise.all([
             fetch(`/world/locations`),
             fetch(`/characters/list`),
-            fetch(`/store/default/user_profile`)
+            fetch(`/store/default/user_profile`),
+            fetch(`/events`)
         ]);
 
         const locations = locResp.ok ? (await locResp.json()).locations || [] : [];
@@ -22972,6 +23056,19 @@ async function loadWorldPanel() {
         if (userProfileResp && userProfileResp.ok) {
             const profileData = await userProfileResp.json();
             userLocation = (profileData.value && profileData.value.current_location) || '';
+        }
+        // Aktive disruption/danger-Events pro location_id sammeln —
+        // wird im Grid als Pin pro Klon angezeigt.
+        const eventsByLoc = {};
+        if (evResp && evResp.ok) {
+            const evData = await evResp.json();
+            for (const ev of (evData.events || [])) {
+                if (ev.resolved) continue;
+                if (ev.category !== 'disruption' && ev.category !== 'danger') continue;
+                const lid = ev.location_id || '';
+                if (!lid) continue;
+                (eventsByLoc[lid] = eventsByLoc[lid] || []).push(ev);
+            }
         }
 
         // Load current location and avatar for all characters in parallel
@@ -23003,7 +23100,7 @@ async function loadWorldPanel() {
                      movementTargetId, movementTargetName };
         }));
 
-        renderWorldPanelGrid(locations, charData, userLocation, content);
+        renderWorldPanelGrid(locations, charData, userLocation, content, eventsByLoc);
 
         // Update header mit User-Location (ID → Name aufloesen)
         const headerEl = document.getElementById('worldmap-current-loc');
@@ -23035,7 +23132,8 @@ function _isoPos(gridX, gridY) {
     return { x: screenX, y: screenY };
 }
 
-function renderWorldPanelGrid(locations, charData, currentLocation, container) {
+function renderWorldPanelGrid(locations, charData, currentLocation, container, eventsByLoc) {
+    eventsByLoc = eventsByLoc || {};
     if (!locations.length && !charData.length) {
         container.innerHTML = `<p class="queue-empty" style="padding:14px">${escapeHtml(t('No locations available. Create locations via the ⚙ gear icon.'))}</p>`;
         return;
@@ -23095,6 +23193,15 @@ function renderWorldPanelGrid(locations, charData, currentLocation, container) {
                 html += `</div>`;
                 // Name and avatars as direct children of grid-cell, outside cell-content
                 html += `<div class="worldmap-cell-name">${escapeHtml(loc.name)}</div>`;
+                // Event-Pin: disruption/danger an exakt dieser location_id
+                const cellEvents = eventsByLoc[locId] || [];
+                if (cellEvents.length) {
+                    const hasDanger = cellEvents.some(e => e.category === 'danger');
+                    const pinIcon = hasDanger ? '🔥' : '❗';
+                    const pinCls = hasDanger ? 'worldmap-event-pin worldmap-event-pin-danger' : 'worldmap-event-pin worldmap-event-pin-disruption';
+                    const tooltip = cellEvents.map(e => `${(e.category || '').toUpperCase()}: ${e.text || ''}`).join('\n');
+                    html += `<div class="${pinCls}" title="${escapeHtml(tooltip)}">${pinIcon}${cellEvents.length > 1 ? `<span class="worldmap-event-count">${cellEvents.length}</span>` : ''}</div>`;
+                }
                 if (charsHere.length) {
                     html += `<div class="worldmap-cell-avatars">`;
                     for (const ch of charsHere) {

@@ -790,9 +790,8 @@ async def act_route(character_name: str, request: Request) -> Dict[str, Any]:
         if scope not in ("here", "location"):
             raise HTTPException(status_code=400, detail="scope must be 'here' or 'location'")
 
-        import asyncio as _asyncio
         from app.skills.act_skill import perform_act
-        result = await _asyncio.to_thread(perform_act, character_name, text, scope)
+        result = await perform_act(character_name, text, scope)
 
         return {
             "status": "success",
@@ -802,6 +801,7 @@ async def act_route(character_name: str, request: Request) -> Dict[str, Any]:
             "narration": result.get("narration", ""),
             "resolved": bool(result.get("resolved")),
             "event_id": result.get("event_id"),
+            "tools_fired": result.get("tools_fired", []),
             "summary": result.get("summary", ""),
         }
     except HTTPException:
