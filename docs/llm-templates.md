@@ -21,7 +21,6 @@ shared/templates/llm/
     ├── extraction_*.md
     ├── image_*.md
     ├── instagram_*.md
-    ├── intent_*.md
     ├── outfit_generation.md
     ├── random_event_*.md
     ├── relationship_summary*.md
@@ -29,10 +28,6 @@ shared/templates/llm/
     ├── secret_generation.md
     └── story_arc_*.md
 ```
-
-## Tasks (rendered via `render_task(name, **vars)`)
-
-### Memory & Summaries
 
 | Template | Task | Caller | Purpose |
 |---|---|---|---|
@@ -44,13 +39,10 @@ shared/templates/llm/
 | `consolidation_today.md` | `consolidation` | `history_manager._create_daily_summary` | Roleplay summary of today's chat (5-8 sentences, past tense) |
 | `consolidation_history_summary.md` | `consolidation` | `history_manager.create_summary` | Sliding-window summary of older chat history (2-3 sentences) |
 | `consolidation_daily_diary.md` | `consolidation` | `routes/diary._generate_summary_sync` | First-person diary entry from a day's events |
+| `classify_activity.md` | `classify_activity` | `activity_engine._do_classify` | Classify free-text activity into a known activity name |
+| `perceive_announcement.md` | `perceive_announcement` | `avatar_activity_detect._detect` | Notification of a perception of activity in a room |
+| `spell_detect.md` | `spell_detect` | `chat_engine._process_spells` | Detect whether the avatar's chat message contains a magical/ritual cast that matches one of the spells in their inventory |
 
-### Intent / Routing
-
-| Template | Task | Caller | Purpose |
-|---|---|---|---|
-| `intent_activity.md` | `intent_activity` | `activity_engine._do_classify` | Classify free-text activity into a known activity name |
-| `intent_location.md` | `intent_location` | `scheduler_manager._llm_choose_location` | Character picks a location when schedule has `__llm_choice__` |
 
 ### Relationships
 
