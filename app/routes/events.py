@@ -13,6 +13,33 @@ logger = get_logger("events")
 router = APIRouter(prefix="/events", tags=["events"])
 
 
+@router.get("/image-stream")
+async def event_image_stream(request: Request) -> StreamingResponse:
+    """SSE stream announcing when an event background image is ready.
+
+    Payload: ``{"type": "event_image_ready", "event_id": ..., "location_id": ..., "kind": "event"|"resolved"}``.
+    Multi-user: filtered by allowed_characters is not relevant here — backgrounds are world-shared.
+    Unauthenticated callers are rejected with 401.
+    """
+    from app.core.event_images import subscribe as _subscribe_images
+    from app.core.auth_dependency import get_current_user_optional
+
+    user = get_current_user_optional(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    async def gen():
+        yield f"data: {_json.dumps({'type': 'connected'})}\n\n"
+        try:
+            async for event in _subscribe_images():
+                payload = {"type": "event_image_ready", **event}
+                yield f"data: {_json.dumps(payload)}\n\n"
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 @router.get("/outfit-stream")
 async def outfit_event_stream(request: Request) -> StreamingResponse:
     """SSE-Stream fuer Outfit-Change-Events.

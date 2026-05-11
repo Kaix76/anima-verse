@@ -212,6 +212,30 @@ SECTIONS = {
                 "description": "Siehe Outfit Breite fuer empfohlene Bucket-Kombinationen im selben Verhaeltnis.",
             },
 
+            # --- Location-Background Groesse ---
+            "location_image_width": {
+                "type": "int",
+                "label": "Location Background Width (px)",
+                "default": 1280,
+                "min": 256,
+                "max": 4096,
+                "description": (
+                    "Width for newly generated location backgrounds (rooms, day/night variants, "
+                    "event illustrations). Existing backgrounds are not re-rendered. The body CSS "
+                    "uses background-size: contain — match the aspect ratio of the typical viewport "
+                    "to avoid letterboxing. Examples: 1280x720 (16:9 HD), 1920x1080 (16:9 FHD), "
+                    "2560x1080 (21:9 ultrawide). Larger sizes increase VRAM and render time."
+                ),
+            },
+            "location_image_height": {
+                "type": "int",
+                "label": "Location Background Height (px)",
+                "default": 720,
+                "min": 256,
+                "max": 4096,
+                "description": "See Location Background Width.",
+            },
+
             # --- Sonstiges ---
             "u2net_home": {"type": "str", "label": "U2Net Model Path", "default": "./models/u2net", "description": "Pfad fuer u2net-Modell (Hintergrundentfernung via rembg)"},
             "image_analysis_prompt": {
@@ -645,6 +669,9 @@ SECTIONS = {
             "entry_roll_jitter_seconds": {"type": "int", "label": "Entry Jitter (s)", "default": 3, "min": 0, "max": 30, "description": "Zufaellige Verzoegerung 0–N Sekunden bevor das Event nach Eintritt aufploppt. 0 = sofort, sonst fuehlt es sich an als wuerde was 'passieren' nach Ankunft."},
             "resolution_proactive": {"type": "bool", "label": "Proaktive Event-Aufloesung", "default": True, "description": "Characters an betroffener Location versuchen offene disruption/danger Events automatisch zu loesen (alle 5 Min)."},
             "resolution_cooldown_minutes": {"type": "int", "label": "Resolution Cooldown (min)", "default": 15, "min": 1, "max": 240, "description": "Mindestabstand zwischen zwei Loesungsversuchen am gleichen Event."},
+            "event_imagegen_default": {"type": "imagegen_select", "label": "Event Illustration Default Backend", "description": "Backend or workflow used to render disruption/danger event illustrations that swap the location background while the event is active. The workflow needs input_prompt, input_reference_image (= location background, optionally with input_reference_image_use Crystools switch), input_denoise_strength (PrimitiveFloat), and input_model. Output resolution follows the input reference image."},
+            "resolved_image_linger_minutes": {"type": "int", "label": "Resolved-Image Linger (min)", "default": 30, "min": 0, "max": 240, "description": "How long the 'after' illustration of a resolved disruption/danger event keeps overriding the normal location background before reverting."},
+            "event_image_denoise_strength": {"type": "float", "label": "Event Image Denoise Strength", "default": 0.7, "min": 0.0, "max": 1.0, "step": 0.05, "description": "Denoise strength used by the event_illustration workflow when remixing the location background. Higher = more change vs. the original location image."},
         },
     },
     "story_engine": {

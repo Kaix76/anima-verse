@@ -3,7 +3,8 @@ import asyncio
 import os
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import FileResponse
-from typing import Dict, Any
+from pathlib import Path
+from typing import Any, Dict, Optional
 from app.core.log import get_logger
 
 logger = get_logger("world")
@@ -25,6 +26,20 @@ from app.models.world import (
     clear_room_prompt_changed, clear_location_prompt_changed)
 
 router = APIRouter(prefix="/world", tags=["world"])
+
+
+def _location_image_width() -> int:
+    try:
+        return int(os.environ.get("LOCATION_IMAGE_WIDTH", "1280"))
+    except (TypeError, ValueError):
+        return 1280
+
+
+def _location_image_height() -> int:
+    try:
+        return int(os.environ.get("LOCATION_IMAGE_HEIGHT", "720"))
+    except (TypeError, ValueError):
+        return 720
 
 
 # === Avatar-Movement (Direction-Pad) ===
@@ -493,9 +508,28 @@ def get_location_background(
     location_name: str,
     room: str = Query("", description="Raum-ID fuer Bild-Filterung"),
     hour: int = Query(-1, description="Aktuelle Stunde (0-23) fuer Tag/Nacht-Auswahl")):
-    """Liefert das Hintergrundbild eines Ortes (per ID oder Name)."""
-    # location_name kann ID oder Name sein
-    bg_path = get_background_path(location_name, room=room, hour=hour)
+    """Liefert das Hintergrundbild eines Ortes (per ID oder Name).
+
+    Bei aktivem disruption/danger-Event mit gerendertem image_path wird
+    das Event-Bild ausgeliefert. Innerhalb des Resolve-Linger-Fensters
+    das resolved_image_path. Sonst das normale Location-Background.
+    Multi-Room: der Swap gilt fuer alle Raeume der Location (konsistent
+    zur location-weiten Block-Rule).
+    """
+    # location_name kann ID oder Name sein — fuer den Event-Swap brauchen wir die ID.
+    bg_path: Optional[Path] = None
+    try:
+        from app.core.event_images import get_effective_background_event
+        from app.models.world import resolve_location
+        _loc = resolve_location(location_name)
+        _loc_id = _loc.get("id", "") if _loc else ""
+        if _loc_id:
+            bg_path = get_effective_background_event(_loc_id)
+    except Exception as _e:
+        logger.debug("event-bg lookup failed: %s", _e)
+
+    if not bg_path or not bg_path.exists():
+        bg_path = get_background_path(location_name, room=room, hour=hour)
     if not bg_path or not bg_path.exists():
         raise HTTPException(status_code=404, detail="Kein Hintergrundbild vorhanden")
     suffix = bg_path.suffix.lower()
@@ -596,7 +630,7 @@ async def generate_location_background(location_name: str, request: Request) -> 
         negative = backend.negative_prompt or ""
         # Location-Background: volle Aufloesung — wird als Hintergrund-Szenenbild
         # genutzt, kein Downscale.
-        params = {"width": 1280, "height": 720}
+        params = {"width": _location_image_width(), "height": _location_image_height()}
         # Default-Workflow und Model ermitteln
         active_wf = getattr(img_skill, '_default_workflow', None)
         if active_wf and active_wf.workflow_file:
@@ -614,6 +648,12 @@ async def generate_location_background(location_name: str, request: Request) -> 
         # CLIP-Pairing fuer Flux2-Workflows
         if active_wf and active_wf.clip:
             params["clip_name"] = active_wf.clip
+
+        # Frischer Seed pro Aufruf gegen ComfyUI Cache-Hit
+        # (Memory feedback_no_new_image_sentinel).
+        if active_wf and active_wf.has_seed:
+            import random as _rnd
+            params["seed"] = _rnd.randint(1, 2**31 - 1)
 
         # Backend-Fallback-Engine: probiert primary, faellt bei Fehler auf
         # backend.fallback_mode (none/next_cheaper/specific) zurueck.
@@ -882,12 +922,76 @@ async def generate_gallery_batch(location_name: str, request: Request) -> Dict[s
 
 @router.post("/locations/{location_name}/gallery")
 async def generate_gallery_image(location_name: str, request: Request) -> Dict[str, Any]:
-    """Generiert ein neues Galerie-Bild fuer einen Ort (per ID oder Name)."""
+    """Generiert ein neues Galerie-Bild fuer einen Ort (per ID oder Name).
+
+    Single-Mode (kein ``_batch_track_id`` im Body) ist fire-and-forget:
+    Vorab-Validierung + Track-Start, Heavy-Lifting laeuft als
+    ``asyncio.create_task``, die HTTP-Antwort kommt sofort mit
+    ``status=started`` und ``track_id``. Die UI pollt die Galerie
+    bzw. das Queue-Panel auf Fertigstellung.
+
+    Batch-Mode (mit vorhandenem ``_batch_track_id``) bleibt synchron,
+    damit der Batch-Handler die Jobs sequentialisieren kann.
+    """
     import time
 
     try:
         data = await request.json()
-        user_id = data.get("user_id", "").strip()
+        batch_track_id = data.get("_batch_track_id", "")
+
+        # Batch-Mode: synchron — Batch-Loop oben (``generate_gallery_batch``)
+        # awaitet jeden Job. Hier rein in den Inner-Body, ohne Fire-and-Forget.
+        if batch_track_id:
+            return await _generate_gallery_image_inner(location_name, data)
+
+        # Single-Mode: fire-and-forget.
+        # Frueh-Validierung damit 404/400 sofort am Client landen, nicht im
+        # Background-Task verloren gehen.
+        location = resolve_location(location_name)
+        if not location:
+            raise HTTPException(status_code=404, detail=f"Ort '{location_name}' nicht gefunden")
+
+        from app.core.task_queue import get_task_queue
+        _tq = get_task_queue()
+        # Pending-Track anlegen (analog zu Batch). Der Inner-Body ruft
+        # track_activate sobald das Backend bekannt ist.
+        _track_id = _tq.track_start(
+            "image_gen", "Ort-Bild",
+            agent_name=location.get("name", location_name),
+            start_running=False)
+        data["_batch_track_id"] = _track_id  # nutzt den Batch-Aktivierungspfad im Inner-Body
+
+        async def _bg():
+            # Inner-Body handhabt track_finish in seinen except-Blocks. Hier
+            # nur loggen, damit nichts stillschweigend verschwindet.
+            try:
+                await _generate_gallery_image_inner(location_name, data)
+            except HTTPException as he:
+                logger.warning("Gallery Background-Generierung HTTP-Fehler: %s", he.detail)
+            except Exception as e:
+                logger.error("Gallery Background-Generierung Fehler: %s", e, exc_info=True)
+
+        asyncio.create_task(_bg())
+        return {
+            "status": "started",
+            "track_id": _track_id,
+            "location": location["name"],
+            "location_id": location.get("id", location_name),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Gallery Fehler: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _generate_gallery_image_inner(location_name: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Eigentliche Generierungslogik — wird vom Single-Mode als Background-
+    Task gefeuert und vom Batch-Mode direkt awaited.
+    """
+    import time
+
+    try:
         custom_prompt = data.get("prompt", "").strip()
         room_id = data.get("room_id", "").strip()
         prompt_type = data.get("prompt_type", "").strip()  # day/night/map/description
@@ -1015,7 +1119,7 @@ async def generate_gallery_image(location_name: str, request: Request) -> Dict[s
         # Map-Icons sind kleine Thumbnails fuer die Welt-Uebersicht und werden
         # runtergerechnet. Day/Night/Description bleiben in voller Aufloesung
         # als Hintergrund-Bilder.
-        params: Dict[str, Any] = {"width": 1280, "height": 720}
+        params: Dict[str, Any] = {"width": _location_image_width(), "height": _location_image_height()}
         if prompt_type == "map":
             params["image_use_case"] = "map"
         # Workflow-File: expliziter Workflow hat Vorrang vor Default-Workflow
@@ -1052,6 +1156,13 @@ async def generate_gallery_image(location_name: str, request: Request) -> Dict[s
                 params["lora_inputs"] = loras_override
             elif active_wf.default_loras:
                 params["lora_inputs"] = active_wf.default_loras
+
+        # Frischer Seed pro Aufruf — sonst gibt ComfyUI bei identischem
+        # Prompt+Seed den NO_NEW_IMAGE-Sentinel und das Bild wird nie
+        # neu erzeugt (Memory feedback_no_new_image_sentinel).
+        if active_wf and active_wf.has_seed:
+            import random as _rnd
+            params["seed"] = _rnd.randint(1, 2**31 - 1)
 
         from app.core.task_queue import get_task_queue
         _tq = get_task_queue()
@@ -1447,7 +1558,7 @@ async def generate_time_variant(
 
         negative = backend.negative_prompt or ""
         # Day/Night-Variants sind Hintergrund-Bilder — voll, kein Downscale.
-        params = {"width": 1280, "height": 720}
+        params = {"width": _location_image_width(), "height": _location_image_height()}
 
         # Workflow-Datei setzen
         if active_wf and active_wf.workflow_file:

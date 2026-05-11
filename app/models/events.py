@@ -254,6 +254,13 @@ def resolve_event(event_id: str,
             delete_rules_by_event(event_id)
         except Exception as _e:
             logger.debug("delete_rules_by_event(resolve) fehlgeschlagen: %s", _e)
+        # After-Bild der Location generieren (Linger-Anzeige). Laeuft
+        # in Background-Thread und blockt den Resolve-Pfad nicht.
+        try:
+            from app.core.event_images import trigger_resolved_image_from_text
+            trigger_resolved_image_from_text(event_id)
+        except Exception as _e:
+            logger.debug("trigger_resolved_image_from_text fehlgeschlagen: %s", _e)
         return evt
     return None
 
@@ -290,6 +297,34 @@ def record_attempt(event_id: str,
         _save_events(events)
         logger.info("Event-Attempt %s: %s von %s (%s)", event_id, outcome, who, reason[:60])
         return evt
+    return None
+
+
+def update_event_fields(event_id: str, **fields) -> Optional[Dict[str, Any]]:
+    """Schreibt einzelne Felder ins payload-JSON eines Events.
+
+    Wird z.B. fuer image_path / resolved_image_path beim Spawn bzw. der
+    Aufloesung eines Events genutzt. Werte mit None werden geloescht.
+    """
+    events = _load_events()
+    for evt in events:
+        if evt.get("id") != event_id:
+            continue
+        for k, v in fields.items():
+            if v is None:
+                evt.pop(k, None)
+            else:
+                evt[k] = v
+        _save_events(events)
+        return evt
+    return None
+
+
+def get_event(event_id: str) -> Optional[Dict[str, Any]]:
+    """Liefert ein Event per ID, oder None."""
+    for evt in _load_events():
+        if evt.get("id") == event_id:
+            return evt
     return None
 
 

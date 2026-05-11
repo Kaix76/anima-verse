@@ -247,9 +247,14 @@ def try_roll_on_entry(character_name: str, loc_id: str, location: Dict[str, Any]
     # Skip wenn an der Location bereits ein aktives ungeloestes
     # disruption/danger-Event steht (Constraint "ein blockendes Event pro
     # Location"). Ambient/social-Events sind erlaubt und blocken nicht.
+    # list_events liefert auch globale Events (location_id=None) mit —
+    # explizit auf die eigene Location filtern, sonst blockt ein globales
+    # danger-Event jeden Entry-Roll weltweit.
     try:
         from app.models.events import list_events
         for e in list_events(location_id=loc_id) or []:
+            if e.get("location_id") != loc_id:
+                continue
             if e.get("category") in ("disruption", "danger") and not e.get("resolved"):
                 return
     except Exception as _e:
@@ -296,17 +301,23 @@ def _try_generate_for_location(loc_id: str, location: Dict[str, Any], char_names
 
     # 2. Constraint: max ein aktives ungeloestes disruption/danger Event pro
     #    Location. Ambient/social duerfen daneben spawnen — sie blocken nichts
-    #    und tragen zur Atmosphaere bei.
+    #    und tragen zur Atmosphaere bei. list_events liefert auch globale
+    #    Events (location_id=None) mit — die zaehlen hier NICHT, sonst wuerde
+    #    ein einziges globales danger-Event jeden Location-Spawn weltweit
+    #    blockieren.
     from app.models.events import list_events
-    active = list_events(location_id=loc_id)
+    active_all = list_events(location_id=loc_id)
+    active_local = [e for e in active_all if e.get("location_id") == loc_id]
     if any(e.get("category") in ("disruption", "danger") and not e.get("resolved")
-           for e in active):
+           for e in active_local):
         return
 
-    # 3. Max-Concurrent-Check (vor allem fuer ambient/social-Spam-Vermeidung)
+    # 3. Max-Concurrent-Check (vor allem fuer ambient/social-Spam-Vermeidung) —
+    #    ebenfalls strikt auf die eigene Location bezogen.
     max_concurrent = settings.get("max_concurrent_events", 1)
-    if len(active) >= max_concurrent:
+    if len(active_local) >= max_concurrent:
         return
+    active = active_local
 
     # 4. Cooldown-Check (min Zeit seit letztem Event, in Stunden)
     # Legacy: event_cooldown_minutes weiterhin unterstuetzt
@@ -511,10 +522,11 @@ def _generate_event(loc_id: str,
             user_prompt=user_prompt,
             agent_name="system")
 
-        text = (response.content or "").strip()
+        raw = (response.content or "").strip()
         # LLM-Artefakte bereinigen
-        text = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', text).strip()
-        text = text.strip('"').strip("'").strip()
+        raw = re.sub(r'<SPECIAL_\d+>|<\|[A-Z_]+\|>', '', raw).strip()
+
+        text, image_prompt = _parse_event_payload(raw)
 
         if not text or len(text) < 5:
             logger.debug("LLM-Event-Text zu kurz oder leer")
@@ -527,10 +539,15 @@ def _generate_event(loc_id: str,
                 logger.info("Event geblockt (Blacklist '%s'): %s", bl, text[:60])
                 return
 
-        # Event speichern
+        # Event speichern (image_prompt landet im metadata-Block — keine
+        # Schema-Migration noetig, payload ist freier JSON-blob).
         ttl = cat_info.get("ttl_hours", 6)
+        metadata: Dict[str, Any] = {}
+        if image_prompt:
+            metadata["image_prompt"] = image_prompt
         event = add_event(text, location_id=loc_id,
-                         ttl_hours=ttl, category=category)
+                         ttl_hours=ttl, category=category,
+                         metadata=metadata or None)
         logger.info("Random Event [%s] @ %s: %s", category, loc_name, text[:80])
 
         # danger-Events blockieren das Verlassen der Location, bis sie geloest
@@ -548,8 +565,60 @@ def _generate_event(loc_id: str,
             except Exception as _e:
                 logger.debug("add_event_rule fehlgeschlagen: %s", _e)
 
+        # Bild-Generierung: nur fuer disruption/danger und nur wenn die
+        # Location ein background_image hat. Fehlt das BG, entsteht das
+        # Event normal — nur die Bild-Ueberlagerung entfaellt.
+        if event and category in ("disruption", "danger") and image_prompt:
+            try:
+                from app.core.event_images import trigger_event_image
+                trigger_event_image(event["id"], loc_id, image_prompt, resolved=False)
+            except Exception as _e:
+                logger.debug("trigger_event_image fehlgeschlagen: %s", _e)
+
     except Exception as e:
         logger.error("Event-Generierung fehlgeschlagen: %s", e)
+
+
+def _parse_event_payload(raw: str) -> Tuple[str, str]:
+    """Parst das JSON-Output des Event-Generator-LLMs.
+
+    Bei Parse-Fehler oder Fallback-Modus (kein JSON) wird der gesamte
+    Text als Event-Text interpretiert und kein image_prompt zurueckgegeben.
+    """
+    import json as _json
+
+    # Quick-Path: gueltiges JSON-Objekt
+    text = raw
+    # Markdown-Fences abstreifen falls vorhanden
+    fence = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    if text.startswith("{"):
+        try:
+            payload = _json.loads(text)
+            evt_text = str(payload.get("text", "")).strip().strip('"').strip("'").strip()
+            image_prompt = str(payload.get("image_prompt", "")).strip()
+            if evt_text:
+                return evt_text, image_prompt
+        except Exception:
+            pass
+
+    # Regex-Salvage: einzelnes Objekt im Output suchen
+    m = re.search(r'\{[^{}]*"text"\s*:\s*"[^"]*"[^{}]*\}', text, re.DOTALL)
+    if m:
+        try:
+            payload = _json.loads(m.group(0))
+            evt_text = str(payload.get("text", "")).strip().strip('"').strip("'").strip()
+            image_prompt = str(payload.get("image_prompt", "")).strip()
+            if evt_text:
+                return evt_text, image_prompt
+        except Exception:
+            pass
+
+    # Fallback: kein JSON erkannt — gesamter Text als Event-Text, kein Bild.
+    fallback_text = raw.strip().strip('"').strip("'").strip()
+    return fallback_text, ""
 
 
 def _escalate_event(event: Dict[str, Any]):

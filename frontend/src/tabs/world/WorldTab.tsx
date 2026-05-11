@@ -824,9 +824,10 @@ function LocationGallery({
     [location, room],
   )
 
-  // Submit handler the dialog calls on Generate. Posts the override-rich
-  // payload to the gallery endpoint; the server enqueues the job and
-  // returns quickly so we can close the dialog and reload immediately.
+  // Submit handler the dialog calls on Generate. Truly fire-and-forget —
+  // the function returns immediately so ImageGenDialog can close right
+  // away. The POST + reload run on a detached promise. Errors land in
+  // the toast bus, not on the dialog (which is already gone).
   const submitGenerate = useCallback(
     async (payload: ImageGenSubmit) => {
       if (!dialogType) return
@@ -839,20 +840,23 @@ function LocationGallery({
       if (payload.backend) body.backend = payload.backend
       if (payload.model_override) body.model_override = payload.model_override
       if (payload.loras) body.loras = payload.loras
-      try {
-        await apiPost(
-          `/world/locations/${encodeURIComponent(locationName)}/gallery`,
-          body,
-        )
-        toast(t('Image queued'))
-        // Reload so a placeholder/the finished image appears as soon as
-        // the backend writes it. The POST returns once the job is queued;
-        // generation continues in the background.
-        await reload()
-      } catch (e) {
-        toast(t('Error') + ': ' + (e as Error).message, 'error')
-        throw e
-      }
+
+      // Detached: do NOT await. handleSubmit will see a resolved Promise
+      // immediately and trigger onClose() in the next microtask.
+      void apiPost(
+        `/world/locations/${encodeURIComponent(locationName)}/gallery`,
+        body,
+      )
+        .then(() => {
+          toast(t('Image queued'))
+          // Reload after a short delay so the new image has a chance to land.
+          window.setTimeout(() => {
+            reload().catch(() => {})
+          }, 2000)
+        })
+        .catch((e) => {
+          toast(t('Error') + ': ' + (e as Error).message, 'error')
+        })
     },
     [dialogType, locationName, roomFilter, reload, t, toast],
   )

@@ -5,7 +5,7 @@
    ============================================================ */
 
 /* Layout */
-body { font-family: var(--font); margin: 0; background: var(--bg); color: var(--text); background-size: cover; background-position: center; background-attachment: fixed; background-repeat: no-repeat; transition: background-image 0.5s ease; }
+body { font-family: var(--font); margin: 0; background: var(--bg); color: var(--text); background-size: contain; background-position: center; background-attachment: fixed; background-repeat: no-repeat; transition: background-image 0.5s ease; }
 .chat-container { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 900px; background: var(--container-bg); backdrop-filter: blur(8px); border-radius: var(--radius) var(--radius) 0 0; box-shadow: var(--shadow); display: flex; flex-direction: column; height: 85vh; }
 
 /* Character Scene — full-height character image left of chat */

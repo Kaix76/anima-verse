@@ -6801,6 +6801,9 @@ async function initializeApp() {
     // Outfit-SSE: refresht Scene/Avatar bei Hintergrund-Wechseln (Scheduler,
     // Skills im naechsten Tab, Telegram).
     _connectOutfitEventStream();
+    // Event-Image-SSE: tauscht den CSS-Background sobald ein Event-Bild
+    // fertig generiert wurde oder ein After-Bild bereitsteht.
+    _connectEventImageStream();
 }
 
 // --- Outfit-Change SSE-Subscription ---
@@ -6831,6 +6834,47 @@ function _connectOutfitEventStream() {
         _outfitEventSource = null;
         // Reconnect nach Delay (Netzwerk-Glitches, Server-Restart)
         setTimeout(_connectOutfitEventStream, 5000);
+    };
+}
+
+// --- Event-Image SSE-Subscription ---
+let _eventImageEventSource = null;
+async function _fetchAvatarLocationId() {
+    const avatar = (typeof getPlayerCharacterName === 'function') ? getPlayerCharacterName() : '';
+    if (!avatar) return '';
+    try {
+        const r = await fetch(`/characters/${encodeURIComponent(avatar)}/current-location`);
+        if (!r.ok) return '';
+        const d = await r.json();
+        return (d.current_location_id || d.current_location || '').toString();
+    } catch (_) { return ''; }
+}
+function _connectEventImageStream() {
+    try { if (_eventImageEventSource) _eventImageEventSource.close(); } catch (_) {}
+    const es = new EventSource(`/events/image-stream`);
+    _eventImageEventSource = es;
+    es.onmessage = async (ev) => {
+        try {
+            const data = JSON.parse(ev.data);
+            if (data.type !== 'event_image_ready') return;
+            const locId = data.location_id || '';
+            if (!locId) return;
+            // Background-Swap nur wenn der Avatar gerade an dieser Location steht.
+            const avatarLoc = await _fetchAvatarLocationId();
+            if (avatarLoc && avatarLoc !== locId) return;
+            if (typeof updateLocationBackground === 'function') {
+                updateLocationBackground(locId, _currentCharacterRoom || '');
+            }
+            // Notice-Banner aktualisieren — neues Event evtl. mit Block-Rule.
+            if (typeof refreshCharNotice === 'function') {
+                try { refreshCharNotice(); } catch (_) {}
+            }
+        } catch (_) { /* ignore parse errors */ }
+    };
+    es.onerror = () => {
+        try { es.close(); } catch (_) {}
+        _eventImageEventSource = null;
+        setTimeout(_connectEventImageStream, 5000);
     };
 }
 
@@ -13621,6 +13665,16 @@ async function refreshCharNotice() {
         // Silent — Banner zeigt nur den transienten Block-Hinweis falls vorhanden.
         _renderCharNotice(null, []);
     }
+    // Background koennte sich event-getrieben geaendert haben (neues Event,
+    // After-Bild fertig, Linger abgelaufen). Endpoint liefert das effective
+    // Bild — Cache-Buster im Aufruf sorgt dafuer, dass der Browser nicht
+    // das alte cached.
+    try {
+        const locId = await _fetchAvatarLocationId();
+        if (locId && typeof updateLocationBackground === 'function') {
+            updateLocationBackground(locId, _currentCharacterRoom || '');
+        }
+    } catch (_) { /* ignore */ }
 }
 
 function showCharNoticeBlock(message) {
@@ -15316,7 +15370,6 @@ async function generateGalleryImage() {
     if (dialogResult === null) return;
 
     const roomLabel = dialogResult.roomName ? ` (${dialogResult.roomName})` : '';
-    showStatusToast(t('Generating image for') + ` "${locName}${roomLabel}"…`, 'success');
 
     const body = {  };
     if (dialogResult.room_id) body.room_id = dialogResult.room_id;
@@ -15332,9 +15385,15 @@ async function generateGalleryImage() {
         body: JSON.stringify(body)
     }).then(async resp => {
         if (resp.ok) {
-            showStatusToast(t('Image generated!'), 'success');
-            await loadLocationGallery(locId, locName);
-            await loadLocations();
+            // Endpoint ist jetzt fire-and-forget — Antwort kommt sofort mit
+            // status='started'. Der Toast spiegelt das. Galerie wird nach
+            // kurzem Delay nachgeladen, damit das fertige Bild auftaucht.
+            showStatusToast(t('Image generation started for') + ` "${locName}${roomLabel}"…`, 'success');
+            // Galerie kurz pollen — Track-Queue-Panel ist sowieso live.
+            setTimeout(async () => {
+                try { await loadLocationGallery(locId, locName, true); } catch (_) {}
+                try { await loadLocations(); } catch (_) {}
+            }, 4000);
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Fehler bei Generierung', 'error');

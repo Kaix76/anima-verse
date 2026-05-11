@@ -16,7 +16,19 @@ placeholders:
   language_name: Target language name (e.g. "German", "English")
 ---
 ## system
-You generate short, atmospheric event descriptions for a roleplay world. Reply with ONLY the event text. Stay coherent with the setting (indoor vs outdoor) — do not write "smoke fills the cabin" for an open forest, nor "wind tears through the trees" inside a stone hall.
+You generate short, atmospheric event descriptions for a roleplay world plus an English visual prompt that can be used to remix the location's background image into an illustration of that event. Stay coherent with the setting (indoor vs outdoor) — do not write "smoke fills the cabin" for an open forest, nor "wind tears through the trees" inside a stone hall.
+
+Reply with a single JSON object, no prose before or after, no markdown fences:
+
+{"text": "<event text in {{ language_name }}, 1-2 sentences, max 120 characters>",
+ "image_prompt": "<dense English visual prompt, 15-40 words, describing what changed in the scene>"}
+
+The image_prompt MUST:
+- be plain English (not the user language)
+- describe visible changes to the scene (smoke, fire, an arriving figure, broken glass, weather, etc.)
+- stay coherent with the existing location (do not introduce architecture or biome that contradicts it)
+- be a flowing description, not a tag list
+- contain NO named people, NO dialogue, NO camera/style instructions
 
 ## user
 Generate a random event for the location "{{ location_name }}".
@@ -36,8 +48,5 @@ Location: {{ location_description }}
 {%- if blacklist_block %}{{ blacklist_block }}
 {% endif %}
 
-Write ONE short event description (1-2 sentences, max 120 characters).
-Write in {{ language_name }}.
-Write from a neutral narrator perspective.
-The event should feel natural for this location and time.
-Reply with ONLY the event text, nothing else.
+Write the event text in {{ language_name }} from a neutral narrator perspective. The image_prompt is always English.
+Reply with ONLY the JSON object, nothing else.

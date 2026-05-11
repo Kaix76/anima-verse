@@ -311,7 +311,15 @@ class DescribeRoomSkill(BaseSkill):
 
                 negative = backend.negative_prompt or ""
                 # Raum-Szenenbild ist ein Hintergrund — voll, kein Downscale.
-                params = {"width": 1280, "height": 720}
+                try:
+                    _bg_w = int(os.environ.get("LOCATION_IMAGE_WIDTH", "1280"))
+                except (TypeError, ValueError):
+                    _bg_w = 1280
+                try:
+                    _bg_h = int(os.environ.get("LOCATION_IMAGE_HEIGHT", "720"))
+                except (TypeError, ValueError):
+                    _bg_h = 720
+                params = {"width": _bg_w, "height": _bg_h}
                 if active_workflow and active_workflow.workflow_file:
                     params["workflow_file"] = active_workflow.workflow_file
                     if active_workflow.model:
@@ -320,6 +328,11 @@ class DescribeRoomSkill(BaseSkill):
                     # CLIP aus Workflow-Config
                     if active_workflow.clip:
                         params["clip_name"] = active_workflow.clip
+                # Frischer Seed gegen ComfyUI Cache-Hit (NO_NEW_IMAGE)
+                # — Memory feedback_no_new_image_sentinel.
+                if active_workflow and active_workflow.has_seed:
+                    import random as _rnd
+                    params["seed"] = _rnd.randint(1, 2**31 - 1)
 
                 logger.info("Raum-Bild Generierung gestartet fuer %s/%s", location_id, room_id)
                 images = backend.generate(full_prompt, negative, params)

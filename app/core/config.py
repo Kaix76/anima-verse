@@ -372,6 +372,8 @@ def _flatten_to_env(config: dict) -> None:
     _set(env, "OUTFIT_IMAGE_PROMPT_PREFIX", ig.get("outfit_image_prompt_prefix", ""))
     _set(env, "OUTFIT_IMAGE_WIDTH", ig.get("outfit_image_width", 832))
     _set(env, "OUTFIT_IMAGE_HEIGHT", ig.get("outfit_image_height", 1216))
+    _set(env, "LOCATION_IMAGE_WIDTH", ig.get("location_image_width", 1280))
+    _set(env, "LOCATION_IMAGE_HEIGHT", ig.get("location_image_height", 720))
     _set(env, "OUTFIT_IMAGEGEN_DEFAULT", ig.get("outfit_imagegen_default", ""))
     _set(env, "EXPRESSION_IMAGEGEN_DEFAULT", ig.get("expression_imagegen_default", ""))
     _set(env, "LOCATION_IMAGEGEN_DEFAULT", ig.get("location_imagegen_default", ""))
@@ -589,6 +591,9 @@ def _flatten_to_env(config: dict) -> None:
     _set(env, "EVENT_BASE_PROBABILITY", (re_cfg.get("base_probability", 5)) / 100)
     _set(env, "EVENT_RESOLUTION_PROACTIVE", re_cfg.get("resolution_proactive", True))
     _set(env, "EVENT_RESOLUTION_COOLDOWN_MINUTES", re_cfg.get("resolution_cooldown_minutes", 15))
+    _set(env, "EVENT_IMAGEGEN_DEFAULT", re_cfg.get("event_imagegen_default", ""))
+    _set(env, "EVENT_RESOLVED_IMAGE_LINGER_MINUTES", re_cfg.get("resolved_image_linger_minutes", 30))
+    _set(env, "EVENT_IMAGE_DENOISE_STRENGTH", re_cfg.get("event_image_denoise_strength", 0.7))
 
     # Story Engine
     se = config.get("story_engine", {})

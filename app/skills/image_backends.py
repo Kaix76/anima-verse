@@ -1300,6 +1300,16 @@ class ComfyUIBackend(ImageBackend):
                 workflow[str_node]["inputs"]["value"] = str(value)
                 logger.debug(f"String '{node_title}': {value}")
 
+        # Float-Inputs in PrimitiveFloat-Nodes setzen (z.B. input_denoise_strength)
+        for node_title, value in params.get("float_inputs", {}).items():
+            float_node = self._find_node_by_title(workflow, node_title)
+            if float_node:
+                try:
+                    workflow[float_node]["inputs"]["value"] = float(value)
+                    logger.debug(f"Float '{node_title}': {value}")
+                except (TypeError, ValueError):
+                    logger.debug(f"Float '{node_title}': invalid value {value!r}")
+
         # LoRA-Inputs in input_loras Node setzen (z.B. "Lora Loader Stack (rgthree)")
         lora_inputs = params.get("lora_inputs", [])
         if lora_inputs:

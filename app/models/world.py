@@ -556,6 +556,13 @@ def track_room_activity(location_id: str,
     return False
 
 
+# Felder die bei einem Klon immer vom Template kommen sollen — Klone
+# teilen das Bildmaterial mit ihrem Template (Galerie-Pfad geht ueber
+# _gallery_owner_id = Template-ID). Eine eigene Liste auf dem Klon
+# wuerde mit der Zeit stale.
+_CLONE_TEMPLATE_ONLY_KEYS = ("background_images",)
+
+
 def _resolve_clones(locations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Merged passable Klone mit ihrem Template.
 
@@ -581,7 +588,7 @@ def _resolve_clones(locations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         merged = {**tmpl, **{
             k: v for k, v in loc.items()
             if k in ("id", "grid_x", "grid_y", "template_location_id")
-            or v not in (None, "", [], {})
+            or (k not in _CLONE_TEMPLATE_ONLY_KEYS and v not in (None, "", [], {}))
         }}
         # Template-Identitaet vergessen, sonst nimmt der Klon die ID des
         # Templates an. Override mit dem ECHTEN Klon-Identifier:
@@ -589,6 +596,13 @@ def _resolve_clones(locations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         merged["template_location_id"] = tmpl_id
         merged["grid_x"] = loc.get("grid_x")
         merged["grid_y"] = loc.get("grid_y")
+        # Galerie-bezogene Felder kommen IMMER vom Template — der Galerie-
+        # Pfad geht ohnehin ueber _gallery_owner_id (= Template-ID), und
+        # Klone behalten sonst stale Listen wenn das Template neue Bilder
+        # bekommt oder alte loescht.
+        for k in _CLONE_TEMPLATE_ONLY_KEYS:
+            if k in tmpl:
+                merged[k] = tmpl[k]
         resolved.append(merged)
     return resolved
 
