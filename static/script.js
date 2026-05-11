@@ -4446,64 +4446,69 @@ document.getElementById('btn-knowledge-player')?.addEventListener('click', () =>
     if (c) openKnowledgeModal(c);
 });
 
-// --- Announcement Mode (one-way broadcast) ---
-// chatMode === 'announce' takes over the chat panel: the input field is
-// repurposed for the announcement text, the regular send button posts to
-// /announce, and the message area shows past announcements (sent + heard).
+// --- Action Mode (Storyteller-driven action) ---
+// chatMode === 'act' takes over the chat panel: the input field is
+// repurposed for the action description, the regular send button posts to
+// /act, the Storyteller-LLM narrates the consequence and the result is
+// rendered as a narrator bubble. May resolve active disruption/danger events.
 
-let _announceScope = 'here';
+let _actScope = 'here';
 
-function _renderAnnouncementBubble(senderName, text, scope, recipients) {
+function _renderActionBubble(senderName, text, scope, narration, resolved, eventId) {
     if (!chatMessages) return;
     const msgDiv = document.createElement('div');
-    msgDiv.classList.add('message', 'announcement-message');
+    msgDiv.classList.add('message', 'action-message');
     const scopeLabel = scope === 'location'
-        ? t('to everyone at this location')
-        : t('to everyone in this room');
-    const heardLabel = (recipients && recipients.length)
-        ? `${t('Heard by')}: ${recipients.map(escapeHtml).join(', ')}`
-        : t('Nobody around to hear it.');
+        ? t('addressing the whole location')
+        : t('in this room');
+    const resolvedTag = resolved
+        ? `<div class="action-resolved">${escapeHtml(t('Event resolved'))}${eventId ? ` (${escapeHtml(eventId)})` : ''}</div>`
+        : '';
+    const narrationHtml = narration
+        ? `<div class="action-narration">${escapeHtml(narration)}</div>`
+        : `<div class="action-narration action-narration-empty">${escapeHtml(t('No narration returned.'))}</div>`;
     msgDiv.innerHTML = `
-        <div class="announcement-header">
-            <span class="announcement-icon">📢</span>
-            <span class="announcement-sender">${escapeHtml(senderName)}</span>
-            <span class="announcement-scope">${escapeHtml(scopeLabel)}</span>
+        <div class="action-header">
+            <span class="action-icon">🎭</span>
+            <span class="action-sender">${escapeHtml(senderName)}</span>
+            <span class="action-scope">${escapeHtml(scopeLabel)}</span>
         </div>
-        <div class="announcement-content">${escapeHtml(text)}</div>
-        <div class="announcement-meta">${heardLabel}</div>
+        <div class="action-input">${escapeHtml(text)}</div>
+        ${narrationHtml}
+        ${resolvedTag}
     `;
     chatMessages.appendChild(msgDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function _renderAnnouncementHistoryEntry(entry) {
+function _renderActionHistoryEntry(entry) {
     if (!chatMessages) return;
     const div = document.createElement('div');
-    div.classList.add('message', 'announcement-message', 'announcement-history');
-    const isSent = entry.kind === 'sent';
-    const icon = isSent ? '📢' : '👂';
-    const who = isSent
-        ? `${t('You announced')}`
-        : `${escapeHtml(entry.sender || '')} ${t('announced')}`;
+    div.classList.add('message', 'action-message', 'action-history');
     const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '';
+    const resolvedTag = entry.event_resolved
+        ? `<div class="action-resolved">${escapeHtml(t('Event resolved'))}</div>`
+        : '';
     div.innerHTML = `
-        <div class="announcement-header">
-            <span class="announcement-icon">${icon}</span>
-            <span class="announcement-sender">${who}</span>
-            <span class="announcement-scope">${escapeHtml(ts)}</span>
+        <div class="action-header">
+            <span class="action-icon">🎭</span>
+            <span class="action-sender">${escapeHtml(t('You acted'))}</span>
+            <span class="action-scope">${escapeHtml(ts)}</span>
         </div>
-        <div class="announcement-content">${escapeHtml(entry.text || '')}</div>
+        <div class="action-input">${escapeHtml(entry.user_input || '')}</div>
+        ${entry.storyteller_response ? `<div class="action-narration">${escapeHtml(entry.storyteller_response)}</div>` : ''}
+        ${resolvedTag}
     `;
     chatMessages.appendChild(div);
 }
 
-async function _enterAnnounceMode() {
+async function _enterActMode() {
     const avatar = getPlayerCharacterName();
     if (!avatar) {
         showStatusToast(t('No active character'), 'error');
         return;
     }
-    chatMode = 'announce';
+    chatMode = 'act';
     if (typeof _groupSession !== 'undefined' && _groupSession) {
         _groupSession = null;
         try { _updateGroupHeader(false); _showGroupChatBar(false); } catch (e) {}
@@ -4512,60 +4517,60 @@ async function _enterAnnounceMode() {
 
     // Header banner: explanation + scope picker.
     const banner = document.createElement('div');
-    banner.className = 'announcement-mode-banner';
+    banner.className = 'action-mode-banner';
     banner.innerHTML = `
-        <div class="announcement-mode-title">📢 ${escapeHtml(t('Announcement mode'))}</div>
-        <div class="announcement-mode-desc">
-            ${escapeHtml(t('Type your message below and hit send. Everyone present will hear it — no one will reply. Past announcements are listed below.'))}
+        <div class="action-mode-title">🎭 ${escapeHtml(t('Action mode'))}</div>
+        <div class="action-mode-desc">
+            ${escapeHtml(t('Describe what you do. A Storyteller narrates the consequence. Active disruption/danger events may be resolved if your action fixes them.'))}
         </div>
-        <div class="announcement-mode-scope">
-            <label>${escapeHtml(t('Reach'))}:</label>
-            <select id="announce-scope-select" class="agent-status-input">
-                <option value="here">${escapeHtml(t('Everyone in this room'))}</option>
-                <option value="location">${escapeHtml(t('Everyone at this location'))}</option>
+        <div class="action-mode-scope">
+            <label>${escapeHtml(t('Scope'))}:</label>
+            <select id="act-scope-select" class="agent-status-input">
+                <option value="here">${escapeHtml(t('This room'))}</option>
+                <option value="location">${escapeHtml(t('Whole location'))}</option>
             </select>
         </div>
     `;
     chatMessages.appendChild(banner);
-    const sel = document.getElementById('announce-scope-select');
+    const sel = document.getElementById('act-scope-select');
     if (sel) {
-        sel.value = _announceScope;
-        sel.addEventListener('change', () => { _announceScope = sel.value; });
+        sel.value = _actScope;
+        sel.addEventListener('change', () => { _actScope = sel.value; });
     }
 
-    // Past announcements (sent + heard).
+    // Past actions.
     try {
-        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/announcements`);
+        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/actions`);
         if (resp.ok) {
             const data = await resp.json();
             const entries = data.entries || [];
             if (entries.length) {
                 const sep = document.createElement('div');
-                sep.className = 'announcement-history-header';
-                sep.textContent = t('Recent announcements');
+                sep.className = 'action-history-header';
+                sep.textContent = t('Recent actions');
                 chatMessages.appendChild(sep);
                 for (const e of entries) {
-                    _renderAnnouncementHistoryEntry(e);
+                    _renderActionHistoryEntry(e);
                 }
             } else {
                 const empty = document.createElement('div');
-                empty.className = 'announcement-history-empty';
-                empty.textContent = t('No announcements yet.');
+                empty.className = 'action-history-empty';
+                empty.textContent = t('No actions yet.');
                 chatMessages.appendChild(empty);
             }
         }
     } catch (e) {
-        console.warn('[Announce] history load failed:', e);
+        console.warn('[Act] history load failed:', e);
     }
 
     if (typeof userInput !== 'undefined' && userInput) {
-        userInput.placeholder = t('e.g. Party at my place tonight at 7!');
+        userInput.placeholder = t('e.g. draws her bow and scares off the wolves');
         userInput.focus();
     }
     if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
 }
 
-function _exitAnnounceMode() {
+function _exitActMode() {
     chatMode = 'direct';
     chatMessages.innerHTML = '';
     if (typeof userInput !== 'undefined' && userInput) {
@@ -4575,29 +4580,42 @@ function _exitAnnounceMode() {
     if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
 }
 
-async function _sendAnnouncementFromChatInput(text) {
+async function _sendActionFromChatInput(text) {
     const avatar = getPlayerCharacterName();
     if (!avatar) {
         showStatusToast(t('No active character'), 'error');
         return;
     }
-    const scope = (document.getElementById('announce-scope-select')?.value) || _announceScope || 'here';
-    _announceScope = scope;
+    const scope = (document.getElementById('act-scope-select')?.value) || _actScope || 'here';
+    _actScope = scope;
+    // Show a pending bubble while the Storyteller LLM works.
+    const pending = document.createElement('div');
+    pending.className = 'message action-message action-pending';
+    pending.innerHTML = `<div class="action-header"><span class="action-icon">🎭</span><span class="action-sender">${escapeHtml(avatar)}</span><span class="action-scope">${escapeHtml(t('Narrating…'))}</span></div><div class="action-input">${escapeHtml(text)}</div>`;
+    chatMessages.appendChild(pending);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
     try {
-        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/announce`, {
+        const resp = await fetch(`/characters/${encodeURIComponent(avatar)}/act`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, scope }),
         });
+        pending.remove();
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
-            showStatusToast(err.detail || t('Could not announce'), 'error');
+            showStatusToast(err.detail || t('Action failed'), 'error');
             return;
         }
         const data = await resp.json();
-        _renderAnnouncementBubble(avatar, text, scope, data.recipients || []);
+        _renderActionBubble(avatar, text, scope, data.narration || '', !!data.resolved, data.event_id || '');
+        // If an event was resolved, refresh the character-notice banner so
+        // the now-cleared block-rule disappears immediately.
+        if (data.resolved && typeof refreshCharNotice === 'function') {
+            try { refreshCharNotice(); } catch (e) {}
+        }
     } catch (e) {
-        showStatusToast(t('Could not announce'), 'error');
+        pending.remove();
+        showStatusToast(t('Action failed'), 'error');
     }
 }
 
@@ -6240,13 +6258,13 @@ async function sendMessage() {
     const message = userInput.value.trim();
     if (!message && !_chatAttachedImage) return;
     if (isChatBusy) return;
-    // Announce mode: input text becomes a broadcast, not a chat message.
-    // No LLM, no chat partner needed, no busy state.
-    if (chatMode === 'announce') {
+    // Action mode: input text becomes a Storyteller-narrated action.
+    // No chat partner needed, no busy state — Storyteller-LLM is called inside.
+    if (chatMode === 'act') {
         if (!message) return;
         userInput.value = '';
         _clearChatImageAttachment();
-        await _sendAnnouncementFromChatInput(message);
+        await _sendActionFromChatInput(message);
         return;
     }
     // Kein Chat-Partner gewaehlt (z.B. nach Location-Wechsel ohne Character-Klick)
@@ -22693,10 +22711,10 @@ async function loadCharacterSidebar(prefetched) {
 
         // Buttons rendern (Announce-Toggle, dann Group-Toggle bei >=2, dann Characters)
         let html = '';
-        // Announce mode toggle — always visible, allows broadcasting to everyone present.
-        html += `<button class="character-sidebar-btn announce-toggle-btn${chatMode === 'announce' ? ' active' : ''}" id="btn-announce-mode" title="${escapeHtml(t('Make an announcement'))}">`;
-        html += `<span class="announce-toggle-icon">📢</span>`;
-        html += `<span class="character-sidebar-name">${escapeHtml(t('Announce'))}</span>`;
+        // Action mode toggle — always visible, lets the avatar perform a concrete action.
+        html += `<button class="character-sidebar-btn act-toggle-btn${chatMode === 'act' ? ' active' : ''}" id="btn-act-mode" title="${escapeHtml(t('Perform an action'))}">`;
+        html += `<span class="act-toggle-icon">🎭</span>`;
+        html += `<span class="character-sidebar-name">${escapeHtml(t('Action'))}</span>`;
         html += `</button>`;
         if (_sameRoom.length >= 2) {
             html += `<button class="character-sidebar-btn group-chat-toggle-btn${chatMode === 'group' ? ' active' : ''}" id="btn-group-mode" title="Gruppenchat">`;
@@ -22766,8 +22784,8 @@ async function loadCharacterSidebar(prefetched) {
                     _updateGroupHeader(false);
                     _showGroupChatBar(false);
                 }
-                // Announce-Modus: Klick auf Character beendet den Broadcast-Modus
-                if (chatMode === 'announce') {
+                // Action-Modus: Klick auf Character beendet den Action-Modus
+                if (chatMode === 'act') {
                     chatMode = 'direct';
                     if (typeof userInput !== 'undefined' && userInput) userInput.placeholder = '';
                 }
@@ -22818,7 +22836,7 @@ async function loadCharacterSidebar(prefetched) {
         if (groupBtn) {
             groupBtn.addEventListener('click', async () => {
                 if (isChatBusy) return;
-                if (chatMode === 'announce') _exitAnnounceMode();
+                if (chatMode === 'act') _exitActMode();
                 chatMode = chatMode === 'direct' ? 'group' : 'direct';
                 if (chatMode === 'group') {
                     await _initGroupSession();
@@ -22830,15 +22848,15 @@ async function loadCharacterSidebar(prefetched) {
                 loadCharacterSidebar();
             });
         }
-        // Announce-Toggle Handler
-        const announceBtn = document.getElementById('btn-announce-mode');
-        if (announceBtn) {
-            announceBtn.addEventListener('click', async () => {
+        // Action-Toggle Handler
+        const actBtn = document.getElementById('btn-act-mode');
+        if (actBtn) {
+            actBtn.addEventListener('click', async () => {
                 if (isChatBusy) return;
-                if (chatMode === 'announce') {
-                    _exitAnnounceMode();
+                if (chatMode === 'act') {
+                    _exitActMode();
                 } else {
-                    await _enterAnnounceMode();
+                    await _enterActMode();
                 }
             });
         }

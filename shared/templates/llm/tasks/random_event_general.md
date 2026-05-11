@@ -7,6 +7,7 @@ placeholders:
   category_description: Category description
   time_of_day: "morning" | "afternoon" | "evening" | "night"
   location_description: Location description text
+  setting_block: Optional pre-formatted "Setting: Indoor/Outdoor ..." line (empty if location.indoor is unset)
   rooms_block: Optional pre-formatted "Rooms: ..." line (empty if none)
   characters_block: Optional pre-formatted "Characters present: ..." line
   hazards_block: Optional pre-formatted "Known hazards: ..." line
@@ -15,14 +16,16 @@ placeholders:
   language_name: Target language name (e.g. "German", "English")
 ---
 ## system
-You generate short, atmospheric event descriptions for a roleplay world. Reply with ONLY the event text.
+You generate short, atmospheric event descriptions for a roleplay world. Reply with ONLY the event text. Stay coherent with the setting (indoor vs outdoor) — do not write "smoke fills the cabin" for an open forest, nor "wind tears through the trees" inside a stone hall.
 
 ## user
 Generate a random event for the location "{{ location_name }}".
 Category: {{ category }} — {{ category_description }}
 Time of day: {{ time_of_day }}
 Location: {{ location_description }}
-{% if rooms_block %}{{ rooms_block }}
+{% if setting_block %}{{ setting_block }}
+{% endif %}
+{%- if rooms_block %}{{ rooms_block }}
 {% endif %}
 {%- if characters_block %}{{ characters_block }}
 {% endif %}

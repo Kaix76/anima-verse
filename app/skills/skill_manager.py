@@ -11,7 +11,7 @@ from .instagram_skill import InstagramSkill
 from .set_location_skill import SetLocationSkill
 from .talk_to_skill import TalkToSkill
 from .send_message_skill import SendMessageSkill
-from .announce_skill import AnnounceSkill
+from .act_skill import ActSkill
 from .notify_user_skill import NotifyUserSkill
 from .instagram_comment_skill import InstagramCommentSkill
 from .instagram_reply_skill import InstagramReplySkill
@@ -41,7 +41,7 @@ class SkillManager:
         'setlocation': SetLocationSkill,
         'talk_to': TalkToSkill,
         'send_message': SendMessageSkill,
-        'announce': AnnounceSkill,
+        'act': ActSkill,
         'notify_user': NotifyUserSkill,
         'instagram_comment': InstagramCommentSkill,
         'instagram_reply': InstagramReplySkill,

@@ -244,11 +244,13 @@ def try_roll_on_entry(character_name: str, loc_id: str, location: Dict[str, Any]
         return
     _ENTRY_ROLL_LAST[key] = datetime.now()
 
-    # Skip wenn aktive ungelöste danger-Events da sind
+    # Skip wenn an der Location bereits ein aktives ungeloestes
+    # disruption/danger-Event steht (Constraint "ein blockendes Event pro
+    # Location"). Ambient/social-Events sind erlaubt und blocken nicht.
     try:
         from app.models.events import list_events
         for e in list_events(location_id=loc_id) or []:
-            if (e.get("category") or "") == "danger" and not e.get("resolved"):
+            if e.get("category") in ("disruption", "danger") and not e.get("resolved"):
                 return
     except Exception as _e:
         logger.debug("entry-roll skip-check fehlgeschlagen: %s", _e)
@@ -292,14 +294,21 @@ def _try_generate_for_location(loc_id: str, location: Dict[str, Any], char_names
     if random.random() > prob:
         return
 
-    # 2. Max-Concurrent-Check
+    # 2. Constraint: max ein aktives ungeloestes disruption/danger Event pro
+    #    Location. Ambient/social duerfen daneben spawnen — sie blocken nichts
+    #    und tragen zur Atmosphaere bei.
     from app.models.events import list_events
     active = list_events(location_id=loc_id)
+    if any(e.get("category") in ("disruption", "danger") and not e.get("resolved")
+           for e in active):
+        return
+
+    # 3. Max-Concurrent-Check (vor allem fuer ambient/social-Spam-Vermeidung)
     max_concurrent = settings.get("max_concurrent_events", 1)
     if len(active) >= max_concurrent:
         return
 
-    # 3. Cooldown-Check (min Zeit seit letztem Event, in Stunden)
+    # 4. Cooldown-Check (min Zeit seit letztem Event, in Stunden)
     # Legacy: event_cooldown_minutes weiterhin unterstuetzt
     cooldown_hours = settings.get("event_cooldown_hours")
     if cooldown_hours is None:
@@ -314,13 +323,13 @@ def _try_generate_for_location(loc_id: str, location: Dict[str, Any], char_names
         except (ValueError, TypeError):
             pass
 
-    # 4. Kategorie wuerfeln
+    # 5. Kategorie wuerfeln
     weights = _get_category_weights(location, settings)
     if not weights:
         return
     category = _pick_category(weights)
 
-    # 5. Event per LLM generieren — mit kleiner Wahrscheinlichkeit ein Secret-Hint-Event
+    # 6. Event per LLM generieren — mit kleiner Wahrscheinlichkeit ein Secret-Hint-Event
     reveal_chance = float(settings.get("secret_reveal_chance", 0.08))
     if reveal_chance > 0 and random.random() < reveal_chance:
         if _try_generate_secret_hint_event(loc_id, location, char_names, settings):
@@ -466,6 +475,18 @@ def _generate_event(loc_id: str,
     LANG_NAMES = {"de": "German", "en": "English", "fr": "French", "es": "Spanish", "it": "Italian", "ja": "Japanese"}
     lang_name = LANG_NAMES.get(_lang, _lang)
 
+    # Indoor/Outdoor-Setting der Location als Prompt-Hinweis (leer wenn nicht gesetzt).
+    indoor_flag = (location.get("indoor") or "").strip().lower()
+    if indoor_flag == "indoor":
+        setting_block = ("Setting: Indoor (enclosed location — fit interior themes: "
+                          "drafts, flickering light, knocking sounds, broken objects, "
+                          "intruders, scents)")
+    elif indoor_flag == "outdoor":
+        setting_block = ("Setting: Outdoor (open-air location — fit weather, wildlife, "
+                          "terrain, or arriving people)")
+    else:
+        setting_block = ""
+
     from app.core.prompt_templates import render_task
     sys_prompt, user_prompt = render_task(
         "random_event_general",
@@ -474,6 +495,7 @@ def _generate_event(loc_id: str,
         category_description=cat_desc,
         time_of_day=time_desc,
         location_description=loc_desc,
+        setting_block=setting_block,
         rooms_block=f"Rooms: {', '.join(rooms[:6])}" if rooms else "",
         characters_block=f"Characters present: {', '.join(char_infos)}" if char_infos else "",
         hazards_block=f"Known hazards: {', '.join(hazard_texts)}" if hazard_texts else "",

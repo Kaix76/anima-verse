@@ -30,6 +30,7 @@ interface Location {
   rooms?: Room[]
   entry_room?: string
   danger_level?: number
+  indoor?: string
   outfit_type?: string
   knowledge_item_id?: string
   passable?: boolean
@@ -126,6 +127,7 @@ export function WorldTab() {
         image_prompt_night: src.image_prompt_night || '',
         image_prompt_map: src.image_prompt_map || '',
         danger_level: src.danger_level,
+        indoor: src.indoor || '',
         outfit_type: src.outfit_type,
         knowledge_item_id: src.knowledge_item_id,
         passable: src.passable,
@@ -297,6 +299,7 @@ function LocationEditor({ location, outfitTypeOptions, items, onChanged, onDelet
         rooms: draft.rooms,
         entry_room: draft.entry_room || '',
         danger_level: draft.danger_level,
+        indoor: draft.indoor || '',
         outfit_type: draft.outfit_type,
         knowledge_item_id: draft.knowledge_item_id,
         passable: draft.passable,
@@ -407,6 +410,17 @@ function LocationEditor({ location, outfitTypeOptions, items, onChanged, onDelet
               value={draft.danger_level ?? 0}
               onChange={(e) => upd('danger_level', parseInt(e.target.value, 10) || 0)}
             />
+          </Field>
+          <Field label={t('Indoor/Outdoor')} hint={t('Used as a coherence hint for event generation and storyteller narration.')}>
+            <select
+              className="ga-input"
+              value={draft.indoor || ''}
+              onChange={(e) => upd('indoor', e.target.value)}
+            >
+              <option value="">{t('— not set —')}</option>
+              <option value="indoor">{t('Indoor')}</option>
+              <option value="outdoor">{t('Outdoor')}</option>
+            </select>
           </Field>
           <Field label={t('Outfit type')}>
             <select

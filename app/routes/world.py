@@ -253,6 +253,7 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
         passable = data.get("passable")
         map_z_offset = data.get("map_z_offset")
         entry_room = data.get("entry_room")
+        indoor = data.get("indoor")
         if not location_name:
             raise HTTPException(status_code=400, detail="Name fehlt")
         if not isinstance(rooms, list):
@@ -267,7 +268,7 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
         _has_extra = (danger_level is not None or event_settings is not None
                       or outfit_type is not None or knowledge_item_id is not None
                       or passable is not None or map_z_offset is not None
-                      or entry_room is not None)
+                      or entry_room is not None or indoor is not None)
         if _has_extra and location:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -293,6 +294,9 @@ async def create_location_route(request: Request) -> Dict[str, Any]:
                             pass
                     if entry_room is not None:
                         _l["entry_room"] = (entry_room or "").strip()
+                    if indoor is not None:
+                        _v = (indoor or "").strip().lower()
+                        _l["indoor"] = _v if _v in ("indoor", "outdoor") else ""
                     break
             _save_world_data(wdata)
             location = get_location_by_id(location["id"])
@@ -323,6 +327,7 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
         passable = data.get("passable")
         map_z_offset = data.get("map_z_offset")
         entry_room = data.get("entry_room")
+        indoor = data.get("indoor")
 
         loc = get_location_by_id(location_id)
         if not loc:
@@ -347,7 +352,7 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
         _has_extra = (danger_level is not None or event_settings is not None
                       or outfit_type is not None or knowledge_item_id is not None
                       or passable is not None or map_z_offset is not None
-                      or entry_room is not None)
+                      or entry_room is not None or indoor is not None)
         if _has_extra:
             from app.models.world import _load_world_data, _save_world_data
             wdata = _load_world_data()
@@ -373,6 +378,9 @@ async def update_location_route(location_id: str, request: Request) -> Dict[str,
                             pass
                     if entry_room is not None:
                         _l["entry_room"] = (entry_room or "").strip()
+                    if indoor is not None:
+                        _v = (indoor or "").strip().lower()
+                        _l["indoor"] = _v if _v in ("indoor", "outdoor") else ""
                     break
             _save_world_data(wdata)
 

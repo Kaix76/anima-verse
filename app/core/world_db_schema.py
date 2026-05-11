@@ -263,6 +263,19 @@ SCHEMA_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_events_ts ON events (ts)",
     "CREATE INDEX IF NOT EXISTS idx_events_kind ON events (kind, ts)",
+    """CREATE TABLE IF NOT EXISTS character_action_log (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_name       TEXT NOT NULL,
+        scope                TEXT NOT NULL,
+        location_id          TEXT DEFAULT '',
+        room_id              TEXT DEFAULT '',
+        user_input           TEXT NOT NULL,
+        storyteller_response TEXT DEFAULT '',
+        event_resolved       INTEGER NOT NULL DEFAULT 0,
+        event_id             TEXT DEFAULT '',
+        created_at           TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_action_log_char ON character_action_log (character_name, created_at DESC)",
     """CREATE TABLE IF NOT EXISTS notifications (
         id     INTEGER PRIMARY KEY AUTOINCREMENT,
         ts     TEXT NOT NULL,

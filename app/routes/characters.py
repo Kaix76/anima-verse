@@ -761,66 +761,25 @@ async def update_character_current_activity(character_name: str, request: Reques
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{character_name}/announcements")
-def list_announcements_route(character_name: str, limit: int = 30) -> Dict[str, Any]:
-    """Recent announcements visible to this character — both ones they sent
-    and ones they heard. Sorted newest-first. Used by the avatar's
-    Announce-mode panel to show context above the input.
+@router.get("/{character_name}/actions")
+def list_actions_route(character_name: str, limit: int = 30) -> Dict[str, Any]:
+    """Recent actions for this character — from the character_action_log table.
+    Sorted newest-first. Used by the avatar's Action panel for history.
     """
     try:
-        from app.models.memory import load_memories
-        entries: List[Dict[str, Any]] = []
-        for m in load_memories(character_name) or []:
-            tags = m.get("tags") or []
-            ts = m.get("timestamp") or ""
-            content = m.get("content") or ""
-            if "announcement_sent" in tags:
-                text = content
-                if text.startswith("Announced to "):
-                    # "Announced to X: \"...\"" -> strip prefix to leave the quoted text
-                    try:
-                        text = content.split(": ", 1)[1].strip().strip('"')
-                    except Exception:
-                        pass
-                entries.append({
-                    "kind": "sent",
-                    "timestamp": ts,
-                    "sender": character_name,
-                    "text": text,
-                })
-            elif "announcement_heard" in tags:
-                sender = (m.get("related_character") or "").strip()
-                if not sender:
-                    for tag in tags:
-                        if isinstance(tag, str) and tag.startswith("announcement_heard:"):
-                            sender = tag.split(":", 1)[1]
-                            break
-                text = content
-                if text.startswith("Heard "):
-                    try:
-                        text = content.split("announce: ", 1)[1].strip().strip('"')
-                    except Exception:
-                        pass
-                entries.append({
-                    "kind": "heard",
-                    "timestamp": ts,
-                    "sender": sender,
-                    "text": text,
-                })
-        entries.sort(key=lambda e: e.get("timestamp", ""), reverse=True)
-        if limit and limit > 0:
-            entries = entries[:limit]
+        from app.models.action_log import list_action_log
+        entries = list_action_log(character_name, limit=limit)
         return {"character": character_name, "entries": entries}
     except Exception as e:
-        logger.exception("list_announcements_route failed for %s", character_name)
+        logger.exception("list_actions_route failed for %s", character_name)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{character_name}/announce")
-async def announce_route(character_name: str, request: Request) -> Dict[str, Any]:
-    """Avatar (or any character) makes a one-way announcement to all
-    present. Reuses the same AnnounceSkill execute path as the LLM tool —
-    no bypass. Returns the list of recipients reached.
+@router.post("/{character_name}/act")
+async def act_route(character_name: str, request: Request) -> Dict[str, Any]:
+    """Avatar (or any character) performs a concrete action visible to
+    everyone in the chosen scope. Goes through the Storyteller-LLM and may
+    resolve an active disruption/danger event.
     """
     try:
         data = await request.json()
@@ -831,34 +790,24 @@ async def announce_route(character_name: str, request: Request) -> Dict[str, Any
         if scope not in ("here", "location"):
             raise HTTPException(status_code=400, detail="scope must be 'here' or 'location'")
 
-        from app.core.dependencies import get_skill_manager
-        skill = get_skill_manager().get_skill("announce")
-        if skill is None:
-            raise HTTPException(status_code=503, detail="Announce skill not loaded")
-
-        import json as _json
         import asyncio as _asyncio
-        payload = _json.dumps({
-            "agent_name": character_name,
-            "text": text,
-            "scope": scope,
-        })
-        result = await _asyncio.to_thread(skill.execute, payload)
+        from app.skills.act_skill import perform_act
+        result = await _asyncio.to_thread(perform_act, character_name, text, scope)
 
-        from app.skills.announce_skill import resolve_recipients
-        recipients = resolve_recipients(scope, character_name)
         return {
             "status": "success",
             "character": character_name,
             "scope": scope,
             "text": text,
-            "recipients": recipients,
-            "result": result,
+            "narration": result.get("narration", ""),
+            "resolved": bool(result.get("resolved")),
+            "event_id": result.get("event_id"),
+            "summary": result.get("summary", ""),
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("announce_route failed for %s", character_name)
+        logger.exception("act_route failed for %s", character_name)
         raise HTTPException(status_code=500, detail=str(e))
 
 

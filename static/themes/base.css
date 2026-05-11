@@ -1607,26 +1607,30 @@ body[data-worlddev="1"] .worlddev-container { padding-top: 10px; }
 .group-msg-content p:first-child { margin-top: 0; }
 .group-msg-content p:last-child { margin-bottom: 0; }
 .group-passive-notice { text-align: center; font-size: 12px; color: var(--text-muted); padding: 4px 16px; font-style: italic; opacity: 0.7; }
-/* Announcement bubble — one-way broadcast, distinct from chat replies */
-.announcement-message { margin: 16px auto; padding: 12px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.18)); border: 1px dashed var(--accent, var(--primary)); font-style: italic; }
-.announcement-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-style: normal; }
-.announcement-icon { font-size: 18px; }
-.announcement-sender { font-weight: 600; color: var(--accent, var(--primary)); }
-.announcement-scope { font-size: 12px; color: var(--text-muted); font-weight: normal; }
-.announcement-content { font-size: 15px; line-height: 1.5; color: var(--text); }
-.announcement-meta { margin-top: 6px; font-size: 11px; color: var(--text-muted); font-style: normal; }
-.announcement-history { opacity: 0.78; }
-.announcement-mode-banner { margin: 8px auto 12px; padding: 14px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.22)); border: 2px solid var(--accent, var(--primary)); }
-.announcement-mode-title { font-size: 18px; font-weight: 600; color: var(--accent, var(--primary)); margin-bottom: 6px; }
-.announcement-mode-desc { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 10px; }
-.announcement-mode-scope { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
-.announcement-mode-scope select { flex: 1; max-width: 280px; }
-.announcement-history-header { text-align: center; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 6px; }
-.announcement-history-empty { text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; padding: 20px; }
-/* Announce-Toggle in der Character-Sidebar — gross, vor dem Group-Chat-Toggle */
-.announce-toggle-btn .announce-toggle-icon { font-size: 22px; display: block; width: 44px; height: 44px; line-height: 44px; text-align: center; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-alt, rgba(0,0,0,0.2)); }
-.announce-toggle-btn.active .announce-toggle-icon { border-color: var(--accent, var(--primary)); background: var(--accent, var(--primary)); }
-.announce-toggle-btn.active .character-sidebar-name { color: var(--accent, var(--primary)); font-weight: 600; }
+/* Action bubble — Storyteller narration, distinct from chat replies */
+.action-message { margin: 16px auto; padding: 12px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.18)); border: 1px dashed var(--accent, var(--primary)); }
+.action-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.action-icon { font-size: 18px; }
+.action-sender { font-weight: 600; color: var(--accent, var(--primary)); }
+.action-scope { font-size: 12px; color: var(--text-muted); font-weight: normal; }
+.action-input { font-size: 13px; color: var(--text-muted); margin-bottom: 6px; padding-left: 26px; }
+.action-input::before { content: "› "; }
+.action-narration { font-size: 15px; line-height: 1.5; color: var(--text); font-style: italic; padding-left: 26px; border-left: 3px solid var(--accent, var(--primary)); margin-left: 4px; }
+.action-narration-empty { font-style: italic; color: var(--text-muted); }
+.action-resolved { margin-top: 8px; font-size: 12px; font-weight: 600; color: #4ec77a; text-transform: uppercase; letter-spacing: 0.4px; }
+.action-history { opacity: 0.78; }
+.action-pending { opacity: 0.65; }
+.action-mode-banner { margin: 8px auto 12px; padding: 14px 18px; border-radius: 10px; max-width: 80%; background: var(--bg-alt, rgba(0,0,0,0.22)); border: 2px solid var(--accent, var(--primary)); }
+.action-mode-title { font-size: 18px; font-weight: 600; color: var(--accent, var(--primary)); margin-bottom: 6px; }
+.action-mode-desc { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 10px; }
+.action-mode-scope { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
+.action-mode-scope select { flex: 1; max-width: 280px; }
+.action-history-header { text-align: center; font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 14px 0 6px; }
+.action-history-empty { text-align: center; font-size: 13px; color: var(--text-muted); font-style: italic; padding: 20px; }
+/* Action-Toggle in der Character-Sidebar — gross, vor dem Group-Chat-Toggle */
+.act-toggle-btn .act-toggle-icon { font-size: 22px; display: block; width: 44px; height: 44px; line-height: 44px; text-align: center; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-alt, rgba(0,0,0,0.2)); }
+.act-toggle-btn.active .act-toggle-icon { border-color: var(--accent, var(--primary)); background: var(--accent, var(--primary)); }
+.act-toggle-btn.active .character-sidebar-name { color: var(--accent, var(--primary)); font-weight: 600; }
 /* Group Chat Toggle — same size as character sidebar buttons */
 .group-chat-toggle-btn .group-toggle-icon { font-size: 22px; display: block; width: 44px; height: 44px; line-height: 44px; text-align: center; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-alt, rgba(0,0,0,0.2)); }
 .group-chat-toggle-btn.active .group-toggle-icon { border-color: var(--primary); background: var(--primary); }
