@@ -780,15 +780,12 @@ def generate_expression_image(character_name: str,
         _frag = (_it.get("prompt_fragment") or "").strip()
         if _frag:
             _item_fragments.append(_frag)
-    # Kein "wearing: "-Prefix — der Gesamt-Prompt wickelt outfit_desc spaeter
-    # mit `{actor_label} is wearing ...` ein; ein zusaetzlicher "wearing: "
-    # wuerde doppelt auftauchen.
-    _parts = []
-    if _piece_fragments:
-        _parts.append(", ".join(_piece_fragments))
-    if _item_fragments:
-        _parts.append(", ".join(_item_fragments))
-    outfit_desc = ". ".join(_parts)
+    # Pieces gehen unter "is wearing ..." (siehe outfit_prompt unten).
+    # Equipped-Items (Spells/Tools/...) NICHT — sonst wird "holding a stone"
+    # zu "is wearing holding a stone". Sie werden als eigene Phrase mit
+    # `{actor_label} ...` an den outfit_prompt gehaengt.
+    outfit_desc = ", ".join(_piece_fragments)
+    items_desc = ", ".join(_item_fragments)
 
     cache_key = _cache_key(mood, activity, character_name, equipped_pieces, equipped_items, equipped_pieces_meta)
 
@@ -874,6 +871,15 @@ def generate_expression_image(character_name: str,
             outfit_prompt = f"{actor_label} is wearing {outfit_desc}"
     else:
         outfit_prompt = _fallback_text
+
+    # Equipped Non-Piece-Items (Spells, Tools, ...) als eigene Phrase anhaengen,
+    # so dass z.B. prompt_fragment="holding a glowing recall stone" als
+    # "{actor} holding a glowing recall stone" erscheint, nicht "is wearing".
+    if items_desc:
+        if outfit_prompt:
+            outfit_prompt = f"{outfit_prompt}. {actor_label} {items_desc}"
+        else:
+            outfit_prompt = f"{actor_label} {items_desc}"
 
     # Find ImageGenerationSkill
     image_skill = None

@@ -1540,19 +1540,31 @@ function _renderWardrobeStudio() {
         const filter = (_wardrobeState.availableFilter || '').trim();
         const otypeFilter = (_wardrobeState.availableOutfitTypeFilter || '').trim();
         const allItems = _wardrobeState.inventory.filter(it => {
-            if (it.item_category !== 'outfit_piece') return false;
-            if (filter) {
+            const isPiece = it.item_category === 'outfit_piece';
+            const hasFragment = !!(it.item_prompt_fragment || '').trim();
+            // Im Set-Editor sind nur outfit_pieces zulaessig (Sets kennen
+            // keine generischen Equipped-Items). Live-Modus: outfit_pieces
+            // UND alles was ein prompt_fragment hat (Spells, Tools, ...)
+            // — sonst wuerde das Anlegen-Panel sie nie zeigen.
+            if (editMode2) {
+                if (!isPiece) return false;
+            } else {
+                if (!isPiece && !hasFragment) return false;
+            }
+            // Slot- und Outfit-Type-Filter gelten nur fuer outfit_pieces;
+            // bei Equipment-Items ohne Slot-Schema ueberspringen.
+            if (filter && isPiece) {
                 const slots = (it.outfit_piece && it.outfit_piece.slots) || [];
                 if (!slots.includes(filter)) return false;
             }
-            if (otypeFilter) {
+            if (otypeFilter && isPiece) {
                 const types = (it.outfit_piece && it.outfit_piece.outfit_types) || [];
                 if (!types.includes(otypeFilter)) return false;
             }
             return true;
         });
         if (!allItems.length) {
-            availEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No outfit-suitable items in inventory. Create some in the "Inventory (outfit pieces)" tab.'))}</p>`;
+            availEl.innerHTML = `<p class="scheduler-empty">${escapeHtml(t('No equippable items in inventory. Outfit pieces and any item with a prompt fragment can be equipped.'))}</p>`;
         } else {
             availEl.innerHTML = allItems.map(it => {
                 const isPiece = it.item_category === 'outfit_piece';
@@ -19128,6 +19140,34 @@ async function castSpellOnSelf(itemId, itemName) {
                 `${data.spell_name}: ${verdict} (${data.roll}/${data.chance})`,
                 data.success ? 'success' : 'warning');
             await _loadEditorInventory(charName);
+            // Wardrobe-Modal schliessen — Cast-Effekte (Teleport, Outfit-Wechsel,
+            // Activity) sieht der User nur wenn die Hauptszene wieder sichtbar ist.
+            try {
+                const _modal = document.getElementById('wardrobe-modal');
+                if (_modal && _modal.style.display !== 'none') closeWardrobeModal();
+            } catch (_) {}
+            // Bei Anker-Teleport: Hintergrund + Avatar-/Character-Scene refreshen,
+            // damit der neue Ort sichtbar wird (gleiche Sequenz wie der
+            // SSE-Handler im Chat nach data.location).
+            try {
+                const tp = data.teleport || {};
+                if (tp.to_location) {
+                    if (typeof updateLocationBackground === 'function') {
+                        updateLocationBackground(tp.to_location, tp.to_room || '');
+                    }
+                    if (typeof _loadCharacterHeaderState === 'function' && typeof currentCharacterName !== 'undefined' && currentCharacterName) {
+                        _loadCharacterHeaderState(currentCharacterName);
+                    }
+                    if (typeof loadCharacterSidebar === 'function') loadCharacterSidebar();
+                    if (typeof loadPlayerAvatar === 'function') loadPlayerAvatar();
+                    if (typeof updateCharacterScene === 'function' && typeof currentCharacterName !== 'undefined' && currentCharacterName) {
+                        updateCharacterScene(currentCharacterName);
+                    }
+                    if (typeof updatePlayerExpression === 'function') {
+                        try { updatePlayerExpression(getPlayerCharacterName()); } catch (_) {}
+                    }
+                }
+            } catch (_) {}
         } else {
             const err = await resp.json().catch(() => ({}));
             showStatusToast(err.detail || 'Cast fehlgeschlagen', 'error');

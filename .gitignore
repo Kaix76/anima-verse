@@ -144,3 +144,4 @@ node_modules/
 *.sublime-workspace
 .vscode/settings.json
 .idea/workspace.xml
+.aider*

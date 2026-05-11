@@ -346,12 +346,14 @@ def execute_cast(avatar_name: str, target_name: str,
             success = False
 
     if success:
-        # Optional: Avatar-Activity setzen (z.B. "Casting Spell"). Auto-Ablauf
-        # laeuft ueber die duration_minutes der Activity (siehe periodic_jobs
-        # _sub_activity_expiry). save_character_current_activity setzt
-        # activity_started_at und activity_duration_minutes anhand der
+        # Avatar-Activity setzen — Default "cast_spell" aus shared/activities/magic.json,
+        # ueberschreibbar pro Spell ueber cast_activity. Greift in beiden Pfaden
+        # (klassisch + Anker-Teleport) und beim Self-Cast aus dem Inventar.
+        # Auto-Ablauf laeuft ueber die duration_minutes der Activity
+        # (siehe periodic_jobs _sub_activity_expiry). save_character_current_activity
+        # setzt activity_started_at und activity_duration_minutes aus der
         # Library-Definition automatisch.
-        cast_activity = (spell.get("cast_activity") or "").strip()
+        cast_activity = (spell.get("cast_activity") or "cast_spell").strip()
         if cast_activity:
             try:
                 from app.models.activity_library import (

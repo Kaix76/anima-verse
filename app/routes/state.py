@@ -11,9 +11,10 @@ existing rendered state.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse, Response
@@ -106,6 +107,45 @@ def _compute_medium(agent: Optional[Dict[str, Any]],
     return "in_person"
 
 
+def _build_snapshot_sync(
+    agent: str, avatar: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
+    """Synchroner Teil von snapshot(): Character-Blocks + Sidebar.
+
+    Wird via asyncio.to_thread() aus dem async Endpoint aufgerufen, damit die
+    sync DB-/Filesystem-Calls (get_character_profile, get_template+deepcopy,
+    characters_at_location, list_chatbots) den Event-Loop nicht blockieren.
+    """
+    agent_block = _build_character_block(agent)
+    avatar_block = _build_character_block(avatar)
+
+    sidebar: Dict[str, Any] = {
+        "location_id": "",
+        "location_name": "",
+        "characters": [],
+        "chatbots": [],
+    }
+    if avatar_block and avatar_block.get("location_id"):
+        try:
+            from app.routes.characters import characters_at_location
+            at = characters_at_location(
+                location=avatar_block["location_id"],
+                room=avatar_block.get("room_id", "") or avatar_block.get("room_name", ""),
+            )
+            sidebar["location_id"] = at.get("location_id", "") or ""
+            sidebar["location_name"] = at.get("location", "") or ""
+            sidebar["characters"] = at.get("characters", []) or []
+        except Exception as e:
+            logger.debug("state: at-location fetch failed: %s", e)
+    try:
+        from app.routes.characters import list_chatbots
+        cb = list_chatbots()
+        sidebar["chatbots"] = cb.get("characters", []) or []
+    except Exception:
+        pass
+    return agent_block, avatar_block, sidebar
+
+
 @router.get("/snapshot")
 async def snapshot(
     agent: str = "",
@@ -131,34 +171,9 @@ async def snapshot(
 
     Response (304): leer, wenn ETag matcht.
     """
-    agent_block = _build_character_block(agent)
-    avatar_block = _build_character_block(avatar)
-
-    # Sidebar: Characters am Avatar-Ort + Chatbots
-    sidebar: Dict[str, Any] = {
-        "location_id": "",
-        "location_name": "",
-        "characters": [],
-        "chatbots": [],
-    }
-    if avatar_block and avatar_block.get("location_id"):
-        try:
-            from app.routes.characters import characters_at_location
-            at = characters_at_location(
-                location=avatar_block["location_id"],
-                room=avatar_block.get("room_id", "") or avatar_block.get("room_name", ""),
-            )
-            sidebar["location_id"] = at.get("location_id", "") or ""
-            sidebar["location_name"] = at.get("location", "") or ""
-            sidebar["characters"] = at.get("characters", []) or []
-        except Exception as e:
-            logger.debug("state: at-location fetch failed: %s", e)
-    try:
-        from app.routes.characters import list_chatbots
-        cb = list_chatbots()
-        sidebar["chatbots"] = cb.get("characters", []) or []
-    except Exception:
-        pass
+    agent_block, avatar_block, sidebar = await asyncio.to_thread(
+        _build_snapshot_sync, agent, avatar
+    )
 
     # Unread-Summary (Chat-Badges) — hier integriert damit der Tick einen
     # einzigen Round-Trip macht.

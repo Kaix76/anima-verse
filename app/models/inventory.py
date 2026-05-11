@@ -455,6 +455,7 @@ def update_item(item_id: str,
         "incantation", "spell_mode", "clone_item_id",
         "success_chance", "copy_on_give",
         "success_text", "fail_text", "cast_activity",
+        "anchor_item_id", "teleport_subject",
         # Tracker: while carried, the carrier sees the target's location in the prompt.
         "tracks_character",
     }
@@ -648,6 +649,29 @@ def set_item_image(item_id: str, image_filename: str) -> bool:
     for item in items:
         if item.get("id") == item_id:
             item["image"] = image_filename
+            _save_items(items)
+            return True
+    return False
+
+
+def set_item_image_meta(item_id: str, meta: Dict[str, Any]) -> bool:
+    """Speichert Erzeugungs-Metadaten (backend, model) eines Item-Bildes.
+
+    Analog zu set_gallery_image_meta fuer Ortsbilder — wird vom
+    Generate-Dialog im Game-Admin als Caption unter dem Bild angezeigt.
+    """
+    if is_shared_item(item_id):
+        shared = _load_shared_items()
+        for item in shared:
+            if item.get("id") == item_id:
+                item["image_meta"] = dict(meta)
+                _save_shared_items(shared)
+                return True
+        return False
+    items = _load_items()
+    for item in items:
+        if item.get("id") == item_id:
+            item["image_meta"] = dict(meta)
             _save_items(items)
             return True
     return False

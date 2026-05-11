@@ -8,6 +8,7 @@ import { DetailToolbar } from '../../components/DetailToolbar'
 import { ListHeader } from '../../components/ListHeader'
 import { EffectsEditor } from '../../components/EffectsEditor'
 import { Silhouette } from '../../components/Silhouette'
+import { ImageGenDialog, type ImageGenSubmit } from '../../components/ImageGenDialog'
 
 type Category =
   | 'outfit_piece'
@@ -47,6 +48,7 @@ interface Item {
   condition_duration?: number
   has_image?: boolean
   image?: string
+  image_meta?: { backend?: string; backend_type?: string; model?: string }
   _shared?: boolean
   // Spell / magic / tracker / evidence fields. The spell-section editor
   // (rendered for category=spell) reads/writes them via `extras`; for
@@ -288,6 +290,7 @@ export function ItemsTab() {
   const [owners, setOwners] = useState<Owner[]>([])
   const [outfitTypeOptions, setOutfitTypeOptions] = useState<string[]>([])
   const [conditionOptions, setConditionOptions] = useState<ConditionOption[]>([])
+  const [genDialogOpen, setGenDialogOpen] = useState(false)
 
   const reload = useCallback(async () => {
     try {
@@ -472,18 +475,44 @@ export function ItemsTab() {
     [draft, reload, t, toast],
   )
 
-  const generateImage = useCallback(async () => {
-    if (!draft || draft.isNew) return
-    try {
-      toast(t('Generating image…'))
-      await apiPost(`/inventory/items/${encodeURIComponent(draft.id)}/generate-image`, {})
-      toast(t('Image generation queued'))
-      // Refresh after a brief delay so the new image URL has a chance to land.
-      window.setTimeout(reload, 1500)
-    } catch (e) {
-      toast(t('Error') + ': ' + (e as Error).message, 'error')
-    }
-  }, [draft, reload, t, toast])
+  // Build the dialog's default prompt — mirrors the server fallback chain
+  // in generate_item_image_sync: image_prompt > prompt_fragment > name,
+  // with the same product-photography suffix the server appends.
+  const buildItemPrompt = useCallback((d: DraftItem): string => {
+    const base =
+      (d.image_prompt || '').trim() ||
+      (d.prompt_fragment || '').trim() ||
+      (d.name || '').trim() ||
+      d.id
+    return `${base}, isolated object on green background, product photography, sharp focus, realistic`
+  }, [])
+
+  // Submit handler the ImageGenDialog calls on Generate. The dialog
+  // payload uses LoRA name+strength; the items endpoint expects
+  // {file, strength}, so map across.
+  const submitGenerateImage = useCallback(
+    async (payload: ImageGenSubmit) => {
+      if (!draft || draft.isNew) return
+      const body: Record<string, unknown> = { prompt: payload.prompt }
+      if (payload.workflow) body.workflow = payload.workflow
+      if (payload.backend) body.backend = payload.backend
+      if (payload.model_override) body.model_override = payload.model_override
+      if (payload.loras && payload.loras.length) {
+        body.loras = payload.loras.map((l) => ({ file: l.name, strength: l.strength }))
+      }
+      try {
+        await apiPost(`/inventory/items/${encodeURIComponent(draft.id)}/generate-image`, body)
+        toast(t('Image queued'))
+        // The endpoint enqueues in a background thread; refresh shortly so
+        // the new image + caption meta have a chance to land.
+        window.setTimeout(reload, 1500)
+      } catch (e) {
+        toast(t('Error') + ': ' + (e as Error).message, 'error')
+        throw e
+      }
+    },
+    [draft, reload, t, toast],
+  )
 
   const addOwner = useCallback(
     async (characterName: string, qty: number) => {
@@ -646,10 +675,37 @@ export function ItemsTab() {
               <div className="ga-items-image-preview">
                 <img src={`/inventory/items/${encodeURIComponent(draft.id)}/image?t=${Date.now()}`} alt="" />
               </div>
-              <button className="ga-btn ga-btn-sm" onClick={generateImage}>
+              {(() => {
+                const meta = items?.find((it) => it.id === draft.id)?.image_meta
+                if (!meta || (!meta.model && !meta.backend)) return null
+                return (
+                  <div className="ga-gallery-meta" style={{ marginTop: 6 }}>
+                    {meta.model ? (
+                      <div>
+                        <strong>{t('Model')}</strong> {meta.model}
+                      </div>
+                    ) : null}
+                    {meta.backend ? (
+                      <div>
+                        <strong>{t('Provider')}</strong> {meta.backend}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })()}
+              <button className="ga-btn ga-btn-sm" onClick={() => setGenDialogOpen(true)}>
                 {t('Generate image')}
               </button>
             </div>
+            {genDialogOpen ? (
+              <ImageGenDialog
+                open
+                title={t('Generate item image — {name}').replace('{name}', draft.name || draft.id)}
+                defaultPrompt={buildItemPrompt(draft)}
+                onSubmit={submitGenerateImage}
+                onClose={() => setGenDialogOpen(false)}
+              />
+            ) : null}
             <div className="ga-items-owners-panel">
               <div className="ga-form-section-label">{t('Owners of this item')}</div>
               <OwnerAdder characters={characters} onAdd={addOwner} />

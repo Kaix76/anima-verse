@@ -1,0 +1,22 @@
+{
+  "group": "Magic",
+  "activities": [
+    {
+      "id": "cast_spell",
+      "name": "Casting a spell",
+      "description": "Channeling magic, focused on the incantation",
+      "category": "normal",
+      "visibility": "visible",
+      "condition": "",
+      "effect_type": "ongoing",
+      "cooldown_hours": 0,
+      "duration_minutes": 2,
+      "outfit_type": "",
+      "effects": {
+        "stamina_change": -3
+      },
+      "interruptible": false,
+      "auto_pick": false
+    }
+  ]
+}

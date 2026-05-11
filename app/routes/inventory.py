@@ -8,6 +8,7 @@ from app.core.log import get_logger
 from app.core.paths import get_storage_dir
 from app.models.inventory import (
     list_items, get_item, add_item, update_item, delete_item, set_item_image,
+    set_item_image_meta,
     get_room_items, add_item_to_room, remove_item_from_room,
     get_character_inventory, add_to_inventory, remove_from_inventory,
     update_inventory_entry)
@@ -103,6 +104,7 @@ async def create_item_route(request: Request) -> Dict[str, Any]:
         "incantation", "spell_mode", "clone_item_id",
         "success_chance", "copy_on_give",
         "success_text", "fail_text", "cast_activity",
+        "anchor_item_id", "teleport_subject",
         "tracks_character",
     ) if k in body}
     if _extras:
@@ -390,6 +392,16 @@ def generate_item_image_sync(
             except Exception:
                 pass
     set_item_image(item_id, image_name)
+    # Caption-Daten (Backend + Model) — analog zu Ort-Galerien, wird im
+    # Game-Admin unter dem Item-Bild als Caption angezeigt.
+    _model_used = (getattr(backend, 'last_used_checkpoint', '')
+                   or getattr(backend, 'model', '')
+                   or getattr(backend, 'checkpoint', '') or '')
+    set_item_image_meta(item_id, {
+        "backend": backend.name,
+        "backend_type": backend.api_type,
+        "model": _model_used,
+    })
     logger.info("Item-Bild [%s] generiert: %s", item_id, image_name)
     return True
 
@@ -612,6 +624,7 @@ async def cast_spell_on_self_route(
             "roll": int(result.get("roll") or 0),
             "delivered_item_id": result.get("delivered_item_id") or "",
             "delivered_item_name": result.get("delivered_item_name") or "",
+            "teleport": result.get("teleport") or {},
             "hint": result.get("hint") or ""}
 
 
