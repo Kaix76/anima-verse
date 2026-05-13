@@ -6,6 +6,7 @@ import { Field } from '../../components/Field'
 import { DetailToolbar } from '../../components/DetailToolbar'
 import { ListHeader } from '../../components/ListHeader'
 import { EffectsEditor } from '../../components/EffectsEditor'
+import { loadLocations, type LocationRef } from '../../lib/refs'
 
 type Visibility = 'visible' | 'hidden' | 'disguised'
 type EffectType = 'ongoing' | 'once'
@@ -23,6 +24,41 @@ interface FollowUp {
   activity_id?: string
   probability?: number
   condition?: string
+}
+
+/** Activity triggers — fire when the activity transitions through a phase.
+ *  Backend dispatcher: app/core/activity_engine.py:execute_trigger.
+ *  Each phase holds AT MOST ONE trigger (Backend expects a single dict per
+ *  phase, not an array). The editor only exposes the trigger types most
+ *  relevant for daily-routine modelling; unknown types from JSON are
+ *  preserved verbatim and shown as read-only. */
+type TriggerType =
+  | ''
+  | 'set_location'
+  | 'set_activity'
+  | 'mood_change'
+
+interface Trigger {
+  type: string
+  // set_location: target = "home" | <location-id>; character_target = self/partner/avatar/<name>
+  target?: string
+  character_target?: string
+  // set_activity: activity = <activity-id>; target = self/partner/avatar/<name>
+  activity?: string
+  // mood_change: mood = <mood-id>
+  mood?: string
+  // unknown fields are preserved as-is via _extra
+  _extra?: Record<string, unknown>
+}
+
+type TriggerPhase = 'on_start' | 'on_complete' | 'on_discovered' | 'on_interrupted'
+const TRIGGER_PHASES: TriggerPhase[] = ['on_start', 'on_complete', 'on_discovered', 'on_interrupted']
+
+interface ActivityTriggers {
+  on_start?: Trigger
+  on_complete?: Trigger
+  on_discovered?: Trigger
+  on_interrupted?: Trigger
 }
 
 interface CumulativeEffect {
@@ -57,6 +93,7 @@ interface Activity {
   invitation_text?: string
   follow_up_activities?: FollowUp[]
   cumulative_effect?: CumulativeEffect
+  triggers?: ActivityTriggers
   _shared?: boolean
   _origin?: string
 }
@@ -89,6 +126,7 @@ interface DraftActivity {
   cum_mood: string
   cum_duration: string
   cum_effects_text: string
+  triggers: Record<TriggerPhase, Trigger>
   isNew: boolean
   origin: string
 }
@@ -126,6 +164,19 @@ function textToEffects(text: string): EffectsValue {
   return out
 }
 
+function emptyTrigger(): Trigger {
+  return { type: '' }
+}
+
+function emptyTriggers(): Record<TriggerPhase, Trigger> {
+  return {
+    on_start: emptyTrigger(),
+    on_complete: emptyTrigger(),
+    on_discovered: emptyTrigger(),
+    on_interrupted: emptyTrigger(),
+  }
+}
+
 const EMPTY_DRAFT: DraftActivity = {
   id: '',
   name: '',
@@ -154,8 +205,50 @@ const EMPTY_DRAFT: DraftActivity = {
   cum_mood: '',
   cum_duration: '',
   cum_effects_text: '',
+  triggers: emptyTriggers(),
   isNew: true,
   origin: '',
+}
+
+/** Pull a trigger blob into editor shape — preserve unknown fields in _extra
+ *  so JSON-only configs survive a UI save round-trip. */
+function triggerToEditor(raw: unknown): Trigger {
+  if (!raw || typeof raw !== 'object') return emptyTrigger()
+  const obj = raw as Record<string, unknown>
+  const known = new Set(['type', 'target', 'character_target', 'activity', 'mood'])
+  const extra: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    if (!known.has(k)) extra[k] = v
+  }
+  return {
+    type: String(obj.type || ''),
+    target: obj.target ? String(obj.target) : '',
+    character_target: obj.character_target ? String(obj.character_target) : '',
+    activity: obj.activity ? String(obj.activity) : '',
+    mood: obj.mood ? String(obj.mood) : '',
+    _extra: Object.keys(extra).length ? extra : undefined,
+  }
+}
+
+/** Editor → JSON. Empty / cleared triggers are dropped entirely so the
+ *  activity JSON stays minimal. Unknown fields (preserved in _extra) are
+ *  merged back in. */
+function triggerFromEditor(t: Trigger): Record<string, unknown> | null {
+  if (!t.type) return null
+  const out: Record<string, unknown> = { type: t.type, ...(t._extra || {}) }
+  if (t.type === 'set_location') {
+    if (!t.target) return null
+    out.target = t.target
+    if (t.character_target && t.character_target !== 'self') out.character_target = t.character_target
+  } else if (t.type === 'set_activity') {
+    if (!t.activity) return null
+    out.activity = t.activity
+    if (t.target && t.target !== 'self') out.target = t.target
+  } else if (t.type === 'mood_change') {
+    if (!t.mood) return null
+    out.mood = t.mood
+  }
+  return out
 }
 
 function activityToDraft(a: Activity): DraftActivity {
@@ -165,6 +258,7 @@ function activityToDraft(a: Activity): DraftActivity {
     : a.outfit_type
       ? [a.outfit_type]
       : []
+  const triggers = a.triggers || {}
   return {
     id: a.id,
     name: a.name || '',
@@ -193,6 +287,12 @@ function activityToDraft(a: Activity): DraftActivity {
     cum_mood: cum.mood_influence || '',
     cum_duration: cum.duration_hours ? String(cum.duration_hours) : '',
     cum_effects_text: effectsToText(cum.effects as EffectsValue),
+    triggers: {
+      on_start: triggerToEditor(triggers.on_start),
+      on_complete: triggerToEditor(triggers.on_complete),
+      on_discovered: triggerToEditor(triggers.on_discovered),
+      on_interrupted: triggerToEditor(triggers.on_interrupted),
+    },
     isNew: false,
     origin: a._origin || (a._shared ? 'shared' : 'world'),
   }
@@ -237,6 +337,12 @@ function draftToActivity(d: DraftActivity): Activity {
       effects: textToEffects(d.cum_effects_text),
     }
   }
+  const triggersOut: ActivityTriggers = {}
+  for (const phase of TRIGGER_PHASES) {
+    const blob = triggerFromEditor(d.triggers[phase])
+    if (blob) triggersOut[phase] = blob as unknown as Trigger
+  }
+  if (Object.keys(triggersOut).length) out.triggers = triggersOut
   return out
 }
 
@@ -249,6 +355,7 @@ export function ActivitiesTab() {
   const [search, setSearch] = useState('')
   const [outfitTypeOptions, setOutfitTypeOptions] = useState<string[]>([])
   const [stateOptions, setStateOptions] = useState<string[]>([])
+  const [locations, setLocations] = useState<LocationRef[]>([])
 
   const reload = useCallback(async () => {
     try {
@@ -270,6 +377,7 @@ export function ActivitiesTab() {
     apiGet<{ filters?: Array<{ id: string }> }>('/admin/prompt-filters/data')
       .then((d) => setStateOptions((d.filters || []).map((f) => f.id).sort()))
       .catch(() => setStateOptions([]))
+    loadLocations().then(setLocations).catch(() => setLocations([]))
   }, [reload])
 
   const knownGroups = useMemo(() => {
@@ -344,6 +452,17 @@ export function ActivitiesTab() {
     })
   }, [])
 
+  const updateTrigger = useCallback(
+    (phase: TriggerPhase, patch: Partial<Trigger>) => {
+      setDraft((prev) => {
+        if (!prev) return prev
+        const next = { ...prev.triggers, [phase]: { ...prev.triggers[phase], ...patch } }
+        return { ...prev, triggers: next }
+      })
+    },
+    [],
+  )
+
   const save = useCallback(async () => {
     if (!draft) return
     if (!draft.name.trim()) {
@@ -352,10 +471,16 @@ export function ActivitiesTab() {
     }
     try {
       const body = { activity: draftToActivity(draft), target: draft.storage }
-      await apiPost('/activities/library', body)
+      const r = await apiPost<{ activity?: Activity }>('/activities/library', body)
       toast(t('Activity saved'))
       await reload()
-      setDraft(null)
+      // Keep the detail panel open on the just-saved activity. Server
+      // returns the persisted record with its server-resolved id and
+      // _shared/_group markers, so route the draft through activityToDraft
+      // to pick those up.
+      if (r.activity) {
+        setDraft(activityToDraft({ ...r.activity, _shared: draft.storage === 'shared' }))
+      }
     } catch (e) {
       toast(t('Error') + ': ' + (e as Error).message, 'error')
     }
@@ -464,11 +589,13 @@ export function ActivitiesTab() {
               outfitTypeOptions={outfitTypeOptions}
               stateOptions={stateOptions}
               allActivities={activities}
+              locations={locations}
               onUpdate={update}
               onToggleOutfitType={toggleOutfitType}
               onUpdateFollowUp={updateFollowUp}
               onAddFollowUp={addFollowUp}
               onRemoveFollowUp={removeFollowUp}
+              onUpdateTrigger={updateTrigger}
             />
           </>
         ) : (
@@ -485,11 +612,13 @@ interface FormProps {
   outfitTypeOptions: string[]
   stateOptions: string[]
   allActivities: Activity[]
+  locations: LocationRef[]
   onUpdate: <K extends keyof DraftActivity>(key: K, value: DraftActivity[K]) => void
   onToggleOutfitType: (value: string) => void
   onUpdateFollowUp: (idx: number, patch: Partial<FollowUp>) => void
   onAddFollowUp: () => void
   onRemoveFollowUp: (idx: number) => void
+  onUpdateTrigger: (phase: TriggerPhase, patch: Partial<Trigger>) => void
 }
 
 function ActivityForm({
@@ -498,11 +627,13 @@ function ActivityForm({
   outfitTypeOptions,
   stateOptions,
   allActivities,
+  locations,
   onUpdate,
   onToggleOutfitType,
   onUpdateFollowUp,
   onAddFollowUp,
   onRemoveFollowUp,
+  onUpdateTrigger,
 }: FormProps) {
   const { t } = useI18n()
   const remainingOutfitTypes = outfitTypeOptions.filter((o) => !draft.outfit_type.includes(o))
@@ -872,6 +1003,146 @@ function ActivityForm({
           </div>
         </div>
       </div>
+
+      <div className="ga-section">
+        <div className="ga-form-section-label">{t('Triggers')}</div>
+        <div className="ga-form-hint">
+          {t(
+            'Fired when the activity enters a phase. Use "Set location → Home" on the Sleeping activity so a sleeping character returns to their home (or vanishes off-world when home is set to "Sleeps off-world").',
+          )}
+        </div>
+        {TRIGGER_PHASES.map((phase) => (
+          <TriggerRow
+            key={phase}
+            phase={phase}
+            trigger={draft.triggers[phase]}
+            locations={locations}
+            allActivities={allActivities}
+            onUpdate={(patch) => onUpdateTrigger(phase, patch)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const PHASE_LABEL: Record<TriggerPhase, string> = {
+  on_start: 'On start',
+  on_complete: 'On complete',
+  on_discovered: 'On discovered',
+  on_interrupted: 'On interrupted',
+}
+
+interface TriggerRowProps {
+  phase: TriggerPhase
+  trigger: Trigger
+  locations: LocationRef[]
+  allActivities: Activity[]
+  onUpdate: (patch: Partial<Trigger>) => void
+}
+
+function TriggerRow({ phase, trigger, locations, allActivities, onUpdate }: TriggerRowProps) {
+  const { t } = useI18n()
+  const supported = ['', 'set_location', 'set_activity', 'mood_change']
+  const isUnknown = Boolean(trigger.type) && !supported.includes(trigger.type)
+  return (
+    <div className="ga-form-row" style={{ alignItems: 'flex-start', marginTop: 6 }}>
+      <Field label={t(PHASE_LABEL[phase])}>
+        <select
+          className="ga-input"
+          value={isUnknown ? '__unknown__' : trigger.type}
+          disabled={isUnknown}
+          onChange={(e) => {
+            const v = e.target.value as TriggerType
+            // Reset type-specific fields when switching type — avoids stale
+            // values from another type leaking into the saved JSON.
+            onUpdate({ type: v, target: '', character_target: '', activity: '', mood: '' })
+          }}
+        >
+          <option value="">— {t('none')} —</option>
+          <option value="set_location">{t('Set location')}</option>
+          <option value="set_activity">{t('Set activity')}</option>
+          <option value="mood_change">{t('Set mood')}</option>
+          {isUnknown ? <option value="__unknown__">{trigger.type} ({t('JSON-only')})</option> : null}
+        </select>
+      </Field>
+      {trigger.type === 'set_location' ? (
+        <>
+          <Field
+            label={t('Target')}
+            hint={t('"home" routes to the character\'s home_location (incl. "Sleeps off-world").')}
+          >
+            <select
+              className="ga-input"
+              value={trigger.target || ''}
+              onChange={(e) => onUpdate({ target: e.target.value })}
+            >
+              <option value="">— {t('select')} —</option>
+              <option value="home">home</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name || l.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('Applies to')}>
+            <select
+              className="ga-input"
+              value={trigger.character_target || 'self'}
+              onChange={(e) => onUpdate({ character_target: e.target.value })}
+            >
+              <option value="self">self</option>
+              <option value="partner">partner</option>
+              <option value="avatar">avatar</option>
+            </select>
+          </Field>
+        </>
+      ) : null}
+      {trigger.type === 'set_activity' ? (
+        <>
+          <Field label={t('Activity')}>
+            <select
+              className="ga-input"
+              value={trigger.activity || ''}
+              onChange={(e) => onUpdate({ activity: e.target.value })}
+            >
+              <option value="">— {t('select')} —</option>
+              {allActivities.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name || a.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label={t('Applies to')}>
+            <select
+              className="ga-input"
+              value={trigger.target || 'self'}
+              onChange={(e) => onUpdate({ target: e.target.value })}
+            >
+              <option value="self">self</option>
+              <option value="partner">partner</option>
+              <option value="avatar">avatar</option>
+            </select>
+          </Field>
+        </>
+      ) : null}
+      {trigger.type === 'mood_change' ? (
+        <Field label={t('Mood')}>
+          <input
+            className="ga-input"
+            value={trigger.mood || ''}
+            onChange={(e) => onUpdate({ mood: e.target.value })}
+            placeholder="e.g. relaxed"
+          />
+        </Field>
+      ) : null}
+      {isUnknown ? (
+        <Field label={t('Raw')}>
+          <code style={{ fontSize: 11 }}>{JSON.stringify({ ...trigger, _extra: undefined })}</code>
+        </Field>
+      ) : null}
     </div>
   )
 }

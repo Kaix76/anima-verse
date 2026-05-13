@@ -126,7 +126,13 @@
         "attention_change": 15
       },
       "interruptible": true,
-      "auto_pick": false
+      "auto_pick": false,
+      "triggers": {
+        "on_start": {
+          "type": "set_location",
+          "target": "home"
+        }
+      }
     },
     {
       "id": "thinking_things",

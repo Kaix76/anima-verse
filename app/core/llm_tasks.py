@@ -24,6 +24,7 @@ TASK_TYPES: Dict[str, Dict[str, object]] = {
     "chat_stream":        {"label": "Chat (Stream)",            "priority": Priority.CHAT,   "category": "chat"},
     "story_stream":       {"label": "Story (Stream)",           "priority": Priority.HIGH,   "category": "chat",   "gate": "story_engine.enabled"},
     "group_chat_stream":  {"label": "Group-Chat (Stream)",      "priority": Priority.CHAT,   "category": "chat"},
+    "storyteller":        {"label": "Storyteller (Action)",     "priority": Priority.CHAT,   "category": "chat"},
 
     # Tool / Decision LLM
     "extraction":         {"label": "Memory Extraction",        "priority": Priority.NORMAL, "category": "helper"},

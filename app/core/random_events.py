@@ -457,8 +457,10 @@ def _generate_event(loc_id: str,
         mood = get_character_current_feeling(c) or ""
         char_infos.append(f"{c} (mood: {mood})" if mood else c)
 
-    # Tageszeit
-    hour = datetime.now().hour
+    # Tageszeit + Uhrzeit
+    _now = datetime.now()
+    hour = _now.hour
+    current_time = _now.strftime("%H:%M")
     if 6 <= hour < 12:
         time_desc = "morning"
     elif 12 <= hour < 18:
@@ -504,6 +506,7 @@ def _generate_event(loc_id: str,
         location_name=loc_name,
         category=category,
         category_description=cat_desc,
+        current_time=current_time,
         time_of_day=time_desc,
         location_description=loc_desc,
         setting_block=setting_block,

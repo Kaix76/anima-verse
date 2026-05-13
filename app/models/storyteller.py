@@ -29,10 +29,10 @@ logger = get_logger("storyteller")
 # werden _können_. Andere Skills sind im Storyteller-Modus generell aus
 # (z.B. retrospect, instagram_*, markdown_writer).
 _SKILL_KEYS = [
-    "outfit_change", "imagegen", "setactivity", "consume_item",
+    "outfit_change", "image_generation", "setactivity", "consume_item",
     "setlocation", "talk_to", "send_message", "act",
     "instagram", "markdown_writer", "retrospect", "describe_room",
-    "notify_user", "videogen", "instagram_comment", "instagram_reply",
+    "notify_user", "video_generation", "instagram_comment", "instagram_reply",
     "outfit_creation",
 ]
 
@@ -41,7 +41,7 @@ _DEFAULTS: Dict[str, Any] = {
     "llm_task": "storyteller",
     "enabled_skills": {
         "outfit_change": True,
-        "imagegen": True,
+        "image_generation": True,
         "setactivity": True,
         "consume_item": True,
         "setlocation": False,
@@ -53,7 +53,7 @@ _DEFAULTS: Dict[str, Any] = {
         "retrospect": False,
         "describe_room": False,
         "notify_user": False,
-        "videogen": False,
+        "video_generation": False,
         "instagram_comment": False,
         "instagram_reply": False,
         "outfit_creation": False,

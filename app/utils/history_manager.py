@@ -398,9 +398,9 @@ def _save_cached_summary(character_name: str, summary: str, message_count: int =
     try:
         with transaction() as conn:
             conn.execute("""
-                INSERT INTO summaries (character_name, kind, date_key, content, meta)
-                VALUES (?, 'history', 'current', ?, ?)
-                ON CONFLICT(character_name, kind, date_key) DO UPDATE SET
+                INSERT INTO summaries (character_name, kind, date_key, partner, content, meta)
+                VALUES (?, 'history', 'current', '', ?, ?)
+                ON CONFLICT(character_name, kind, date_key, partner) DO UPDATE SET
                     content=excluded.content,
                     meta=excluded.meta
             """, (

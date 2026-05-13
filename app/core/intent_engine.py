@@ -93,6 +93,15 @@ def _parse_delay(delay_str: str) -> int:
 
 _KNOWN_TYPES = {"instagram_post", "send_message", "remind", "execute_tool", "change_outfit", "describe_room"}
 
+# Lowercase identifier, 3-40 chars. Rejects template placeholders the LLM
+# echoes verbatim from the system prompt (e.g. "<type>", "...", "key=value")
+# which otherwise leak into the commitment-memory as ghost plans.
+_PLAUSIBLE_INTENT_TYPE_RE = re.compile(r'^[a-z][a-z0-9_]{2,39}$')
+
+
+def _is_plausible_intent_type(t: str) -> bool:
+    return bool(t) and bool(_PLAUSIBLE_INTENT_TYPE_RE.match(t))
+
 # Mapping: intent type -> tool names that, when executed with matching
 # content in the same turn, make the INTENT marker redundant. RP-finetunes
 # often emit BOTH a real <tool> call AND a [INTENT: ...] marker for the
@@ -455,8 +464,10 @@ def process_response_intents(
             continue
         if intent.type in _KNOWN_TYPES:
             execute_intent(intent, character_name, scheduler_manager)
-        else:
+        elif _is_plausible_intent_type(intent.type):
             _save_commitment(intent, character_name)
+        else:
+            logger.info("INTENT discarded (implausible type): %r", intent.type)
     return intents
 
 
@@ -480,6 +491,8 @@ async def process_response_intents_async(
             continue
         if intent.type in _KNOWN_TYPES:
             execute_intent(intent, character_name, scheduler_manager)
-        else:
+        elif _is_plausible_intent_type(intent.type):
             _save_commitment(intent, character_name)
+        else:
+            logger.info("INTENT discarded (implausible type): %r", intent.type)
     return intents

@@ -12,7 +12,7 @@ type TargetScope = 'location' | 'any_room' | 'danger_level'
 
 interface ForceAction {
   go_to?: 'stay' | 'home'
-  activity_id?: string
+  set_activity?: string
 }
 
 interface RuleTarget {
@@ -91,7 +91,7 @@ function ruleToDraft(r: Rule): DraftRule {
     target_action: target.action || 'enter',
     target_min_danger: target.min_danger_level ?? 3,
     force_go_to: force.go_to || 'stay',
-    force_activity: force.activity_id || '',
+    force_activity: force.set_activity || '',
     discover_probability: r.discover?.probability ?? 0.05,
     condition: r.condition || '',
     message: r.message || '',
@@ -120,7 +120,7 @@ function draftToRule(d: DraftRule): Rule {
     }
     r.target = target
   } else if (d.type === 'force') {
-    r.force_action = { go_to: d.force_go_to, activity_id: d.force_activity || undefined }
+    r.force_action = { go_to: d.force_go_to, set_activity: d.force_activity || undefined }
   } else if (d.type === 'discover') {
     r.discover = { probability: d.discover_probability }
   }
@@ -187,15 +187,23 @@ export function RulesTab() {
     const ruleBody = draftToRule(draft)
     const target = draft.target_storage
     try {
+      let saved: Rule | undefined
       if (draft.isNew || !draft.id) {
-        await apiPost('/rules', { rule: ruleBody, target })
+        const r = await apiPost<{ rule?: Rule }>('/rules', { rule: ruleBody, target })
+        saved = r.rule
         toast(t('Rule created'))
       } else {
-        await apiPut(`/rules/${encodeURIComponent(draft.id)}`, { rule: ruleBody, target })
+        const r = await apiPut<{ rule?: Rule }>(
+          `/rules/${encodeURIComponent(draft.id)}`,
+          { rule: ruleBody, target },
+        )
+        saved = r.rule
         toast(t('Rule saved'))
       }
       await reload()
-      setDraft(null)
+      // Keep the detail panel open on the just-saved rule instead of
+      // bouncing back to the empty placeholder.
+      if (saved) setDraft(ruleToDraft(saved))
     } catch (e) {
       toast(t('Error') + ': ' + (e as Error).message, 'error')
     }

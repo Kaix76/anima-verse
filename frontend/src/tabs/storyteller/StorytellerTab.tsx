@@ -26,8 +26,8 @@ interface ConfigResponse {
 const SKILL_LABELS: Record<string, string> = {
   outfit_change: 'Change Outfit',
   outfit_creation: 'Create New Outfit',
-  imagegen: 'Image Generator',
-  videogen: 'Video Generator',
+  image_generation: 'Image Generator',
+  video_generation: 'Video Generator',
   setactivity: 'Set Activity',
   setlocation: 'Set Location',
   consume_item: 'Consume Item',
@@ -46,8 +46,8 @@ const SKILL_LABELS: Record<string, string> = {
 const SKILL_HINTS: Record<string, string> = {
   outfit_change: 'Lets the storyteller change the subject\'s outfit when the action implies dressing/undressing.',
   outfit_creation: 'Lets the storyteller create a brand new outfit when nothing fitting exists.',
-  imagegen: 'Lets the storyteller capture the scene as an image.',
-  videogen: 'Lets the storyteller record a short video of the scene.',
+  image_generation: 'Lets the storyteller capture the scene as an image.',
+  video_generation: 'Lets the storyteller record a short video of the scene.',
   setactivity: 'Lets the storyteller adjust the subject\'s current activity (e.g. "sits at the lake").',
   setlocation: 'Usually OFF — the player moves via D-pad/map, not via Action.',
   consume_item: 'Lets the storyteller mark inventory items as consumed (food, potions).',

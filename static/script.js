@@ -6871,11 +6871,23 @@ function _connectEventImageStream() {
             if (data.type !== 'event_image_ready') return;
             const locId = data.location_id || '';
             if (!locId) return;
-            // Background-Swap nur wenn der Avatar gerade an dieser Location steht.
-            const avatarLoc = await _fetchAvatarLocationId();
-            if (avatarLoc && avatarLoc !== locId) return;
+            // Background-Swap NUR wenn der Avatar wirklich an dieser Location
+            // steht. Avatar-Location + Raum frisch holen, damit wir nicht
+            // den partner-Raum mitgeben (der ist in `_currentCharacterRoom`
+            // gecached und gehoert nicht zum Background-Lookup).
+            const avatar = (typeof getPlayerCharacterName === 'function') ? getPlayerCharacterName() : '';
+            if (!avatar) return;
+            let avatarLoc = '', avatarRoom = '';
+            try {
+                const r = await fetch(`/characters/${encodeURIComponent(avatar)}/current-location`);
+                if (!r.ok) return;
+                const d = await r.json();
+                avatarLoc = (d.current_location_id || d.current_location || '').toString();
+                avatarRoom = (d.current_room || '').toString();
+            } catch (_) { return; }
+            if (!avatarLoc || avatarLoc !== locId) return;
             if (typeof updateLocationBackground === 'function') {
-                updateLocationBackground(locId, _currentCharacterRoom || '');
+                updateLocationBackground(locId, avatarRoom);
             }
             // Notice-Banner aktualisieren — neues Event evtl. mit Block-Rule.
             if (typeof refreshCharNotice === 'function') {
@@ -13678,13 +13690,20 @@ async function refreshCharNotice() {
         _renderCharNotice(null, []);
     }
     // Background koennte sich event-getrieben geaendert haben (neues Event,
-    // After-Bild fertig, Linger abgelaufen). Endpoint liefert das effective
-    // Bild — Cache-Buster im Aufruf sorgt dafuer, dass der Browser nicht
-    // das alte cached.
+    // After-Bild fertig, Linger abgelaufen). Avatar-Location + Raum frisch
+    // holen — _currentCharacterRoom ist der Partner-Raum (aus Chat-Header).
     try {
-        const locId = await _fetchAvatarLocationId();
-        if (locId && typeof updateLocationBackground === 'function') {
-            updateLocationBackground(locId, _currentCharacterRoom || '');
+        const av = (typeof getPlayerCharacterName === 'function') ? getPlayerCharacterName() : '';
+        if (av) {
+            const r = await fetch(`/characters/${encodeURIComponent(av)}/current-location`);
+            if (r.ok) {
+                const d = await r.json();
+                const locId = (d.current_location_id || d.current_location || '').toString();
+                const roomId = (d.current_room || '').toString();
+                if (locId && typeof updateLocationBackground === 'function') {
+                    updateLocationBackground(locId, roomId);
+                }
+            }
         }
     } catch (_) { /* ignore */ }
 }

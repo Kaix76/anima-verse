@@ -134,8 +134,13 @@ export function StatesTab() {
         enabled: draft.enabled,
       })
       toast(t('Saved'))
-      await reload()
-      setDraft(null)
+      // Re-fetch and re-pin the just-saved filter so the detail panel
+      // stays open. The save endpoint only echoes {status,id}, so look
+      // the persisted row up from the reloaded list.
+      const next = await apiGet<FiltersData>('/admin/prompt-filters/data')
+      setData(next)
+      const saved = next.filters.find((f) => f.id === id)
+      if (saved) setDraft(asDraft(saved))
     } catch (e) {
       toast(t('Error') + ': ' + (e as Error).message, 'error')
     }

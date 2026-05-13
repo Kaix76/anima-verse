@@ -366,6 +366,38 @@ def _clean_piece_lora(raw) -> Dict[str, Any]:
     return {"name": nm, "strength": st, "workflow": wf}
 
 
+def _slugify_item_id(text: str) -> str:
+    """Macht aus 'Holographic Projector' -> 'item_holographic_projector'.
+
+    Stellt sicher, dass die ID format-konform ist (lowercase, [a-z0-9_]+,
+    Prefix ``item_``). Faellt auf uuid zurueck, wenn der Name nach dem
+    Saeubern leer ist (z.B. nur Sonderzeichen).
+    """
+    import re as _re
+    cleaned = _re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")
+    if not cleaned:
+        return f"item_{uuid.uuid4().hex[:8]}"
+    if not cleaned.startswith("item_"):
+        cleaned = "item_" + cleaned
+    return cleaned
+
+
+def _validate_item_id(item_id: str) -> str:
+    """Wirft ValueError wenn die ID nicht ``[a-z][a-z0-9_]*`` matched.
+
+    Wir erzwingen kein ``item_``-Prefix, weil Rules-Conditions die ID
+    sowieso wortwoertlich akzeptieren (``has_item:meinitem`` matched
+    ueber resolve_item_id). Aber Whitespace, Caps und Sonderzeichen
+    waeren in URLs/Conditions ein Bug.
+    """
+    import re as _re
+    if not _re.match(r"^[a-z][a-z0-9_]*$", item_id):
+        raise ValueError(
+            f"Item-ID '{item_id}' ungueltig — nur lowercase Buchstaben, "
+            f"Ziffern und Underscore; muss mit einem Buchstaben starten.")
+    return item_id
+
+
 def add_item(name: str,
     description: str = "",
     category: str = "tool",
@@ -379,8 +411,14 @@ def add_item(name: str,
     reveals_secret: Optional[Dict[str, str]] = None,
     prompt_fragment: str = "",
     outfit_piece: Optional[Dict[str, Any]] = None,
-    effects: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    effects: Optional[Dict[str, Any]] = None,
+    item_id: str = "") -> Dict[str, Any]:
     """Erstellt ein neues Item.
+
+    item_id: optional, vom Caller vorgegebene ID (z.B. "item_holoprojector"
+        damit Rules-Bedingungen wie ``has_item:item_holoprojector`` lesbar
+        bleiben). Leer ⇒ Slug aus dem Namen wird benutzt; bei Konflikt
+        wird ein numerischer Suffix angehaengt.
 
     prompt_fragment: Text-Baustein fuer die Bild-Prompt-Assembly, wenn das
         Item equipped/angelegt ist. Beispiel: "holding a hammer in the hand".
@@ -394,8 +432,26 @@ def add_item(name: str,
         rarity = "common"
 
     items = _load_items()
+    existing_ids = {it.get("id") for it in items}
+    try:
+        existing_ids.update(it.get("id") for it in _load_shared_items())
+    except Exception:
+        pass
+
+    if item_id.strip():
+        new_id = _validate_item_id(item_id.strip())
+        if new_id in existing_ids:
+            raise ValueError(f"Item-ID '{new_id}' existiert bereits.")
+    else:
+        base = _slugify_item_id(name)
+        new_id = base
+        suffix = 2
+        while new_id in existing_ids:
+            new_id = f"{base}_{suffix}"
+            suffix += 1
+
     item = {
-        "id": f"item_{uuid.uuid4().hex[:8]}",
+        "id": new_id,
         "name": name.strip(),
         "description": description.strip(),
         "category": category,
@@ -1642,6 +1698,11 @@ def equip_piece(character_name: str, item_id: str) -> Dict[str, Any]:
     logger.info("equip_piece [%s]: slots=%s item=%s%s",
                 character_name, slots, item_id,
                 f" (verdraengt {displaced})" if displaced else "")
+    try:
+        from app.core.outfit_events import publish as _publish_outfit
+        _publish_outfit(character_name, "equip_piece")
+    except Exception as _pe:
+        logger.debug("equip_piece outfit-event publish fehlgeschlagen: %s", _pe)
     return {"status": "ok", "slots": slots, "displaced": displaced}
 
 
@@ -1722,6 +1783,11 @@ def unequip_piece(character_name: str,
     save_character_profile(character_name, profile)
     logger.info("unequip_piece [%s]: item=%s slots=%s",
                 character_name, removed, cleared_slots)
+    try:
+        from app.core.outfit_events import publish as _publish_outfit
+        _publish_outfit(character_name, "unequip_piece")
+    except Exception as _pe:
+        logger.debug("unequip_piece outfit-event publish fehlgeschlagen: %s", _pe)
     return {"status": "ok", "slot": target_slot, "item_id": removed,
             "cleared_slots": cleared_slots}
 
@@ -1748,6 +1814,11 @@ def equip_item(character_name: str, item_id: str) -> Dict[str, Any]:
     profile["equipped_items"] = items
     save_character_profile(character_name, profile)
     logger.info("equip_item [%s]: %s", character_name, item_id)
+    try:
+        from app.core.outfit_events import publish as _publish_outfit
+        _publish_outfit(character_name, "equip_item")
+    except Exception as _pe:
+        logger.debug("equip_item outfit-event publish fehlgeschlagen: %s", _pe)
     return {"status": "ok"}
 
 
@@ -1763,6 +1834,11 @@ def unequip_item(character_name: str, item_id: str) -> Dict[str, Any]:
     profile["equipped_items"] = items
     save_character_profile(character_name, profile)
     logger.info("unequip_item [%s]: %s", character_name, item_id)
+    try:
+        from app.core.outfit_events import publish as _publish_outfit
+        _publish_outfit(character_name, "unequip_item")
+    except Exception as _pe:
+        logger.debug("unequip_item outfit-event publish fehlgeschlagen: %s", _pe)
     return {"status": "ok"}
 
 

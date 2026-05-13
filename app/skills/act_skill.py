@@ -40,6 +40,42 @@ RECIPIENT_CAP = 30
 
 _EVENT_RESOLVED_RE = re.compile(r'\[EVENT_RESOLVED:\s*([^\]]+)\]', re.IGNORECASE)
 
+# Regex to find UNQUOTED keys in a JSON-like string: matches a key that
+# follows ``{`` or ``,`` (with optional whitespace) and ends in ``:``.
+# Will not match already-quoted keys because those are preceded by ``"``.
+_UNQUOTED_KEY_RE = re.compile(r'([\{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:')
+
+
+def _coerce_to_dict(raw):
+    """Tolerant parser for tool-LLM output. Accepts:
+
+    - real JSON: ``{"unequip_items": ["X"]}``
+    - bare key without braces: ``unequip_items: ["X"]``
+    - JSON with unquoted keys: ``{unequip_items: ["X"]}``
+    - bare key without braces AND unquoted: ``unequip_items: ["X"]``
+
+    Returns the parsed dict, or ``None`` if nothing usable was found.
+    """
+    import json as _json_local
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    # 1) Add wrapping braces when the tool-LLM forgot them.
+    if not s.startswith("{"):
+        if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*:', s):
+            s = "{" + s + "}"
+        else:
+            return None
+    # 2) Quote unquoted top-level keys.
+    s = _UNQUOTED_KEY_RE.sub(r'\1"\2":', s)
+    try:
+        parsed = _json_local.loads(s)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
 
 class ActSkill(BaseSkill):
     """Concrete in-scene action witnessed by everyone in scope.
@@ -277,6 +313,19 @@ async def _run_storyteller_agent(
 
     scope_label = "the whole place" if scope == "location" else "this room"
 
+    # ── Uhrzeit / Tageszeit ────────────────────────────────────────────
+    _now = datetime.now()
+    current_time = _now.strftime("%H:%M")
+    _hour = _now.hour
+    if 6 <= _hour < 12:
+        time_of_day = "morning"
+    elif 12 <= _hour < 18:
+        time_of_day = "afternoon"
+    elif 18 <= _hour < 22:
+        time_of_day = "evening"
+    else:
+        time_of_day = "night"
+
     # ── Template rendern ───────────────────────────────────────────────
     sys_prompt, user_prompt = render_task(
         "storyteller_react",
@@ -287,6 +336,8 @@ async def _run_storyteller_agent(
         location_name=location_name,
         room_name=room_name,
         scope_label=scope_label,
+        current_time=current_time,
+        time_of_day=time_of_day,
         setting_block=setting_block,
         active_events_block=active_events_block,
         present_people_block=present_people_block,
@@ -311,6 +362,7 @@ async def _run_storyteller_agent(
     # ── Tools-Dict aus skill_manager, gefiltert per Storyteller-Config ─
     sm = get_skill_manager()
     tools_dict: Dict[str, Any] = {}
+    tool_specs: List[Any] = []
     _deferred_tools: set = set()
     _content_tools: set = set()
     if chat_mode != "no_tools" and enabled_skill_ids:
@@ -328,34 +380,57 @@ async def _run_storyteller_agent(
                 def wrapper(raw_input):
                     ctx = {"input": raw_input, "agent_name": _agent,
                            "user_id": "", "skip_daily_limit": True}
-                    if isinstance(raw_input, str) and raw_input.strip().startswith("{"):
-                        try:
-                            parsed = _json.loads(raw_input)
-                            if isinstance(parsed, dict):
-                                for k, v in parsed.items():
-                                    if k not in ("agent_name", "user_id"):
-                                        ctx[k] = v
-                        except Exception:
-                            pass
+                    parsed = _coerce_to_dict(raw_input)
+                    if parsed:
+                        for k, v in parsed.items():
+                            if k not in ("agent_name", "user_id"):
+                                ctx[k] = v
                     return fn(_json.dumps(ctx))
                 return wrapper
 
             tools_dict[t_name] = _make_wrapper(t_orig)
+            tool_specs.append(t_spec)
             if getattr(skill, "DEFERRED", False):
                 _deferred_tools.add(t_name)
             if getattr(skill, "CONTENT_TOOL", False):
                 _content_tools.add(t_name)
 
-    # ── Tool-System-Prompt (minimal, constrained-mode-Stil) ────────────
-    if tools_dict:
-        avail_names = ", ".join(tools_dict.keys())
+    # ── Tool-System-Prompt: voller Format-Block wie im Chat ────────────
+    # Ohne diese Tool-Format-Hinweise weiss der Tool-LLM nicht, WIE er
+    # ein Tool aufrufen soll (z.B. <ChangeOutfit>…</ChangeOutfit>-Syntax)
+    # und antwortet bei Trigger-Erkennung trotzdem mit NONE.
+    if tool_specs:
+        from app.core.tool_formats import build_tool_instruction
+        tool_instr_block = build_tool_instruction(
+            tool_format, tool_specs,
+            model_name=tool_model_name,
+            is_roleplay=False)
+
+        # Outfit-Kontext: WICHTIG die echten Item-NAMEN aus der DB liefern,
+        # nicht die Prompt-Fragmente von build_equipped_outfit_prompt. Die
+        # ChangeOutfit-Skill macht in unequip_items Name-Matching gegen
+        # item.name — Prompt-Fragmente wuerden nie matchen.
+        equipped = _equipped_item_names(actor)
+        outfit_block = (f"\n{actor} currently wears: {equipped}"
+                         if equipped else "")
+
         tool_system_content = (
-            f"You decide which tools to call after a storyteller narration.\n"
-            f"Available tools: {avail_names}\n"
-            f"{actor} just performed an in-world action. The storyteller "
-            f"narrated the consequence. Call the tools whose triggers match "
-            f"either the action or the narration. If none apply, respond "
-            f"with: NONE\n"
+            f"Subject performing the action: {actor}.\n"
+            f"You decide which tools to call after the storyteller has "
+            f"narrated the immediate consequence of an in-world action. "
+            f"Trigger every tool whose action mapping fits the action OR "
+            f"the narration. If none apply, respond with: NONE.\n"
+            f"\n"
+            f"ChangeOutfit rules:\n"
+            f"- Take-off / ablegen / ausziehen → use unequip_items with the "
+            f"EXACT item names from the worn-list below. Do NOT invent names.\n"
+            f"- Argument MUST be a single JSON object wrapped in braces "
+            f'(e.g. {{"unequip_items": ["Green Wood Silk Cloak"]}}), not '
+            f"a bare key:value pair.\n"
+            f"- For full-body undressing: use unequip_slots with all worn "
+            f'slots (e.g. {{"unequip_slots": ["top", "bottom", "outer"]}}).'
+            f"{outfit_block}\n"
+            f"{tool_instr_block}"
         )
     else:
         tool_system_content = ""
@@ -392,7 +467,9 @@ async def _run_storyteller_agent(
             elif isinstance(event, ToolResultEvent):
                 if event.tool_name and event.tool_name not in tools_fired:
                     tools_fired.append(event.tool_name)
-                logger.info("Act tool done: %s", event.tool_name)
+                _res_preview = (event.result or "")[:200]
+                logger.info("Act tool done: %s — %s",
+                             event.tool_name, _res_preview)
             elif isinstance(event, ToolErrorEvent):
                 logger.warning("Act tool error: %s — %s",
                                 event.tool_name, event.error)
@@ -439,6 +516,48 @@ def _subject_mood_text(actor: str) -> str:
         from app.models.character import get_character_current_feeling
         return (get_character_current_feeling(actor) or "").strip()
     except Exception:
+        return ""
+
+
+def _equipped_item_names(actor: str) -> str:
+    """Liefert die echten Item-Namen der aktuell equipped Pieces als
+    komma-separierten String. Nutzt ``item.name`` aus der DB — NICHT die
+    Prompt-Fragmente von ``build_equipped_outfit_prompt`` (die enthalten
+    visuelle Beschreibungen wie 'Green Wood Silk Cloak', die nicht
+    zwingend mit dem Item-Namen identisch sind).
+    """
+    try:
+        from app.models.character import get_character_profile
+        from app.models.inventory import get_item
+    except Exception:
+        return ""
+    try:
+        profile = get_character_profile(actor) or {}
+        pieces = profile.get("equipped_pieces") or {}
+        items = profile.get("equipped_items") or []
+        ids_seen: set = set()
+        names: List[str] = []
+        # Pieces zuerst, in Slot-Reihenfolge, jede item_id nur einmal
+        for slot, iid in pieces.items():
+            if not iid or iid in ids_seen:
+                continue
+            ids_seen.add(iid)
+            it = get_item(iid) or {}
+            n = (it.get("name") or "").strip()
+            if n:
+                names.append(n)
+        # Equipped non-piece items
+        for iid in items:
+            if not iid or iid in ids_seen:
+                continue
+            ids_seen.add(iid)
+            it = get_item(iid) or {}
+            n = (it.get("name") or "").strip()
+            if n:
+                names.append(n)
+        return ", ".join(names)
+    except Exception as e:
+        logger.debug("_equipped_item_names failed: %s", e)
         return ""
 
 

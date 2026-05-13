@@ -157,8 +157,16 @@ class OutfitChangeSkill(BaseSkill):
         # nicht im Inventar sind (oder gar nichts nennt). Equipped-State nach
         # Schritt 1-4 nehmen, dann fuer noch leere Slots ein passendes Piece
         # aus der Location-Type-Auswahl ergaenzen.
+        #
+        # ABER: wenn der Aufrufer explizit ``unequip_slots``/``unequip_items``
+        # gesetzt hat, ist die Intent "ablegen" — die Auto-Auffuellung wuerde
+        # den geleerten Slot direkt mit dem naechstbesten Piece (oft sogar
+        # demselben) wieder fuellen und die Aktion verschlucken. Daher: bei
+        # explizitem Unequip Auto-Auffuellung ueberspringen.
+        explicit_unequip = bool(spec.get("unequip_slots")
+                                 or spec.get("unequip_items"))
         loc_type = self._resolve_location_outfit_type(character_name)
-        if loc_type and not spec.get("outfit_type"):
+        if loc_type and not spec.get("outfit_type") and not explicit_unequip:
             try:
                 from app.models.inventory import get_equipped_pieces
                 already_equipped = get_equipped_pieces(character_name) or {}
@@ -208,6 +216,8 @@ class OutfitChangeSkill(BaseSkill):
         #   - explizite equip-Tokens kamen, aber kein einziger Treffer
         #   - outfit_type gesetzt, aber kein Match
         #   - gar nichts spezifiziert UND nichts geaendert
+        # Aber NICHT bei explizitem Unequip — sonst wird beim "Top
+        # ausziehen" ein neues Top halluziniert.
         equip_tokens = spec.get("equip", [])
         type_no_match = bool(spec.get("outfit_type")) and not results
         empty_call = (
@@ -215,7 +225,9 @@ class OutfitChangeSkill(BaseSkill):
             and not spec.get("unequip_items")
             and not spec.get("outfit_type")
         )
-        if missing_essential or (equip_tokens and not results) or type_no_match or empty_call:
+        if not explicit_unequip and (
+            missing_essential or (equip_tokens and not results)
+            or type_no_match or empty_call):
             fallback_result = self._fallback_to_creation(
                 character_name, ctx, location_type=loc_type)
             if fallback_result:

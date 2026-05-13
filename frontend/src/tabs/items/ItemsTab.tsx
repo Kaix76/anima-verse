@@ -96,6 +96,10 @@ interface DraftItem {
   // returns so saving doesn't strip them.
   extras: Record<string, unknown>
   isNew: boolean
+  // Where this item currently lives — drives the Move-button label.
+  // Carried on the draft (not looked up against the list) so it stays
+  // correct after save reloads & matches what the server just returned.
+  shared: boolean
 }
 
 // apply_condition + condition_duration_hours live INSIDE the effects
@@ -202,6 +206,7 @@ const EMPTY_DRAFT: DraftItem = {
   condition_duration: 2,
   extras: {},
   isNew: true,
+  shared: false,
 }
 
 function itemToDraft(it: Item): DraftItem {
@@ -231,6 +236,7 @@ function itemToDraft(it: Item): DraftItem {
     ...extractConditionFromEffects(it.effects),
     extras,
     isNew: false,
+    shared: !!it._shared,
   }
 }
 
@@ -245,6 +251,10 @@ function draftToBody(d: DraftItem): Record<string, unknown> {
     consumable: d.consumable,
     image_prompt: d.image_prompt,
     prompt_fragment: d.prompt_fragment,
+  }
+  // ID nur beim Anlegen mitschicken — Backend lehnt Updates der ID ab.
+  if (d.isNew && d.id.trim()) {
+    body.id = d.id.trim()
   }
   if (d.category === 'outfit_piece') {
     body.outfit_piece = {
@@ -422,19 +432,25 @@ export function ItemsTab() {
     }
     try {
       const body = draftToBody(draft)
+      let saved: Item | undefined
       if (draft.isNew) {
         const r = await apiPost<{ item?: Item }>('/inventory/items', body)
+        saved = r.item
         toast(t('Item created'))
-        await reload()
-        if (r.item) {
-          setDraft(itemToDraft(r.item))
-          loadOwners(r.item.id)
-        }
       } else {
         const r = await apiPut<{ item?: Item }>(`/inventory/items/${encodeURIComponent(draft.id)}`, body)
+        saved = r.item
         toast(t('Item saved'))
-        await reload()
-        if (r.item) setDraft(itemToDraft(r.item))
+      }
+      await reload()
+      // Keep the detail panel open on the just-saved item. The server
+      // returns the persisted record; if for any reason it doesn't, fall
+      // back to flipping the draft to non-new state instead of closing.
+      if (saved) {
+        setDraft(itemToDraft(saved))
+        if (draft.isNew) loadOwners(saved.id)
+      } else {
+        setDraft((prev) => (prev ? { ...prev, isNew: false } : prev))
       }
     } catch (e) {
       toast(t('Error') + ': ' + (e as Error).message, 'error')
@@ -633,9 +649,7 @@ export function ItemsTab() {
             }}
             onDelete={draft.isNew ? undefined : remove}
             onMove={draft.isNew ? undefined : move}
-            storage={
-              items?.find((it) => it.id === draft.id)?._shared ? 'shared' : 'world'
-            }
+            storage={draft.shared ? 'shared' : 'world'}
           />
         </div>
       ) : null}
@@ -761,6 +775,30 @@ function ItemForm({ draft, items, outfitTypeOptions, conditionOptions, onUpdate,
   const isSpell = draft.category === 'spell'
   return (
     <div className="ga-form">
+      {!draft.isNew ? (
+        <Field label={t('Item ID (read-only)')} hint={t('Permanent identifier — set when the item was created. Used in rules as has_item:{id}.').replace('{id}', draft.id)}>
+          <input
+            className="ga-input"
+            value={draft.id}
+            readOnly
+            disabled
+            style={{ fontFamily: 'monospace', opacity: 0.7 }}
+          />
+        </Field>
+      ) : (
+        <Field
+          label={t('Item ID')}
+          hint={t('Used in rule conditions (e.g. has_item:item_holoprojector). Lowercase letters, digits, underscore. Leave empty to derive it from the name.')}
+        >
+          <input
+            className="ga-input"
+            value={draft.id}
+            placeholder="item_holoprojector"
+            onChange={(e) => onUpdate('id', e.target.value)}
+            style={{ fontFamily: 'monospace' }}
+          />
+        </Field>
+      )}
       <div className="ga-form-row">
         <Field label={t('Name')} hint={t('English. Also used as display name.')}>
           <input

@@ -373,7 +373,7 @@ async def visualize(request: Request) -> Dict[str, Any]:
     if not agent_name or not text:
         raise HTTPException(status_code=400, detail="user_id, agent_name and text required")
 
-    logger.info("Start: user=%s agent=%s text=%s...", agent_name, text[:80])
+    logger.info("Start: agent=%s text=%s...", agent_name, text[:80])
 
     # Mood- und Location-Zeile entfernen (kommt manchmal aus dem Frontend-Text mit)
     text = re.sub(r'\n?\*{0,2}I feel\s+[^*\n]+\*{0,2}\s*$', '', text, flags=re.IGNORECASE).strip()
@@ -2525,8 +2525,16 @@ def _extract_context_from_last_chat(agent_name: str,
             removed_raw = []
         removed_names = [str(n).strip() for n in removed_raw if n and str(n).strip()]
 
-        # Activity nur aus Character-Call
-        if not is_avatar:
+        # Activity nur aus Character-Call — und nie auf einen Spieler-Avatar
+        # schreiben (auch nicht wenn er gerade als chat-target geoeffnet ist).
+        # is_avatar wird call-site-driven gesetzt (Call 1 = agent, Call 2 =
+        # user-input) — wenn der User aber ueber das Legacy-Admin ein NPC-
+        # Chat-Picker auf seinen eigenen Avatar oeffnet, lief Call 1 mit
+        # is_avatar=False auf dem Avatar und hat dessen activity/detail aus
+        # der LLM-Antwort gefuellt (z.B. "Talking" + "sleeps"). Der
+        # is_player_controlled-Check faengt das ab.
+        from app.models.account import is_player_controlled as _is_pc
+        if not is_avatar and not _is_pc(target_name):
             extracted_activity = (data.get("activity") or "").strip()
             if extracted_activity:
                 old_activity = get_character_current_activity(target_name)

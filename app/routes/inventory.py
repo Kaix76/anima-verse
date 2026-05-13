@@ -82,21 +82,25 @@ async def create_item_route(request: Request) -> Dict[str, Any]:
     if not name:
         raise HTTPException(status_code=400, detail="user_id and name required")
 
-    item = add_item(
-        name=name,
-        description=body.get("description", ""),
-        category=body.get("category", "tool"),
-        image_prompt=body.get("image_prompt", ""),
-        rarity=body.get("rarity", "common"),
-        stackable=body.get("stackable", False),
-        max_stack=int(body.get("max_stack", 1)),
-        transferable=body.get("transferable", True),
-        consumable=body.get("consumable", False),
-        reveals_secret=body.get("reveals_secret"),
-        properties=body.get("properties"),
-        prompt_fragment=body.get("prompt_fragment", ""),
-        outfit_piece=body.get("outfit_piece"),
-        effects=body.get("effects"))
+    try:
+        item = add_item(
+            name=name,
+            description=body.get("description", ""),
+            category=body.get("category", "tool"),
+            image_prompt=body.get("image_prompt", ""),
+            rarity=body.get("rarity", "common"),
+            stackable=body.get("stackable", False),
+            max_stack=int(body.get("max_stack", 1)),
+            transferable=body.get("transferable", True),
+            consumable=body.get("consumable", False),
+            reveals_secret=body.get("reveals_secret"),
+            properties=body.get("properties"),
+            prompt_fragment=body.get("prompt_fragment", ""),
+            outfit_piece=body.get("outfit_piece"),
+            effects=body.get("effects"),
+            item_id=(body.get("id") or "").strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     # Sofort Magic-Felder via update_item nachziehen — add_item akzeptiert
     # diese nicht direkt, update_item hat sie aber whitelisted (Anlegen-Pfad
     # darf keine Felder verlieren).

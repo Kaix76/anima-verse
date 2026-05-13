@@ -3212,48 +3212,22 @@ def wake_from_offmap(character_name: str) -> bool:
 
 
 def is_character_sleeping(character_name: str) -> bool:
-    """Prueft ob der Character laut Tagesablauf gerade schlaeft (__sleep__ Slot)
-    ODER die laufende Activity Sleeping ist.
+    """Prueft ob der Character gerade wirklich schlaeft.
 
-    Beruecksichtigt letzte Chat-Aktivitaet: Wenn die letzte Nachricht weniger als
-    1 Stunde her ist, wird der Schlaf-Status ignoriert (Character ist wach weil aktiv im Chat).
+    STRIKT: nur ``current_activity == "sleeping"`` zaehlt. Der Daily-Schedule
+    ist NUR ein Hinweis fuer den LLM im Prompt (``daily_schedule_block``) —
+    er nimmt dem Char nicht den AgentLoop-Tick weg und markiert ihn auch
+    nicht in Chats als "schlafend". Der LLM entscheidet selbst, ob er der
+    Schlaf-Empfehlung folgt und ``set_activity:sleeping`` aufruft; erst
+    DANN gilt der Char als wirklich schlafend (und der ``on_start``-Trigger
+    der Sleeping-Activity verschickt ihn ggf. off-map).
     """
-    # Active-Activity-Check: wenn der Char aktuell Sleeping macht, ist er es —
-    # unabhaengig von Daily-Schedule. Wichtig fuer Auto-Sleep-Pfad: nachdem
-    # _maybe_auto_sleep Activity=Sleeping setzt, soll der Char nicht im
-    # naechsten AgentLoop-Tick wieder eligible werden.
     try:
         profile = get_character_profile(character_name) or {}
         cur_act = (profile.get("current_activity") or "").strip().lower()
-        if cur_act == "sleeping":
-            return True
+        return cur_act == "sleeping"
     except Exception:
-        pass
-    schedule = get_character_daily_schedule(character_name)
-    if not schedule or not schedule.get("enabled", False):
         return False
-    current_hour = datetime.now().hour
-    is_sleep_slot = any(
-        slot.get("hour") == current_hour and slot.get("sleep")
-        for slot in schedule.get("slots", [])
-    )
-    if not is_sleep_slot:
-        return False
-
-    # Chat-Aktivitaet pruefen: letzte Chat-Datei Modifikationszeit
-    try:
-        chat_dir = get_character_dir(character_name) / "chats"
-        if chat_dir.exists():
-            chat_files = sorted(chat_dir.glob("*_chat_*.json"))
-            if chat_files:
-                last_chat_mtime = chat_files[-1].stat().st_mtime
-                seconds_since_chat = datetime.now().timestamp() - last_chat_mtime
-                if seconds_since_chat < 3600:  # < 1 Stunde
-                    return False
-    except Exception:
-        pass  # Bei Fehler konservativ: Schlaf-Status beibehalten
-
-    return True
 
 
 def delete_character_daily_schedule(character_name: str) -> bool:

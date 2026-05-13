@@ -1384,22 +1384,22 @@ def _was_chatted_recently(character_name: str,
     """Liefert True wenn der letzte Chat mit diesem Character juenger als
     ``within_minutes`` Minuten ist.
 
-    Liest die mtime der neuesten JSON-Datei in ``{character}/chats/``.
+    Liest die neueste ``ts`` aus ``chat_messages`` (world.db). Frueher
+    ``chats/*.json``-mtime, was seit dem unified_chat-Refactor nichts mehr
+    findet.
     """
     try:
-        from app.models.chat import get_chat_dir
-        chat_dir = get_chat_dir(character_name)
-        if not chat_dir.exists():
-            return False
-        newest_mtime = 0.0
-        for f in chat_dir.glob("*.json"):
-            mt = f.stat().st_mtime
-            if mt > newest_mtime:
-                newest_mtime = mt
-        if newest_mtime <= 0:
-            return False
+        from app.core.db import get_connection
         from datetime import datetime
-        age_s = datetime.now().timestamp() - newest_mtime
+        conn = get_connection()
+        row = conn.execute(
+            "SELECT ts FROM chat_messages WHERE character_name=? "
+            "ORDER BY ts DESC LIMIT 1",
+            (character_name,)).fetchone()
+        if not row or not row[0]:
+            return False
+        last_ts = datetime.fromisoformat(row[0])
+        age_s = (datetime.now() - last_ts).total_seconds()
         return age_s < within_minutes * 60
     except Exception:
         return False
