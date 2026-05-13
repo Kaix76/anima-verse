@@ -758,6 +758,12 @@ class StreamingAgent:
         _EMPTY_RETRIES = 8 if not is_tool_decision else 0
         _RETRY_WAIT = 30  # Sekunden zwischen Retries
         _TOOL_BUFFER_SIZE = 60
+        # Mid-stream loop detect: cancel the stream when the same substantial
+        # line repeats > _LOOP_MAX_REPEAT times. Catches the tool-LLM loop
+        # pattern (same <tool>...</tool> emitted until max_tokens). Threshold
+        # of 16 chars is high enough to ignore conversational repetition.
+        _LOOP_MAX_REPEAT = 4
+        _LOOP_MIN_LINE_LEN = 16
 
         iteration_response = ""
         chunk_count = 0
@@ -782,6 +788,9 @@ class StreamingAgent:
             tool_call_end_pos = -1
             count_sent = 0
             unsent_buffer = ""
+            _loop_line_counts: Dict[str, int] = {}
+            _loop_processed_pos = 0
+            _loop_break = False
 
             try:
                 _aiter = active_llm.astream(stream_messages).__aiter__()
@@ -830,6 +839,30 @@ class StreamingAgent:
                     continue
 
                 iteration_response += chunk.content
+
+                # --- Mid-stream loop detection ---
+                # Walk the newly completed lines (since last newline we scanned)
+                # and count substantial duplicates. Bail when any line repeats
+                # more than _LOOP_MAX_REPEAT times — the LLM is stuck and
+                # will otherwise keep emitting until max_tokens.
+                _last_nl = iteration_response.rfind('\n')
+                if _last_nl > _loop_processed_pos:
+                    _segment = iteration_response[_loop_processed_pos:_last_nl]
+                    for _line in _segment.split('\n'):
+                        _key = _line.strip()
+                        if len(_key) < _LOOP_MIN_LINE_LEN:
+                            continue
+                        _loop_line_counts[_key] = _loop_line_counts.get(_key, 0) + 1
+                        if _loop_line_counts[_key] > _LOOP_MAX_REPEAT:
+                            _loop_break = True
+                            break
+                    _loop_processed_pos = _last_nl + 1
+                if _loop_break:
+                    logger.warning(
+                        "Mid-stream loop detected (line repeated >%d times) — cancelling stream",
+                        _LOOP_MAX_REPEAT)
+                    _stream_done = True
+                    break
 
                 if tool_call_detected:
                     # Halluzinierten Content nach Tool-Call verwerfen
